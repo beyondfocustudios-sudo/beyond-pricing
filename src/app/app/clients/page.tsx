@@ -117,33 +117,28 @@ export default function ClientsPage() {
     setSaving(true); setSaveError(null);
     const m = modal as Extract<Modal, { type: "create_user" }>;
 
-    const sb = createClient();
-    // Create auth user via Supabase Admin API (through service role — not available client-side)
-    // Fallback: use signUp (user gets email verification) but set password
-    const { data: signUpData, error: signUpErr } = await sb.auth.signUp({
-      email: newEmail,
-      password: newPassword,
+    // Use server-side Admin API route — never expose service role to client
+    const res = await fetch("/api/admin/create-user", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: newEmail,
+        password: newPassword,
+        clientId: m.clientId,
+        role: newRole,
+      }),
     });
 
-    if (signUpErr || !signUpData.user) {
-      setSaveError(signUpErr?.message ?? "Erro ao criar utilizador");
+    const json = await res.json() as { userId?: string; error?: string };
+
+    if (!res.ok || json.error) {
+      setSaveError(json.error ?? "Erro ao criar utilizador");
       setSaving(false);
       return;
     }
 
-    // Link to client
-    const { error: linkErr } = await sb.from("client_users").insert({
-      client_id: m.clientId,
-      user_id: signUpData.user.id,
-      role: newRole,
-    });
-
-    if (linkErr) {
-      setSaveError(linkErr.message);
-    } else {
-      setSaveSuccess(`Utilizador criado! Email: ${newEmail} / Password: ${newPassword}`);
-      setNewEmail(""); setNewPassword("");
-    }
+    setSaveSuccess(`Utilizador criado! Email: ${newEmail}`);
+    setNewEmail(""); setNewPassword("");
     setSaving(false);
   };
 
