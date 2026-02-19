@@ -1,53 +1,29 @@
-import { createServerClient, type CookieOptions } from "@supabase/ssr";
-import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
+
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
+import { createClient } from '@/lib/supabase-server';
 
 export async function GET(request: NextRequest) {
-  const { searchParams, origin } = new URL(request.url);
-  const code = searchParams.get("code");
+  const { searchParams } = new URL(request.url);
+  const code = searchParams.get('code');
+  const next = searchParams.get('next') || '/app';
+  const origin = request.headers.get('x-forwarded-host')
+    ? `${request.headers.get('x-forwarded-proto') || 'https'}://${request.headers.get('x-forwarded-host')}`
+    : request.nextUrl.origin;
 
-  if (process.env.NODE_ENV === "development") {
-    console.log("[auth/callback] code presente:", !!code);
+  if (process.env.NODE_ENV === 'development') console.log('[callback] code:', code);
+
+  if (!code) {
+    return NextResponse.redirect(`${origin}/auth/auth-code-error`);
   }
 
-  if (code) {
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return cookieStore.getAll();
-          },
-          setAll(
-            cookiesToSet: { name: string; value: string; options: CookieOptions }[]
-          ) {
-            try {
-              cookiesToSet.forEach(({ name, value, options }) =>
-                cookieStore.set(name, value, options)
-              );
-            } catch {}
-          },
-        },
-      }
-    );
+  const supabase = await createClient();
+  const { error } = await supabase.auth.exchangeCodeForSession(code);
 
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-
-    if (process.env.NODE_ENV === "development") {
-      console.log(
-        "[auth/callback] exchangeCodeForSession erro:",
-        error?.message ?? "nenhum"
-      );
-    }
-
-    if (!error) {
-      return NextResponse.redirect(`${origin}/app`);
-    }
+  if (error) {
+    if (process.env.NODE_ENV === 'development') console.log('[callback] supabase error:', error.message);
+    return NextResponse.redirect(`${origin}/auth/auth-code-error`);
   }
 
-  // Sem code ou com erro — volta ao login
-  return NextResponse.redirect(`${origin}/login`);
+  return NextResponse.redirect(`${origin}${next}`);
 }

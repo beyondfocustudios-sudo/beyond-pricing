@@ -29,6 +29,12 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Permitir acesso livre a /auth/callback e /login
+  const publicPaths = ["/auth/callback", "/login"];
+  if (publicPaths.some((p) => request.nextUrl.pathname.startsWith(p))) {
+    return supabaseResponse;
+  }
+
   // Proteger rotas /app/*
   if (!user && request.nextUrl.pathname.startsWith("/app")) {
     const url = request.nextUrl.clone();
