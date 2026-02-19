@@ -1,34 +1,53 @@
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
-import { cookies } from 'next/headers'
-import { NextResponse } from 'next/server'
-import type { NextRequest } from 'next/server'
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import { cookies } from "next/headers";
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 
 export async function GET(request: NextRequest) {
-  const { searchParams, origin } = new URL(request.url)
-  const code = searchParams.get('code')
+  const { searchParams, origin } = new URL(request.url);
+  const code = searchParams.get("code");
+
+  if (process.env.NODE_ENV === "development") {
+    console.log("[auth/callback] code presente:", !!code);
+  }
 
   if (code) {
-    const cookieStore = await cookies()
+    const cookieStore = await cookies();
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
         cookies: {
           getAll() {
-            return cookieStore.getAll()
+            return cookieStore.getAll();
           },
-          setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
+          setAll(
+            cookiesToSet: { name: string; value: string; options: CookieOptions }[]
+          ) {
             try {
               cookiesToSet.forEach(({ name, value, options }) =>
                 cookieStore.set(name, value, options)
-              )
+              );
             } catch {}
           },
         },
       }
-    )
-    await supabase.auth.exchangeCodeForSession(code)
+    );
+
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
+
+    if (process.env.NODE_ENV === "development") {
+      console.log(
+        "[auth/callback] exchangeCodeForSession erro:",
+        error?.message ?? "nenhum"
+      );
+    }
+
+    if (!error) {
+      return NextResponse.redirect(`${origin}/app`);
+    }
   }
 
-  return NextResponse.redirect(`${origin}/app`)
+  // Sem code ou com erro — volta ao login
+  return NextResponse.redirect(`${origin}/login`);
 }
