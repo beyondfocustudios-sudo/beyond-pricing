@@ -354,6 +354,33 @@ export default function ProjectPage() {
     }
   };
 
+  // ── Export CSV ────────────────────────────────────────────
+  const handleExportCsv = async () => {
+    if (!calc) return;
+    try {
+      const { generateCsv } = await import("@/lib/pdf");
+      const csv = generateCsv({
+        id: projectId,
+        user_id: "",
+        project_name: projectName,
+        client_name: clientName,
+        status,
+        inputs,
+        calc: calc!,
+        created_at: new Date().toISOString(),
+      });
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `orcamento-${projectName.replace(/\s+/g, "-").toLowerCase()}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert("Erro ao gerar CSV");
+    }
+  };
+
   // ── Donut chart data ──────────────────────────────────────
   const donutData = calc
     ? CATEGORIAS.map((cat) => {
@@ -472,6 +499,14 @@ export default function ProjectPage() {
               </motion.span>
             )}
           </AnimatePresence>
+          <button
+            onClick={handleExportCsv}
+            className="btn btn-ghost btn-sm"
+            title="Exportar CSV"
+          >
+            <Download className="h-4 w-4" />
+            <span className="hidden sm:inline">CSV</span>
+          </button>
           <button
             onClick={handleExport}
             className="btn btn-secondary btn-sm"
