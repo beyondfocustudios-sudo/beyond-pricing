@@ -21,6 +21,10 @@ const config: Config = {
           800: "#064c83",
           900: "#0b406d",
         },
+        // Garantir que bg-brand-600 está disponível
+        'brand-600': '#0070c4',
+        'brand-700': '#01599f',
+        'brand-500': '#0c8ee6',
       },
     },
   },
