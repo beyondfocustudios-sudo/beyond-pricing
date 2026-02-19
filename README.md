@@ -12,7 +12,7 @@ Built for Portuguese-speaking production companies to quote, manage, and export 
 | Framework | Next.js 15 (App Router) |
 | Styling | Tailwind v4 (PostCSS) |
 | Database | Supabase (Postgres + RLS) |
-| Auth | Supabase Magic Link PKCE |
+| Auth | Supabase Auth (Password + OTP + Google OAuth + Microsoft/Azure OAuth) |
 | Animation | Framer Motion v12 |
 | Charts | Recharts |
 | PDF | pdf-lib |
@@ -56,10 +56,9 @@ Built for Portuguese-speaking production companies to quote, manage, and export 
 - **AI Tagging toggle** (beta) — enables OpenAI Vision auto-tagging for photos in deliverables
 
 ### Client Portal (`/portal`)
-- Separate login page at `/portal/login` (email + password)
+- Login at `/portal/login` — **OTP-only** (6-digit email code, short 1-hour session)
 - Project list: clients see only their projects (RLS-enforced)
 - Project detail: Overview / Entregas (files from Dropbox) / Approvals & Feedback tabs
-- First-access password reset flow built-in
 
 ### Clients Backoffice (`/app/clients`)
 - Create clients (name + slug)
@@ -97,6 +96,31 @@ DROPBOX_BASE_PATH=/Beyond/Clients
 OPENAI_API_KEY=sk-...
 ```
 
+#### Google OAuth Setup
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials
+2. Create OAuth 2.0 Client ID (Web application)
+3. Add Authorized Redirect URI: `https://YOUR_SUPABASE_PROJECT.supabase.co/auth/v1/callback`
+4. Copy `Client ID` and `Client Secret`
+5. In Supabase Dashboard → Authentication → Providers → Google:
+   - Enable Google provider
+   - Paste Client ID and Client Secret
+   - Save
+
+#### Microsoft / Azure OAuth Setup
+
+1. Go to [Azure Portal](https://portal.azure.com/) → Azure Active Directory → App registrations → New registration
+2. Name: `Beyond Pricing` | Supported account types: **Any Azure AD directory + personal Microsoft accounts** (for broad login support)
+3. Redirect URI: Web → `https://YOUR_SUPABASE_PROJECT.supabase.co/auth/v1/callback`
+4. After creation, go to **Certificates & secrets** → New client secret → copy the value
+5. Copy Application (client) ID from the Overview page
+6. In Supabase Dashboard → Authentication → Providers → Azure:
+   - Enable Azure provider
+   - Paste Azure Application ID (Client ID)
+   - Paste Client Secret
+   - Set Tenant URL: `https://login.microsoftonline.com/common` (for multi-tenant/personal accounts)
+   - Save
+
 #### Dropbox Setup
 1. Go to [Dropbox Developer Console](https://www.dropbox.com/developers/apps) → Create App
 2. Set permissions: `files.metadata.read`, `files.content.read`, `sharing.write`
@@ -117,8 +141,8 @@ OPENAI_API_KEY=sk-...
 Run the SQL migrations in Supabase SQL Editor in order:
 
 ```
-supabase/migrations/001_initial_schema.sql   # Core tables + RLS policies
-supabase/migrations/002_seed_templates.sql   # Global template presets
+supabase/migrations/001_initial_schema.sql      # Core tables + RLS policies
+supabase/migrations/002_seed_templates.sql      # Global template presets
 supabase/migrations/003_client_portal_rbac.sql  # RBAC, client portal, deliverables, Dropbox
 ```
 
@@ -142,12 +166,60 @@ npm run build
 
 ---
 
-## Auth Flow (Magic Link PKCE)
+## Auth System
 
-1. User enters email → Supabase sends magic link
-2. Link redirects to `/auth/callback?code=...`
-3. Code exchange happens server-side via `@supabase/ssr`
-4. Session stored in cookies → all server components have access
+### Login Methods (`/login`)
+
+| Method | Who | Session Duration |
+|--------|-----|-----------------|
+| Email + Password | Team members | 24h default; 30 days with "Lembrar-me" |
+| Email OTP (6-digit code) | Anyone with quick access | Always 1 hour |
+| Google OAuth | Team members | 24h default; 30 days with "Lembrar-me" |
+| Microsoft/Azure OAuth | Team members | 24h default; 30 days with "Lembrar-me" |
+
+### Portal Login (`/portal/login`)
+
+OTP-only. No password, no OAuth. Session is always **1 hour**. No "remember me" option.
+Client users must already exist in `client_users` — `shouldCreateUser: false` prevents signup from the portal.
+
+### Session TTL Enforcement
+
+Supabase JWTs have a fixed server-side expiry (~1 hour). We layer an app-level session TTL on top:
+
+- After login, a `bp_session_ttl` cookie is set containing `{login_at, ttl}` as JSON
+- The middleware reads this cookie on every request and computes `now < login_at + ttl`
+- If expired: Supabase session is signed out, TTL cookie is cleared, user is redirected to the appropriate login page with `?expired=1`
+- If no TTL cookie is present: Supabase's own session validity is trusted
+
+### OAuth Flow
+
+```
+User clicks Google/Microsoft button
+→ signInWithOAuth({ redirectTo: /auth/callback?ttl=30d|24h })
+→ Supabase OAuth dance
+→ GET /auth/callback?code=...&ttl=...
+→ exchangeCodeForSession (server-side)
+→ redirect to /auth/set-session?ttl=...&next=/app
+→ client sets bp_session_ttl cookie
+→ router.replace(/app)
+```
+
+### Password Reset Flow
+
+```
+User clicks "Esqueci a password" on /login
+→ /reset-password (stage 1: email form)
+→ resetPasswordForEmail({ redirectTo: /auth/callback?type=recovery })
+→ User clicks link in email
+→ GET /auth/callback?code=...&type=recovery
+→ exchangeCodeForSession (establishes PASSWORD_RECOVERY session)
+→ redirect to /reset-password
+→ onAuthStateChange fires PASSWORD_RECOVERY event
+→ stage 2: new password form
+→ updateUser({ password })
+→ signOut + clearSessionCookieClient
+→ redirect to /login
+```
 
 ---
 
@@ -167,14 +239,18 @@ src/
 │   │   └── preferences/        # User preferences + AI tagging toggle
 │   ├── portal/                 # Client portal (separate from /app)
 │   │   ├── layout.tsx          # Portal shell (header, auth guard)
-│   │   ├── login/              # Email+password login
+│   │   ├── login/              # OTP-only login (6-digit code, 1h session)
 │   │   ├── page.tsx            # Client's project list
 │   │   └── projects/[id]/      # Project detail (Overview, Entregas, Approvals)
 │   ├── api/dropbox/
 │   │   ├── sync/               # POST /api/dropbox/sync?projectId=...
 │   │   └── ai-tag/             # POST /api/dropbox/ai-tag?fileId=...
-│   ├── auth/callback/          # Magic link PKCE handler
-│   └── login/                  # Internal auth page
+│   ├── auth/
+│   │   ├── callback/           # OAuth PKCE + password recovery handler
+│   │   ├── set-session/        # Client shim: sets TTL cookie after OAuth
+│   │   └── auth-code-error/    # Error page for failed code exchange
+│   ├── login/                  # Internal auth (Password + OTP + Google + Microsoft)
+│   └── reset-password/         # Password reset flow (request + update stages)
 ├── components/
 │   └── AppShell.tsx            # Sidebar + mobile bottom nav
 ├── lib/
@@ -182,11 +258,13 @@ src/
 │   ├── calc.ts                 # Core pricing engine
 │   ├── dropbox.ts              # Dropbox API (token refresh, sync, shared links)
 │   ├── pdf.ts                  # PDF + CSV export
+│   ├── session.ts              # Session TTL helpers (encode/decode cookie, isSessionValid)
+│   ├── supabase-ephemeral.ts   # Browser client with persistSession: false (OTP)
 │   ├── types.ts                # All TypeScript types
 │   ├── utils.ts                # cn(), fmtEur(), etc.
 │   ├── supabase.ts             # Browser Supabase client
 │   └── supabase-server.ts      # Server Supabase client
-└── middleware.ts               # Auth middleware (protects /app/* and /portal/*)
+└── middleware.ts               # Auth + TTL enforcement (/app/*, /portal/*, /auth/*)
 ```
 
 ### RBAC Roles

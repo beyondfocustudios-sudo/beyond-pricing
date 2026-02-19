@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { SESSION_COOKIE, decodeSessionMeta, isSessionValid } from "@/lib/session";
 
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -31,27 +32,54 @@ export async function middleware(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
 
-  // Permitir acesso livre a /auth/callback, /login e /portal/login
-  const publicPaths = ["/auth/callback", "/login", "/portal/login"];
+  // ── Public paths — always allow ─────────────────────────────
+  const publicPaths = [
+    "/auth/callback",
+    "/auth/auth-code-error",
+    "/auth/set-session",
+    "/login",
+    "/portal/login",
+    "/reset-password",
+  ];
   if (publicPaths.some((p) => pathname.startsWith(p))) {
     return supabaseResponse;
   }
 
-  // Proteger rotas /app/*
+  // ── Session TTL enforcement (for authenticated users) ────────
+  // If user is logged in but their app-layer TTL has expired, sign
+  // them out and redirect to the appropriate login page.
+  if (user) {
+    const ttlCookie = request.cookies.get(SESSION_COOKIE)?.value;
+    const meta = decodeSessionMeta(ttlCookie ? decodeURIComponent(ttlCookie) : undefined);
+    if (!isSessionValid(meta)) {
+      // TTL expired — sign out and redirect
+      await supabase.auth.signOut();
+      const loginPath = pathname.startsWith("/portal") ? "/portal/login" : "/login";
+      const url = request.nextUrl.clone();
+      url.pathname = loginPath;
+      url.searchParams.set("expired", "1");
+      const redirectResp = NextResponse.redirect(url);
+      // Clear session TTL cookie
+      redirectResp.cookies.set(SESSION_COOKIE, "", { maxAge: 0, path: "/" });
+      return redirectResp;
+    }
+  }
+
+  // ── Protect /app/* ───────────────────────────────────────────
   if (!user && pathname.startsWith("/app")) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
   }
 
-  // Proteger rotas /portal/* (excluindo /portal/login já tratado acima)
+  // ── Protect /portal/* ───────────────────────────────────────
   if (!user && pathname.startsWith("/portal")) {
     const url = request.nextUrl.clone();
     url.pathname = "/portal/login";
     return NextResponse.redirect(url);
   }
 
-  // Redirecionar utilizadores autenticados de /login para /app
+  // ── Redirect authenticated users away from login pages ──────
   if (user && pathname === "/login") {
     const url = request.nextUrl.clone();
     url.pathname = "/app";
@@ -62,5 +90,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/app/:path*", "/login", "/portal/:path*"],
+  matcher: ["/app/:path*", "/login", "/portal/:path*", "/reset-password", "/auth/:path*"],
 };
