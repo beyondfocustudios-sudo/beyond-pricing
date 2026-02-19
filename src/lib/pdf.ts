@@ -1,5 +1,5 @@
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
-import { CATEGORIAS, type Project, type ProjectItem, type Categoria, type ProjectInputs } from "./types";
+import { CATEGORIAS, type Project, type ProjectInputs } from "./types";
 
 const fmt = (n: number) =>
   n.toLocaleString("pt-PT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });

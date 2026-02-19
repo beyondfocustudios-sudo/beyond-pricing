@@ -3,20 +3,61 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard,
-  DollarSign,
+  Calculator,
+  CheckSquare,
   FileText,
-  FolderOpen,
+  Settings,
   LogOut,
+  ChevronRight,
+  Zap,
 } from "lucide-react";
+import { useState } from "react";
 
-const nav = [
-  { href: "/app", label: "Painel", icon: LayoutDashboard },
-  { href: "/app/rates", label: "Tarifas", icon: DollarSign },
-  { href: "/app/templates", label: "Modelos", icon: FileText },
-  { href: "/app/projects/new", label: "Novo Projeto", icon: FolderOpen },
+const NAV_ITEMS = [
+  {
+    href: "/app",
+    label: "Dashboard",
+    icon: LayoutDashboard,
+    exact: true,
+    description: "Visão geral",
+  },
+  {
+    href: "/app/projects",
+    label: "Projetos",
+    icon: Calculator,
+    exact: false,
+    description: "Orçamentos",
+  },
+  {
+    href: "/app/checklists",
+    label: "Checklists",
+    icon: CheckSquare,
+    exact: false,
+    description: "Produção",
+  },
+  {
+    href: "/app/templates",
+    label: "Templates",
+    icon: FileText,
+    exact: false,
+    description: "Reutilizar",
+  },
+  {
+    href: "/app/preferences",
+    label: "Preferências",
+    icon: Settings,
+    exact: false,
+    description: "Configurar",
+  },
 ];
+
+function isActive(href: string, pathname: string, exact: boolean) {
+  if (exact) return pathname === href;
+  return pathname.startsWith(href);
+}
 
 export function AppShell({
   children,
@@ -27,93 +68,222 @@ export function AppShell({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const [signingOut, setSigningOut] = useState(false);
 
   const handleLogout = async () => {
+    setSigningOut(true);
     const supabase = createClient();
     await supabase.auth.signOut();
     router.push("/login");
     router.refresh();
   };
 
+  const userInitial = userEmail?.[0]?.toUpperCase() ?? "U";
+
   return (
-    <div className="flex min-h-screen">
-      {/* Sidebar */}
-      <aside className="hidden md:flex w-60 flex-col border-r border-gray-200 bg-white">
-        <div className="flex h-14 items-center border-b border-gray-200 px-4">
-          <Link href="/app" className="text-lg font-bold text-brand-700">
-            Beyond Pricing
-          </Link>
+    <div className="flex min-h-dvh" style={{ background: "var(--bg)" }}>
+      {/* ── Desktop Sidebar ─────────────────────────── */}
+      <aside
+        className="hidden md:flex w-64 flex-col"
+        style={{
+          background: "var(--surface)",
+          borderRight: "1px solid var(--border)",
+          position: "sticky",
+          top: 0,
+          height: "100dvh",
+        }}
+      >
+        {/* Logo */}
+        <div
+          className="flex items-center gap-3 px-5 py-5"
+          style={{ borderBottom: "1px solid var(--border)" }}
+        >
+          <div
+            className="flex h-8 w-8 items-center justify-center rounded-lg"
+            style={{
+              background: "var(--accent)",
+              boxShadow: "0 0 16px var(--accent-glow)",
+            }}
+          >
+            <Zap className="h-4 w-4 text-white" />
+          </div>
+          <div>
+            <p className="text-sm font-bold" style={{ color: "var(--text)", letterSpacing: "-0.02em" }}>
+              Beyond Pricing
+            </p>
+            <p className="text-xs" style={{ color: "var(--text-3)" }}>
+              Production Studio
+            </p>
+          </div>
         </div>
 
-        <nav className="flex-1 space-y-1 px-2 py-4">
-          {nav.map((item) => {
-            const active =
-              item.href === "/app"
-                ? pathname === "/app"
-                : pathname.startsWith(item.href);
+        {/* Nav */}
+        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+          <p className="section-title px-2 mb-3">Menu</p>
+          {NAV_ITEMS.map((item) => {
+            const active = isActive(item.href, pathname, item.exact);
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition ${
-                  active
-                    ? "bg-brand-50 text-brand-700"
-                    : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
-                }`}
+                className={`nav-item ${active ? "active" : ""}`}
               >
-                <item.icon className="h-4 w-4" />
-                {item.label}
+                <item.icon className="h-4 w-4 shrink-0" />
+                <span className="flex-1">{item.label}</span>
+                {active && (
+                  <ChevronRight
+                    className="h-3.5 w-3.5 shrink-0"
+                    style={{ color: "var(--accent)" }}
+                  />
+                )}
               </Link>
             );
           })}
         </nav>
 
-        <div className="border-t border-gray-200 p-4">
-          <p className="truncate text-xs text-gray-500 mb-2">{userEmail}</p>
-          <button onClick={handleLogout} className="btn-secondary w-full text-xs">
-            <LogOut className="h-3 w-3" />
-            Terminar sessão
+        {/* User footer */}
+        <div
+          className="px-3 py-4 space-y-3"
+          style={{ borderTop: "1px solid var(--border)" }}
+        >
+          <div className="flex items-center gap-3 px-2">
+            <div
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
+              style={{ background: "var(--accent)" }}
+            >
+              {userInitial}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p
+                className="truncate text-xs font-medium"
+                style={{ color: "var(--text)" }}
+              >
+                {userEmail}
+              </p>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className="glow-dot" />
+                <span className="text-xs" style={{ color: "var(--text-3)" }}>
+                  Online
+                </span>
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={handleLogout}
+            disabled={signingOut}
+            className="btn btn-ghost btn-sm w-full justify-start"
+            style={{ color: "var(--text-3)" }}
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            {signingOut ? "A sair…" : "Terminar sessão"}
           </button>
         </div>
       </aside>
 
-      {/* Mobile header */}
-      <div className="flex flex-1 flex-col">
-        <header className="md:hidden flex h-14 items-center justify-between border-b border-gray-200 bg-white px-4">
-          <Link href="/app" className="text-lg font-bold text-brand-700">
-            Beyond Pricing
-          </Link>
-          <button onClick={handleLogout} className="text-sm text-gray-500">
+      {/* ── Mobile Layout ───────────────────────────── */}
+      <div className="flex flex-1 flex-col md:hidden min-w-0">
+        {/* Mobile top bar */}
+        <header
+          className="flex h-14 items-center justify-between px-4"
+          style={{
+            background: "var(--surface)",
+            borderBottom: "1px solid var(--border)",
+            position: "sticky",
+            top: 0,
+            zIndex: 40,
+          }}
+        >
+          <div className="flex items-center gap-2.5">
+            <div
+              className="flex h-7 w-7 items-center justify-center rounded-lg"
+              style={{ background: "var(--accent)", boxShadow: "0 0 12px var(--accent-glow)" }}
+            >
+              <Zap className="h-3.5 w-3.5 text-white" />
+            </div>
+            <span
+              className="text-sm font-bold"
+              style={{ color: "var(--text)", letterSpacing: "-0.02em" }}
+            >
+              Beyond Pricing
+            </span>
+          </div>
+
+          <button
+            onClick={handleLogout}
+            disabled={signingOut}
+            className="btn btn-ghost btn-icon-sm"
+          >
             <LogOut className="h-4 w-4" />
           </button>
         </header>
 
-        {/* Mobile nav */}
-        <nav className="md:hidden flex border-b border-gray-200 bg-white overflow-x-auto">
-          {nav.map((item) => {
-            const active =
-              item.href === "/app"
-                ? pathname === "/app"
-                : pathname.startsWith(item.href);
+        {/* Main content */}
+        <main className="flex-1 overflow-auto pb-20">
+          <div className="px-4 py-5 md:px-8 md:py-8">{children}</div>
+        </main>
+
+        {/* Mobile bottom nav */}
+        <nav
+          className="fixed bottom-0 left-0 right-0 flex items-center"
+          style={{
+            background: "var(--glass-bg)",
+            backdropFilter: "var(--glass-blur)",
+            WebkitBackdropFilter: "var(--glass-blur)",
+            borderTop: "1px solid var(--border-2)",
+            paddingBottom: "env(safe-area-inset-bottom)",
+            zIndex: 40,
+          }}
+        >
+          {NAV_ITEMS.map((item) => {
+            const active = isActive(item.href, pathname, item.exact);
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex items-center gap-1.5 whitespace-nowrap px-4 py-2.5 text-xs font-medium border-b-2 ${
-                  active
-                    ? "border-brand-600 text-brand-700"
-                    : "border-transparent text-gray-500"
-                }`}
+                className="relative flex flex-1 flex-col items-center justify-center py-3 gap-1 transition-all"
+                style={{
+                  color: active ? "var(--accent-2)" : "var(--text-3)",
+                  WebkitTapHighlightColor: "transparent",
+                }}
               >
-                <item.icon className="h-3.5 w-3.5" />
-                {item.label}
+                {active && (
+                  <motion.div
+                    layoutId="mobile-nav-indicator"
+                    className="absolute inset-x-1 top-0 h-0.5 rounded-full"
+                    style={{ background: "var(--accent)" }}
+                    transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                  />
+                )}
+                <item.icon className="h-5 w-5" />
+                <span className="text-xs font-medium" style={{ fontSize: "0.65rem" }}>
+                  {item.label}
+                </span>
               </Link>
             );
           })}
         </nav>
-
-        <main className="flex-1 overflow-auto p-4 md:p-8">{children}</main>
       </div>
+
+      {/* ── Desktop main content ─────────────────────── */}
+      <main className="hidden md:flex flex-1 flex-col min-w-0 overflow-auto">
+        <div className="flex-1 px-8 py-8">{children}</div>
+      </main>
     </div>
+  );
+}
+
+/* Animated page wrapper para usar dentro das páginas */
+export function PageTransition({ children }: { children: React.ReactNode }) {
+  return (
+    <AnimatePresence mode="wait">
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -8 }}
+        transition={{ duration: 0.2, ease: "easeOut" }}
+      >
+        {children}
+      </motion.div>
+    </AnimatePresence>
   );
 }
