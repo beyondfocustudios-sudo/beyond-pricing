@@ -13,6 +13,7 @@ import {
   LogOut,
   ChevronRight,
   Zap,
+  TrendingUp,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -44,6 +45,13 @@ const NAV_ITEMS = [
     icon: FileText,
     exact: false,
     description: "Reutilizar",
+  },
+  {
+    href: "/app/insights",
+    label: "Insights",
+    icon: TrendingUp,
+    exact: false,
+    description: "Análise",
   },
   {
     href: "/app/preferences",

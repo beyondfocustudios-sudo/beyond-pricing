@@ -207,7 +207,7 @@ export default function ProjectPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [activeTab, setActiveTab] = useState<"items" | "parametros" | "resumo">("items");
+  const [activeTab, setActiveTab] = useState<"items" | "parametros" | "resumo" | "brief">("items");
   const [expandedCat, setExpandedCat] = useState<string | null>("crew");
   const [editingName, setEditingName] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -527,7 +527,7 @@ export default function ProjectPage() {
 
       {/* ── Tabs ── */}
       <div className="tabs-list">
-        {(["items", "parametros", "resumo"] as const).map((tab) => (
+        {(["items", "parametros", "resumo", "brief"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -536,6 +536,7 @@ export default function ProjectPage() {
             {tab === "items" && `Items (${totalItems})`}
             {tab === "parametros" && "Parâmetros"}
             {tab === "resumo" && "Resumo"}
+            {tab === "brief" && "Brief"}
           </button>
         ))}
       </div>
@@ -920,6 +921,130 @@ export default function ProjectPage() {
                     className="input"
                     rows={3}
                     placeholder="Termos e condições…"
+                    style={{ resize: "none" }}
+                  />
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {activeTab === "brief" && (
+          <motion.div
+            key="brief"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="space-y-4"
+          >
+            {/* Brief – Production questionnaire */}
+            <div className="card space-y-4">
+              <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                Briefing de Produção
+              </p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="label">Tipo de Projeto</label>
+                  <select
+                    value={inputs.descricao?.split("|")[0] ?? ""}
+                    onChange={(e) => {
+                      const parts = (inputs.descricao ?? "").split("|");
+                      parts[0] = e.target.value;
+                      setInputs((p) => ({ ...p, descricao: parts.join("|") }));
+                    }}
+                    className="input"
+                  >
+                    <option value="">Selecionar tipo…</option>
+                    <option value="institucional">Vídeo Institucional</option>
+                    <option value="shortform">Conteúdo Short-Form</option>
+                    <option value="documentary">Documentário</option>
+                    <option value="event">Captação de Evento</option>
+                    <option value="commercial">Anúncio Publicitário</option>
+                    <option value="social">Social Media</option>
+                    <option value="interview">Entrevista</option>
+                    <option value="training">Vídeo de Formação</option>
+                    <option value="other">Outro</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Data de Entrega</label>
+                  <input
+                    type="date"
+                    value={inputs.data_projeto ?? ""}
+                    onChange={(e) => setInputs((p) => ({ ...p, data_projeto: e.target.value }))}
+                    className="input"
+                  />
+                </div>
+                <div>
+                  <label className="label">Cidade / Local</label>
+                  <input
+                    type="text"
+                    value={inputs.cidade ?? ""}
+                    onChange={(e) => setInputs((p) => ({ ...p, cidade: e.target.value }))}
+                    className="input"
+                    placeholder="Ex: Lisboa, Porto…"
+                  />
+                </div>
+                <div>
+                  <label className="label">País</label>
+                  <input
+                    type="text"
+                    value={inputs.pais ?? "Portugal"}
+                    onChange={(e) => setInputs((p) => ({ ...p, pais: e.target.value }))}
+                    className="input"
+                    placeholder="Portugal"
+                  />
+                </div>
+                <div>
+                  <label className="label">Localidade / Zona</label>
+                  <input
+                    type="text"
+                    value={inputs.localidade ?? ""}
+                    onChange={(e) => setInputs((p) => ({ ...p, localidade: e.target.value }))}
+                    className="input"
+                    placeholder="Ex: Chiado, Parque das Nações…"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Client brief */}
+            <div className="card space-y-4">
+              <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                Brief do Cliente
+              </p>
+              <div>
+                <label className="label">Descrição do Projeto</label>
+                <textarea
+                  value={inputs.descricao ?? ""}
+                  onChange={(e) => setInputs((p) => ({ ...p, descricao: e.target.value }))}
+                  className="input"
+                  rows={4}
+                  placeholder="Descreve o projeto, objetivos, público-alvo, referências visuais…"
+                  style={{ resize: "none" }}
+                />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="label">Observações Internas</label>
+                  <textarea
+                    value={inputs.observacoes ?? ""}
+                    onChange={(e) => setInputs((p) => ({ ...p, observacoes: e.target.value }))}
+                    className="input"
+                    rows={3}
+                    placeholder="Notas internas, pontos de atenção…"
+                    style={{ resize: "none" }}
+                  />
+                </div>
+                <div>
+                  <label className="label">Condições Comerciais</label>
+                  <textarea
+                    value={inputs.condicoes ?? ""}
+                    onChange={(e) => setInputs((p) => ({ ...p, condicoes: e.target.value }))}
+                    className="input"
+                    rows={3}
+                    placeholder="Termos de pagamento, prazo de revisões…"
                     style={{ resize: "none" }}
                   />
                 </div>
