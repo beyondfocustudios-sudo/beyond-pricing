@@ -13,7 +13,11 @@ export function createClient() {
           return cookieStore.getAll();
         },
         setAll(
-          cookiesToSet: Array<{ name: string; value: string; options?: CookieOptions }>
+          cookiesToSet: Array<{
+            name: string;
+            value: string;
+            options?: CookieOptions;
+          }>
         ) {
           try {
             cookiesToSet.forEach(({ name, value, options }) => {
