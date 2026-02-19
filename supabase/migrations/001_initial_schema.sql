@@ -106,6 +106,7 @@ ALTER TABLE templates ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "templates: read own + global" ON templates
   FOR SELECT USING (user_id IS NULL OR auth.uid() = user_id);
 
+-- Allow insert of own templates; preset inserts (user_id IS NULL) done outside RLS via seed
 CREATE POLICY "templates: write own" ON templates
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 

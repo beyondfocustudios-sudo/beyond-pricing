@@ -6,7 +6,9 @@ import { createClient } from '@/lib/supabase-server';
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
-  const next = searchParams.get('next') || '/app';
+  // Validate `next` to prevent open redirect — only allow relative paths within the app
+  const rawNext = searchParams.get('next') ?? '/app';
+  const next = rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '/app';
   const origin = request.headers.get('x-forwarded-host')
     ? `${request.headers.get('x-forwarded-proto') || 'https'}://${request.headers.get('x-forwarded-host')}`
     : request.nextUrl.origin;

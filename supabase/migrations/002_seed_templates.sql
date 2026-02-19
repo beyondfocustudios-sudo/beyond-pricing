@@ -1,7 +1,17 @@
 -- ============================================================
 -- Beyond Pricing — Seed: Global Templates (presets)
 -- Migration 002: Preset template library
+--
+-- NOTE: Preset templates have user_id = NULL (global/system).
+-- RLS policies only allow authenticated users to write their own rows.
+-- This seed must run as superuser (service_role) or with RLS disabled.
+-- If running in Supabase SQL Editor as admin: RLS is bypassed automatically.
+-- If using `supabase db push` via CLI with service_role: also bypassed.
 -- ============================================================
+
+-- Temporarily disable RLS so seed data can be inserted as system presets
+ALTER TABLE templates DISABLE ROW LEVEL SECURITY;
+ALTER TABLE template_items DISABLE ROW LEVEL SECURITY;
 
 -- Institutional Video template
 INSERT INTO templates (id, user_id, name, type, defaults) VALUES
@@ -81,3 +91,7 @@ INSERT INTO template_items (template_id, categoria, nome, unidade, quantidade, p
   ('00000000-0000-0000-0000-000000000004', 'pos_producao', 'Edição (highlight + full)', 'hora', 12, 60, 8),
   ('00000000-0000-0000-0000-000000000004', 'despesas', 'Transporte', 'viagem', 2, 60, 9)
 ON CONFLICT DO NOTHING;
+
+-- Re-enable RLS after seeding preset data
+ALTER TABLE templates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE template_items ENABLE ROW LEVEL SECURITY;

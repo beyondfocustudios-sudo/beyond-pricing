@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { createClient } from "@/lib/supabase";
-import { formatDateShort } from "@/lib/utils";
+import { formatDateShort, generateId } from "@/lib/utils";
 import { Plus, FileText, X, Check, ChevronRight, Package } from "lucide-react";
 
 interface TemplateRow {
@@ -105,7 +105,7 @@ export default function TemplatesPage() {
         status: "rascunho",
         inputs: {
           itens: templateItems.map((item) => ({
-            id: Math.random().toString(36).slice(2, 9),
+            id: generateId(),
             categoria: item.categoria,
             nome: item.nome,
             unidade: item.unidade,
@@ -129,6 +129,8 @@ export default function TemplatesPage() {
       setTimeout(() => {
         window.location.href = `/app/projects/${proj.id}`;
       }, 800);
+    } else {
+      alert("Erro ao criar projeto a partir do template. Tenta novamente.");
     }
   };
 
