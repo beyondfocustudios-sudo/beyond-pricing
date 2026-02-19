@@ -14,6 +14,7 @@ import {
   ChevronRight,
   Zap,
   TrendingUp,
+  Building2,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -52,6 +53,13 @@ const NAV_ITEMS = [
     icon: TrendingUp,
     exact: false,
     description: "Análise",
+  },
+  {
+    href: "/app/clients",
+    label: "Clientes",
+    icon: Building2,
+    exact: false,
+    description: "Portal",
   },
   {
     href: "/app/preferences",

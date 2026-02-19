@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { createClient } from "@/lib/supabase";
 import { IVA_REGIMES, DEFAULT_PREFERENCES, type IvaRegime } from "@/lib/types";
-import { Save, Settings } from "lucide-react";
+import { Save, Settings, Sparkles } from "lucide-react";
 
 interface PrefsState {
   iva_regime: IvaRegime;
@@ -13,6 +13,7 @@ interface PrefsState {
   margem_minima_pct: number;
   investimento_pct: number;
   moeda: string;
+  ai_tagging_enabled?: boolean;
 }
 
 export default function PreferencesPage() {
@@ -37,6 +38,7 @@ export default function PreferencesPage() {
           margem_minima_pct: data.margem_minima_pct ?? DEFAULT_PREFERENCES.margem_minima_pct,
           investimento_pct: data.investimento_pct ?? DEFAULT_PREFERENCES.investimento_pct,
           moeda: data.moeda ?? DEFAULT_PREFERENCES.moeda,
+          ai_tagging_enabled: (data as Record<string, unknown>).ai_tagging_enabled as boolean ?? false,
         });
       }
       setLoading(false);
@@ -144,6 +146,37 @@ export default function PreferencesPage() {
           <Save className="h-4 w-4" />
           {saving ? "A guardar…" : "Guardar Preferências"}
         </button>
+      </div>
+
+      {/* AI tagging card */}
+      <div className="card space-y-4">
+        <div className="flex items-center gap-2 mb-1">
+          <Sparkles className="h-4 w-4" style={{ color: "#7c3aed" }} />
+          <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>Funcionalidades Experimentais</p>
+        </div>
+
+        <div className="flex items-center justify-between rounded-xl p-4" style={{ background: "var(--surface-2)" }}>
+          <div className="flex-1">
+            <p className="text-sm font-medium" style={{ color: "var(--text)" }}>AI Tagging <span className="text-xs px-1.5 py-0.5 rounded ml-1" style={{ background: "rgba(124,58,237,0.15)", color: "#7c3aed" }}>beta</span></p>
+            <p className="text-xs mt-0.5" style={{ color: "var(--text-3)" }}>
+              Analisa fotos com OpenAI Vision para adicionar tags automáticas. Requer OPENAI_API_KEY no servidor. Desligado por omissão.
+            </p>
+          </div>
+          <button
+            onClick={() => setPrefs((p) => ({ ...p, ai_tagging_enabled: !p.ai_tagging_enabled }))}
+            className="ml-4 relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0"
+            style={{ background: prefs.ai_tagging_enabled ? "#7c3aed" : "var(--surface-3)" }}
+          >
+            <span
+              className="inline-block h-4 w-4 rounded-full bg-white shadow transition-transform"
+              style={{ transform: prefs.ai_tagging_enabled ? "translateX(22px)" : "translateX(2px)" }}
+            />
+          </button>
+        </div>
+
+        <p className="text-xs" style={{ color: "var(--text-3)" }}>
+          Tags guardadas em metadata.tags — ficheiros Dropbox nunca são renomeados.
+        </p>
       </div>
     </motion.div>
   );

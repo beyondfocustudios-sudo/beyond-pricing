@@ -34,6 +34,15 @@ import {
   ChevronUp,
   Check,
   Edit2,
+  Film,
+  Image,
+  FileText,
+  Music,
+  Package,
+  RefreshCw,
+  ExternalLink,
+  FolderOpen,
+  Settings2,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -207,10 +216,26 @@ export default function ProjectPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [activeTab, setActiveTab] = useState<"items" | "parametros" | "resumo" | "brief">("items");
+  const [activeTab, setActiveTab] = useState<"items" | "parametros" | "resumo" | "brief" | "entregas">("items");
   const [expandedCat, setExpandedCat] = useState<string | null>("crew");
   const [editingName, setEditingName] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
+
+  // ── Entregas state ────────────────────────────────────────
+  interface DelivFile {
+    id: string; filename: string; ext: string; file_type: string;
+    collection: string; shared_link: string | null; bytes: number | null;
+    captured_at: string | null; created_at: string;
+  }
+  const [delivFiles, setDelivFiles] = useState<DelivFile[]>([]);
+  const [delivFilterType, setDelivFilterType] = useState("all");
+  const [delivFilterCol, setDelivFilterCol] = useState("all");
+  const [dropboxPath, setDropboxPath] = useState("");
+  const [dropboxConfigured, setDropboxConfigured] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSync, setLastSync] = useState<string | null>(null);
+  const [editingDropboxPath, setEditingDropboxPath] = useState(false);
+  const [savingDropboxPath, setSavingDropboxPath] = useState(false);
 
   // ── Load ──────────────────────────────────────────────────
   const loadProject = useCallback(async () => {
@@ -237,6 +262,20 @@ export default function ProjectPage() {
       itens: inp?.itens ?? [],
     });
     setCalc(data.calc as ProjectCalc);
+
+    // Load Dropbox config + files
+    const sb2 = createClient();
+    const [pdRes, filesRes] = await Promise.all([
+      sb2.from("project_dropbox").select("root_path, last_sync_at").eq("project_id", projectId).single(),
+      sb2.from("deliverable_files").select("id, filename, ext, file_type, collection, shared_link, bytes, captured_at, created_at").eq("project_id", projectId).order("captured_at", { ascending: false }),
+    ]);
+    if (pdRes.data) {
+      setDropboxPath(pdRes.data.root_path ?? "");
+      setDropboxConfigured(true);
+      setLastSync(pdRes.data.last_sync_at ?? null);
+    }
+    setDelivFiles((filesRes.data ?? []) as DelivFile[]);
+
     setLoading(false);
   }, [projectId, router]);
 
@@ -527,7 +566,7 @@ export default function ProjectPage() {
 
       {/* ── Tabs ── */}
       <div className="tabs-list">
-        {(["items", "parametros", "resumo", "brief"] as const).map((tab) => (
+        {(["items", "parametros", "resumo", "brief", "entregas"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -537,6 +576,7 @@ export default function ProjectPage() {
             {tab === "parametros" && "Parâmetros"}
             {tab === "resumo" && "Resumo"}
             {tab === "brief" && "Brief"}
+            {tab === "entregas" && "Entregas"}
           </button>
         ))}
       </div>
@@ -1099,6 +1139,184 @@ export default function ProjectPage() {
                 </div>
               </div>
             </div>
+          </motion.div>
+        )}
+
+        {activeTab === "entregas" && (
+          <motion.div
+            key="entregas"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="space-y-4"
+          >
+            {/* Dropbox config */}
+            <div className="card space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Settings2 className="h-4 w-4" style={{ color: "var(--text-3)" }} />
+                  <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>Configuração Dropbox</p>
+                </div>
+                {lastSync && (
+                  <span className="text-xs" style={{ color: "var(--text-3)" }}>
+                    Sync: {new Date(lastSync).toLocaleDateString("pt-PT", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                )}
+              </div>
+
+              {editingDropboxPath || !dropboxConfigured ? (
+                <div className="flex gap-2">
+                  <input
+                    className="input flex-1"
+                    value={dropboxPath}
+                    onChange={(e) => setDropboxPath(e.target.value)}
+                    placeholder="/Beyond/Clients/NomeCliente/NomeProjeto"
+                  />
+                  <button
+                    className="btn btn-primary btn-sm"
+                    disabled={savingDropboxPath || !dropboxPath.trim()}
+                    onClick={async () => {
+                      setSavingDropboxPath(true);
+                      const sb = createClient();
+                      await sb.from("project_dropbox").upsert(
+                        { project_id: projectId, root_path: dropboxPath.trim() },
+                        { onConflict: "project_id" }
+                      );
+                      setDropboxConfigured(true);
+                      setEditingDropboxPath(false);
+                      setSavingDropboxPath(false);
+                    }}
+                  >
+                    {savingDropboxPath ? "…" : "Guardar"}
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3">
+                  <FolderOpen className="h-4 w-4 shrink-0" style={{ color: "var(--accent)" }} />
+                  <span className="text-sm flex-1 truncate font-mono" style={{ color: "var(--text-2)" }}>{dropboxPath}</span>
+                  <button className="btn btn-secondary btn-sm" onClick={() => setEditingDropboxPath(true)}>
+                    Editar
+                  </button>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    disabled={syncing}
+                    onClick={async () => {
+                      setSyncing(true);
+                      try {
+                        const res = await fetch(`/api/dropbox/sync?projectId=${projectId}`, { method: "POST" });
+                        const json = await res.json() as { synced?: number; new?: number };
+                        if (json.synced !== undefined) {
+                          setLastSync(new Date().toISOString());
+                          // Reload files
+                          const sb = createClient();
+                          const { data } = await sb.from("deliverable_files").select("id, filename, ext, file_type, collection, shared_link, bytes, captured_at, created_at").eq("project_id", projectId).order("captured_at", { ascending: false });
+                          setDelivFiles((data ?? []) as DelivFile[]);
+                        }
+                      } catch { /* ignore */ }
+                      setSyncing(false);
+                    }}
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+                    {syncing ? "A sincronizar…" : "Sincronizar agora"}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Files */}
+            {delivFiles.length === 0 ? (
+              <div className="card">
+                <div className="empty-state">
+                  <Package className="empty-icon" />
+                  <p className="empty-title">Sem entregas</p>
+                  <p className="empty-desc">Configura o caminho Dropbox e sincroniza para ver os ficheiros.</p>
+                </div>
+              </div>
+            ) : (() => {
+              const FILE_TYPE_CFG: Record<string, { icon: typeof Film; color: string; label: string }> = {
+                photo:    { icon: Image,    color: "#1a8fa3", label: "Fotos" },
+                video:    { icon: Film,     color: "#7c3aed", label: "Vídeos" },
+                document: { icon: FileText, color: "#d97706", label: "Docs" },
+                audio:    { icon: Music,    color: "#34a853", label: "Áudio" },
+                other:    { icon: Package,  color: "#5a6280", label: "Outros" },
+              };
+              const fileTypes = ["all", ...Array.from(new Set(delivFiles.map((f) => f.file_type)))];
+              const collections = ["all", ...Array.from(new Set(delivFiles.map((f) => f.collection ?? "Geral")))];
+              const visible = delivFiles.filter((f) => {
+                const t = delivFilterType === "all" || f.file_type === delivFilterType;
+                const c = delivFilterCol === "all" || (f.collection ?? "Geral") === delivFilterCol;
+                return t && c;
+              });
+              const grouped = visible.reduce<Record<string, typeof visible>>((acc, f) => {
+                const col = f.collection ?? "Geral";
+                (acc[col] ??= []).push(f);
+                return acc;
+              }, {});
+
+              return (
+                <div className="space-y-4">
+                  {/* Filter bar */}
+                  <div className="flex flex-wrap gap-2">
+                    <div className="flex gap-1 p-1 rounded-xl" style={{ background: "var(--surface-2)" }}>
+                      {fileTypes.map((t) => {
+                        const cfg = FILE_TYPE_CFG[t as keyof typeof FILE_TYPE_CFG];
+                        return (
+                          <button key={t} onClick={() => setDelivFilterType(t)}
+                            className="px-3 py-1 rounded-lg text-xs font-medium transition-all"
+                            style={{ background: delivFilterType === t ? "var(--surface-3)" : "transparent", color: delivFilterType === t ? "var(--text)" : "var(--text-3)" }}>
+                            {t === "all" ? "Todos" : (cfg?.label ?? t)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {collections.length > 2 && (
+                      <div className="flex gap-1 p-1 rounded-xl flex-wrap" style={{ background: "var(--surface-2)" }}>
+                        {collections.map((c) => (
+                          <button key={c} onClick={() => setDelivFilterCol(c)}
+                            className="px-3 py-1 rounded-lg text-xs font-medium transition-all"
+                            style={{ background: delivFilterCol === c ? "var(--surface-3)" : "transparent", color: delivFilterCol === c ? "var(--text)" : "var(--text-3)" }}>
+                            {c === "all" ? "Todas" : c}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* File groups */}
+                  {Object.entries(grouped).map(([col, colFiles]) => (
+                    <div key={col} className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-3)" }}>{col}</p>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {colFiles.map((f) => {
+                          const cfg = FILE_TYPE_CFG[f.file_type as keyof typeof FILE_TYPE_CFG] ?? FILE_TYPE_CFG.other;
+                          const Icon = cfg.icon;
+                          return (
+                            <div key={f.id} className="flex items-center gap-3 rounded-lg px-3 py-2.5" style={{ background: "var(--surface-2)" }}>
+                              <div className="h-8 w-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: `${cfg.color}20` }}>
+                                <Icon className="h-4 w-4" style={{ color: cfg.color }} />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-medium truncate" style={{ color: "var(--text)" }}>{f.filename}</p>
+                                <p className="text-xs" style={{ color: "var(--text-3)" }}>
+                                  {f.ext?.toUpperCase()}{f.bytes ? ` · ${f.bytes > 1048576 ? `${(f.bytes / 1048576).toFixed(1)} MB` : `${(f.bytes / 1024).toFixed(0)} KB`}` : ""}
+                                </p>
+                              </div>
+                              {f.shared_link && (
+                                <a href={f.shared_link} target="_blank" rel="noopener noreferrer"
+                                  className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs" style={{ background: "var(--accent-bg)", color: "var(--accent)" }}>
+                                  <ExternalLink className="h-3 w-3" />
+                                </a>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
           </motion.div>
         )}
       </AnimatePresence>
