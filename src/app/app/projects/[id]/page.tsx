@@ -896,34 +896,83 @@ export default function ProjectPage() {
               </div>
             </div>
 
-            {/* Notes */}
-            <div className="card space-y-3">
-              <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>
-                Notas do Projeto
-              </p>
+            {/* Commercial terms generator */}
+            <div className="card space-y-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                  Condições Comerciais
+                </p>
+                <button
+                  onClick={() => {
+                    const price = calc?.preco_recomendado_com_iva ?? calc?.preco_recomendado ?? 0;
+                    const sinal = Math.round(price * 0.5 * 100) / 100;
+                    const restante = Math.round((price - sinal) * 100) / 100;
+                    const terms = `Proposta válida por 30 dias. Pagamento: 50% de sinal (${fmtEur(sinal)}) na adjudicação + 50% (${fmtEur(restante)}) na entrega. Prazo de pagamento: 30 dias. Revisões incluídas: 2 rondas. Propriedade intelectual transferida após pagamento integral.`;
+                    setInputs((p) => ({ ...p, condicoes: terms }));
+                  }}
+                  className="btn btn-ghost btn-sm text-xs"
+                  style={{ color: "var(--accent-2)" }}
+                >
+                  Gerar automaticamente
+                </button>
+              </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
-                  <label className="label">Observações</label>
+                  <label className="label">Observações Internas</label>
                   <textarea
                     value={inputs.observacoes ?? ""}
                     onChange={(e) => setInputs((p) => ({ ...p, observacoes: e.target.value }))}
                     className="input"
                     rows={3}
-                    placeholder="Observações internas…"
+                    placeholder="Notas internas, pontos de atenção…"
                     style={{ resize: "none" }}
                   />
                 </div>
                 <div>
-                  <label className="label">Condições Comerciais</label>
+                  <label className="label">Termos e Condições (PDF)</label>
                   <textarea
                     value={inputs.condicoes ?? ""}
                     onChange={(e) => setInputs((p) => ({ ...p, condicoes: e.target.value }))}
                     className="input"
                     rows={3}
-                    placeholder="Termos e condições…"
+                    placeholder="Clica em 'Gerar automaticamente' ou escreve aqui…"
                     style={{ resize: "none" }}
                   />
                 </div>
+              </div>
+              {/* Quick presets */}
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { label: "50/50", desc: "50% sinal + 50% entrega" },
+                  { label: "30/70", desc: "30% sinal + 70% entrega" },
+                  { label: "Faseado", desc: "33% início + 33% rodagem + 34% entrega" },
+                ].map((preset) => (
+                  <button
+                    key={preset.label}
+                    onClick={() => {
+                      const price = calc?.preco_recomendado_com_iva ?? calc?.preco_recomendado ?? 0;
+                      let terms = "";
+                      if (preset.label === "50/50") {
+                        const s = Math.round(price * 0.5 * 100) / 100;
+                        terms = `Pagamento em 2 prestações: 50% de sinal (${fmtEur(s)}) + 50% na entrega. Válido 30 dias.`;
+                      } else if (preset.label === "30/70") {
+                        const s = Math.round(price * 0.3 * 100) / 100;
+                        terms = `Pagamento em 2 prestações: 30% de sinal (${fmtEur(s)}) + 70% na entrega. Válido 30 dias.`;
+                      } else {
+                        const s = Math.round(price * 0.33 * 100) / 100;
+                        terms = `Pagamento faseado: 1/3 início (${fmtEur(s)}) + 1/3 durante rodagem + 1/3 entrega. Válido 30 dias.`;
+                      }
+                      setInputs((p) => ({ ...p, condicoes: terms }));
+                    }}
+                    className="btn btn-ghost btn-sm text-xs"
+                    style={{ fontSize: "0.7rem", padding: "0.25rem 0.6rem" }}
+                  >
+                    {preset.label}
+                    <span className="ml-1 hidden sm:inline" style={{ color: "var(--text-3)" }}>
+                      — {preset.desc}
+                    </span>
+                  </button>
+                ))}
               </div>
             </div>
           </motion.div>
