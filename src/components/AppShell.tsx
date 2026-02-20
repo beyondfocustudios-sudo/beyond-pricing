@@ -15,6 +15,13 @@ import {
   Zap,
   TrendingUp,
   Building2,
+  MessageSquare,
+  BookOpen,
+  ListTodo,
+  Users2,
+  Truck,
+  Cloud,
+  Bell,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -60,6 +67,48 @@ const NAV_ITEMS = [
     icon: Building2,
     exact: false,
     description: "Portal",
+  },
+  {
+    href: "/app/inbox",
+    label: "Inbox",
+    icon: MessageSquare,
+    exact: false,
+    description: "Mensagens",
+  },
+  {
+    href: "/app/journal",
+    label: "Journal",
+    icon: BookOpen,
+    exact: false,
+    description: "Notas",
+  },
+  {
+    href: "/app/tasks",
+    label: "Tarefas",
+    icon: ListTodo,
+    exact: false,
+    description: "Kanban",
+  },
+  {
+    href: "/app/crm",
+    label: "CRM",
+    icon: Users2,
+    exact: false,
+    description: "Contactos",
+  },
+  {
+    href: "/app/logistics",
+    label: "Logística",
+    icon: Truck,
+    exact: false,
+    description: "Rotas",
+  },
+  {
+    href: "/app/weather",
+    label: "Tempo",
+    icon: Cloud,
+    exact: false,
+    description: "Meteorologia",
   },
   {
     href: "/app/preferences",
@@ -183,6 +232,13 @@ export function AppShell({
                 </span>
               </div>
             </div>
+            <Link
+              href="/app/inbox"
+              className="btn btn-ghost btn-icon-sm"
+              title="Inbox"
+            >
+              <Bell className="h-4 w-4" style={{ color: "var(--text-3)" }} />
+            </Link>
           </div>
           <button
             onClick={handleLogout}
@@ -224,13 +280,22 @@ export function AppShell({
             </span>
           </div>
 
-          <button
-            onClick={handleLogout}
-            disabled={signingOut}
-            className="btn btn-ghost btn-icon-sm"
-          >
-            <LogOut className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/app/inbox"
+              className="btn btn-ghost btn-icon-sm"
+              title="Inbox"
+            >
+              <Bell className="h-4 w-4" />
+            </Link>
+            <button
+              onClick={handleLogout}
+              disabled={signingOut}
+              className="btn btn-ghost btn-icon-sm"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
+          </div>
         </header>
 
         {/* Main content */}

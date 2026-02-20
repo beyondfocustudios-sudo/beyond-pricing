@@ -152,3 +152,23 @@ export async function getProjectRole(
     return null;
   }
 }
+
+// ── isGlobalAdmin ─────────────────────────────────────────────
+// True if user has app_metadata.role = owner|admin (set via service role).
+// Use this to gate /app/clients and other global-admin pages.
+export async function isGlobalAdmin(): Promise<boolean> {
+  const sb = await createServerClientAsync();
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return false;
+  const role = (user.app_metadata?.role as string | undefined) ?? "";
+  return ["owner", "admin"].includes(role);
+}
+
+// ── requireGlobalAdmin ────────────────────────────────────────
+export async function requireGlobalAdmin(): Promise<string> {
+  const ok = await isGlobalAdmin();
+  if (!ok) throw new AccessDeniedError("Requer permissão de administrador global", 403);
+  const sb = await createServerClientAsync();
+  const { data: { user } } = await sb.auth.getUser();
+  return user!.id;
+}

@@ -43,6 +43,7 @@ import {
   ExternalLink,
   FolderOpen,
   Settings2,
+  Presentation,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -420,6 +421,25 @@ export default function ProjectPage() {
     }
   };
 
+  // ── Export PPTX ───────────────────────────────────────────
+  const [pptxLoading, setPptxLoading] = useState(false);
+  const handleExportPptx = async () => {
+    if (!calc || pptxLoading) return;
+    setPptxLoading(true);
+    try {
+      const res = await fetch(`/api/export/pptx?projectId=${projectId}`);
+      if (!res.ok) { alert("Erro ao gerar apresentação"); return; }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${projectName.replace(/\s+/g, "-").toLowerCase()}.pptx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch { alert("Erro ao gerar apresentação"); }
+    finally { setPptxLoading(false); }
+  };
+
   // ── Donut chart data ──────────────────────────────────────
   const donutData = calc
     ? CATEGORIAS.map((cat) => {
@@ -545,6 +565,19 @@ export default function ProjectPage() {
           >
             <Download className="h-4 w-4" />
             <span className="hidden sm:inline">CSV</span>
+          </button>
+          <button
+            onClick={handleExportPptx}
+            disabled={pptxLoading || !calc}
+            className="btn btn-ghost btn-sm"
+            title="Gerar Apresentação (.pptx)"
+          >
+            {pptxLoading ? (
+              <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+            ) : (
+              <Presentation className="h-4 w-4" />
+            )}
+            <span className="hidden sm:inline">{pptxLoading ? "…" : "Slides"}</span>
           </button>
           <button
             onClick={handleExport}
