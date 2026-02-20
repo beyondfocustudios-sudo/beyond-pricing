@@ -1,174 +1,149 @@
-// ============================================================
-// Beyond Pricing — Authorization helpers (RBAC)
-// ============================================================
-// These run server-side via supabase-server (service role or
-// user session) and are the single source of truth for access.
-// ============================================================
+import { createClient } from "@/lib/supabase/server";
 
-import { createClient as createServerClientAsync } from "@/lib/supabase-server";
-
-export type ProjectMemberRole =
-  | "owner"
-  | "admin"
-  | "editor"
-  | "client_viewer"
-  | "client_approver";
-
-export type ClientRole = "client_viewer" | "client_approver";
-
-// Internal roles (staff)
-export const INTERNAL_ROLES: ProjectMemberRole[] = ["owner", "admin", "editor"];
-export const ADMIN_ROLES: ProjectMemberRole[] = ["owner", "admin"];
-
-// ── hasProjectRole ────────────────────────────────────────────
-// Returns true if the current authenticated user has at least
-// one of the specified roles on the given project.
-export async function hasProjectRole(
-  projectId: string,
-  roles: ProjectMemberRole[]
-): Promise<boolean> {
-  const sb = await createServerClientAsync();
-  const {
-    data: { user },
-  } = await sb.auth.getUser();
-  if (!user) return false;
-
-  const { data } = await sb
-    .from("project_members")
-    .select("role")
-    .eq("project_id", projectId)
-    .eq("user_id", user.id)
-    .single();
-
-  if (!data) return false;
-  return roles.includes(data.role as ProjectMemberRole);
-}
-
-// ── isClientUser ─────────────────────────────────────────────
-// Returns the client_user row if the current user is a client
-// member for any client that owns the given project.
-export async function isClientUser(projectId: string): Promise<boolean> {
-  const sb = await createServerClientAsync();
-  const {
-    data: { user },
-  } = await sb.auth.getUser();
-  if (!user) return false;
-
-  const { data: project } = await sb
-    .from("projects")
-    .select("client_id")
-    .eq("id", projectId)
-    .single();
-
-  if (!project?.client_id) return false;
-
-  const { data } = await sb
-    .from("client_users")
-    .select("id")
-    .eq("client_id", project.client_id)
-    .eq("user_id", user.id)
-    .single();
-
-  return !!data;
-}
-
-// ── requireProjectAccess ─────────────────────────────────────
-// Throws a redirect-like object if the user has no access.
-// Use in Server Components / Route Handlers.
-// Returns the user's effective role.
-export async function requireProjectAccess(
-  projectId: string
-): Promise<{ role: ProjectMemberRole | ClientRole; userId: string }> {
-  const sb = await createServerClientAsync();
-  const {
-    data: { user },
-  } = await sb.auth.getUser();
-
-  if (!user) {
-    throw new AccessDeniedError("Unauthenticated", 401);
-  }
-
-  // Check project_members first
-  const { data: member } = await sb
-    .from("project_members")
-    .select("role")
-    .eq("project_id", projectId)
-    .eq("user_id", user.id)
-    .single();
-
-  if (member) {
-    return { role: member.role as ProjectMemberRole, userId: user.id };
-  }
-
-  // Check client access
-  const { data: project } = await sb
-    .from("projects")
-    .select("client_id")
-    .eq("id", projectId)
-    .single();
-
-  if (project?.client_id) {
-    const { data: clientUser } = await sb
-      .from("client_users")
-      .select("role")
-      .eq("client_id", project.client_id)
-      .eq("user_id", user.id)
-      .single();
-
-    if (clientUser) {
-      return { role: clientUser.role as ClientRole, userId: user.id };
-    }
-  }
-
-  throw new AccessDeniedError("Forbidden", 403);
-}
-
-// ── AccessDeniedError ─────────────────────────────────────────
+// ── Error ─────────────────────────────────────────────────────────────────
 export class AccessDeniedError extends Error {
-  constructor(
-    message: string,
-    public readonly statusCode: 401 | 403 = 403
-  ) {
+  statusCode: 401 | 403;
+  constructor(message = "Access denied", statusCode: 401 | 403 = 403) {
     super(message);
     this.name = "AccessDeniedError";
+    this.statusCode = statusCode;
   }
 }
 
-// ── isInternalUser ────────────────────────────────────────────
-// True if user has any internal (non-client) role on project.
-export async function isInternalUser(projectId: string): Promise<boolean> {
-  return hasProjectRole(projectId, INTERNAL_ROLES);
+// ── Role types ────────────────────────────────────────────────────────────
+export type OrgRole = "owner" | "admin" | "member";
+export type ProjectRole = "owner" | "admin" | "editor" | "client_viewer" | "client_approver";
+export const INTERNAL_ROLES: ProjectRole[] = ["owner", "admin", "editor"];
+export const ADMIN_ROLES: OrgRole[] = ["owner", "admin"];
+
+// ── Current user ─────────────────────────────────────────────────────────
+export async function getCurrentUser() {
+  const supabase = await createClient();
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if (error || !user) throw new AccessDeniedError("Not authenticated", 401);
+  return user;
 }
 
-// ── getProjectRole ────────────────────────────────────────────
-// Returns the role or null if user has no access.
-export async function getProjectRole(
-  projectId: string
-): Promise<ProjectMemberRole | ClientRole | null> {
-  try {
-    const { role } = await requireProjectAccess(projectId);
-    return role;
-  } catch {
-    return null;
-  }
-}
-
-// ── isGlobalAdmin ─────────────────────────────────────────────
-// True if user has app_metadata.role = owner|admin (set via service role).
-// Use this to gate /app/clients and other global-admin pages.
+// ── Global admin (app_metadata.role) ─────────────────────────────────────
 export async function isGlobalAdmin(): Promise<boolean> {
-  const sb = await createServerClientAsync();
-  const { data: { user } } = await sb.auth.getUser();
-  if (!user) return false;
-  const role = (user.app_metadata?.role as string | undefined) ?? "";
-  return ["owner", "admin"].includes(role);
+  try {
+    const user = await getCurrentUser();
+    const role = user.app_metadata?.role as string | undefined;
+    return role === "owner" || role === "admin";
+  } catch {
+    return false;
+  }
 }
 
-// ── requireGlobalAdmin ────────────────────────────────────────
-export async function requireGlobalAdmin(): Promise<string> {
+export async function requireGlobalAdmin() {
   const ok = await isGlobalAdmin();
-  if (!ok) throw new AccessDeniedError("Requer permissão de administrador global", 403);
-  const sb = await createServerClientAsync();
-  const { data: { user } } = await sb.auth.getUser();
-  return user!.id;
+  if (!ok) throw new AccessDeniedError("Global admin required");
+}
+
+// ── Org role (team_members table) ─────────────────────────────────────────
+export async function getOrgRole(): Promise<OrgRole | null> {
+  const user = await getCurrentUser();
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("team_members")
+    .select("role")
+    .eq("user_id", user.id)
+    .single();
+  return (data?.role as OrgRole) ?? null;
+}
+
+export async function requireOrgRole(roles: OrgRole[]) {
+  const role = await getOrgRole();
+  if (!role || !roles.includes(role)) {
+    throw new AccessDeniedError(`Requires one of: ${roles.join(", ")}`);
+  }
+  return role;
+}
+
+// ── Project access ────────────────────────────────────────────────────────
+export async function hasProjectRole(
+  projectId: string,
+  roles: ProjectRole[]
+): Promise<boolean> {
+  try {
+    const user = await getCurrentUser();
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("project_members")
+      .select("role")
+      .eq("project_id", projectId)
+      .eq("user_id", user.id)
+      .single();
+    if (!data) return false;
+    return roles.includes(data.role as ProjectRole);
+  } catch {
+    return false;
+  }
+}
+
+export async function requireProjectAccess(projectId: string): Promise<ProjectRole> {
+  const user = await getCurrentUser();
+  const supabase = await createClient();
+  // Global admins always have access
+  const adminOk = await isGlobalAdmin();
+  if (adminOk) return "admin";
+  // Check project_members
+  const { data, error } = await supabase
+    .from("project_members")
+    .select("role")
+    .eq("project_id", projectId)
+    .eq("user_id", user.id)
+    .single();
+  if (error || !data) throw new AccessDeniedError("No project access");
+  return data.role as ProjectRole;
+}
+
+// ── Client user ───────────────────────────────────────────────────────────
+export async function isClientUser(projectId?: string): Promise<boolean> {
+  try {
+    const user = await getCurrentUser();
+    const supabase = await createClient();
+    if (projectId) {
+      const { data } = await supabase
+        .from("project_members")
+        .select("role")
+        .eq("project_id", projectId)
+        .eq("user_id", user.id)
+        .single();
+      return data?.role === "client_viewer" || data?.role === "client_approver";
+    }
+    // Check if user exists in client_users at all
+    const { data } = await supabase
+      .from("client_users")
+      .select("id")
+      .eq("user_id", user.id)
+      .limit(1);
+    return (data?.length ?? 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
+// ── Audit log helper ──────────────────────────────────────────────────────
+export async function logAudit(params: {
+  action: string;
+  tableName?: string;
+  recordId?: string;
+  oldData?: Record<string, unknown>;
+  newData?: Record<string, unknown>;
+}) {
+  try {
+    const user = await getCurrentUser();
+    const supabase = await createClient();
+    await supabase.from("audit_log").insert({
+      user_id: user.id,
+      action: params.action,
+      table_name: params.tableName,
+      record_id: params.recordId,
+      old_data: params.oldData,
+      new_data: params.newData,
+    });
+  } catch {
+    // Non-blocking
+  }
 }

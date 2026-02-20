@@ -78,3 +78,26 @@ export async function DELETE(req: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }
+
+// PATCH /api/tasks (body must include id)
+export async function PATCH(req: NextRequest) {
+  const sb = await createClient();
+  const { data: { user }, error: authErr } = await sb.auth.getUser();
+  if (authErr || !user) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+
+  const body = await req.json() as Record<string, unknown>;
+  const id = (body.id as string) ?? req.nextUrl.searchParams.get("id");
+  if (!id) return NextResponse.json({ error: "id obrigatório" }, { status: 400 });
+
+  const { id: _id, ...updates } = body;
+  const { data, error } = await sb
+    .from("tasks")
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("user_id", user.id)
+    .select()
+    .single();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ task: data });
+}

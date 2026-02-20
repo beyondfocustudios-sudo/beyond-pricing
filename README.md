@@ -1,56 +1,65 @@
-# Beyond Pricing — OS de Produtora Audiovisual
+# Beyond Pricing — Platform SaaS Completa
 
-Plataforma completa para gestão de produção audiovisual: orçamentos, portal do cliente, logística, journal, tarefas, CRM, mensagens e muito mais.
+Plataforma completa para produtoras de vídeo: gestão de orçamentos, portal do cliente, CRM, tarefas, journaling, call sheets, logística, e muito mais.
 
 ## Stack
 
-- **Frontend**: Next.js 15 (App Router) + Tailwind v4 + Framer Motion
-- **Backend**: Supabase (Postgres + Auth + RLS)
-- **Deploy**: Vercel (Node.js runtime)
-- **Auth**: Email+Password, OTP (6 dígitos), Google OAuth, Microsoft OAuth
-- **Modelo**: Invite-only (signups públicos desactivados)
+- **Framework**: Next.js 15 (App Router) + React 19
+- **Estilos**: Tailwind CSS v4
+- **Base de dados**: Supabase (PostgreSQL + RLS + Realtime)
+- **Auth**: Supabase Auth (OTP código, Password, OAuth Google/Microsoft)
+- **Deploy**: Vercel
+- **Ficheiros**: Dropbox API (OAuth + refresh token + sync incremental)
+- **Voz**: Web Speech API (browser nativo, grátis)
+- **Meteo**: Open-Meteo (grátis, sem key)
+- **Geo**: OpenStreetMap + Nominatim (grátis)
+- **IA**: OpenAI (completamente opcional, OFF por defeito)
 
 ---
 
-## Env Vars
+## Variáveis de Ambiente
 
 ### Obrigatórias
 
-| Variável | Onde encontrar |
-|---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase → Project Settings → API → Project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase → Project Settings → API → anon/public key |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Project Settings → API → service_role (secreto) |
+```env
+NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
+SUPABASE_SERVICE_ROLE_KEY=eyJ...
+OWNER_EMAIL=daniellopes@beyondfocus.pt
+```
 
-### Opcionais
+### Dropbox (para sync de entregas)
 
-| Variável | Feature activada |
-|---|---|
-| `OPENAI_API_KEY` | Resumos journal, parse de tarefas, sugestão de resposta portal |
-| `RESEND_API_KEY` | Envio de emails |
-| `SMTP_HOST/PORT/USER/PASS` | Alternativa ao Resend |
-| `EMAIL_FROM` | Remetente dos emails |
-| `GOOGLE_DISTANCE_API_KEY` | Google Distance Matrix para logística |
-| `CRON_SECRET` | Auth para /api/notifications/dispatch |
-| `NEXT_PUBLIC_APP_URL` | URL base para links nos emails |
-| `DROPBOX_APP_KEY/APP_SECRET` | Integração Dropbox |
+```env
+DROPBOX_APP_KEY=xxx
+DROPBOX_APP_SECRET=xxx
+```
+
+### Email (opcional — sem estes, apenas notificações in-app)
+
+```env
+RESEND_API_KEY=re_xxx
+SMTP_FROM=noreply@beyondfocus.pt
+```
+
+### OpenAI (opcional — todas as features têm fallback grátis)
+
+```env
+OPENAI_API_KEY=sk-xxx
+```
+
+### Vercel Cron
+
+```env
+CRON_SECRET=xxx
+```
 
 ---
 
 ## Configuração Supabase
 
-### Authentication → Providers → Email
-- **Enable Email provider**: ON
-- **Enable Email Signup**: OFF (invite-only)
+### 1. Executar migrações (por ordem no SQL Editor)
 
-### Authentication → URL Configuration
-- Site URL: `https://beyond-pricing-f7iandu3b-beyondfocustudios-sudos-projects.vercel.app`
-- Redirect URLs:
-  - `https://beyond-pricing-f7iandu3b-beyondfocustudios-sudos-projects.vercel.app/auth/callback`
-  - `http://localhost:3000/auth/callback`
-  - `https://*.vercel.app/auth/callback`
-
-### Migrations (correr por ordem no SQL Editor como service_role)
 ```
 001_initial_schema.sql
 002_seed_templates.sql
@@ -59,130 +68,176 @@ Plataforma completa para gestão de produção audiovisual: orçamentos, portal 
 005_premium_features.sql
 006_seed_checklist_templates.sql
 007_admin_bootstrap.sql
+008_rbac_soft_delete.sql
+009_portal_enhancements.sql
+010_dropbox_sync.sql
+011_callsheets_weather.sql
+012_crm_deals_pipeline.sql
 ```
 
----
+### 2. Auth Settings (Dashboard → Authentication → Settings)
 
-## Admin
+- **Disable signups**: ON
+- **Email provider**: ON
+- **OTP expiry**: 3600
+- **Site URL**: `https://beyond-pricing.vercel.app`
+- **Redirect URLs**: `https://beyond-pricing.vercel.app/auth/callback`
 
-```
-Email:    daniellopes@beyondfocus.pt
-Password: tadIdSz3G0NKL1jk
-Role:     owner (app_metadata.role = "owner")
-```
-
----
-
-## Módulos /app (equipa)
-
-| Rota | Módulo |
-|---|---|
-| `/app` | Dashboard |
-| `/app/projects/[id]` | Editor + PDF + CSV + Slides (.pptx) |
-| `/app/checklists` | Checklists Pre/Rodagem/Pós |
-| `/app/templates` | Templates de orçamento |
-| `/app/clients` | Clientes e utilizadores portal |
-| `/app/inbox` | Mensagens do portal |
-| `/app/journal` | Diário de produção + voz + export |
-| `/app/tasks` | Tarefas kanban |
-| `/app/crm` | Contactos CRM |
-| `/app/logistics` | Rotas e distâncias |
-| `/app/weather` | Meteorologia |
-| `/app/insights` | Analytics |
-
-## Módulos /portal (clientes)
-
-| Rota | Módulo |
-|---|---|
-| `/portal` | Lista de projetos |
-| `/portal/projects/[id]` | Detalhe + entregas + aprovações |
-
----
-
-## PPTX Export
-
-Botão "Slides" no toolbar do projeto → `GET /api/export/pptx?projectId=xxx`
-
-6 slides: Capa · Resumo · Breakdown · Top Items · Entregáveis · Termos Comerciais
-
-Sem API externa — geração 100% local via pptxgenjs.
-
-**Smoke test:**
-1. Abre um projeto com itens
-2. Clica "Slides" no toolbar
-3. Download .pptx → abre no PowerPoint/Keynote/LibreOffice
-4. Verifica 6 slides com dados do projeto
-
----
-
-## Ditado por Voz (grátis)
-
-Web Speech API — sem custos, sem API externa.
-
-- Hook: `useVoiceDictation()` em `src/lib/voice/useVoiceDictation.ts`
-- Componente: `<VoiceButton onInsert={fn} />`
-- Língua: pt-PT → pt-BR → en-US (fallback automático)
-- Requer Chrome ou Edge
-
-**Integrado em:** `/app/journal` (botão "Ditado" no editor), `/app/tasks` (título da tarefa)
-
----
-
-## Email / Notificações
-
-`POST /api/notifications/dispatch` com header `x-cron-secret: {CRON_SECRET}`
-
-Vercel Cron (vercel.json):
-```json
-{"crons": [{"path": "/api/notifications/dispatch", "schedule": "*/5 * * * *"}]}
-```
-
----
-
-## Checklist QA
-
-### Auth
-- [ ] Login password: daniellopes@beyondfocus.pt / tadIdSz3G0NKL1jk → /app
-- [ ] Login OTP: código 6 dígitos → entra, sessão 1h
-- [ ] OTP portal (/portal/login): mesmo fluxo
-- [ ] Google OAuth → /app com TTL 24h
-- [ ] Session expirada → redirect com ?expired=1
-- [ ] Signup bloqueado (anon signUp() → erro)
-
-### PPTX
-- [ ] Projeto com itens → "Slides" → download .pptx → abre correctamente
-- [ ] Projecto vazio → gera sem erro
-
-### Portal Mensagens
-- [ ] Enviar msg como equipa → notificação criada
-- [ ] Marcar como lida
-
-### Logística
-- [ ] POST /api/logistics com origin/destination → guarda rota
-- [ ] Sem GOOGLE_DISTANCE_API_KEY → hasApiData: false
-
-### Meteorologia
-- [ ] GET /api/weather?location=Lisboa → dados Open-Meteo
-- [ ] 2ª chamada → fromCache: true
-
-### Ditado por Voz
-- [ ] Chrome: Journal → "Ditado" → falar → "Inserir" → texto no textarea
-- [ ] Safari → banner "não disponível"
-
-### Build
-- [ ] npm run build → sem erros TS
-- [ ] Todas as rotas API retornam 401 sem token
-
----
-
-## Dev Local
+### 3. Bootstrap do owner (uma vez após deploy)
 
 ```bash
-git clone https://github.com/beyondfocustudios-sudo/beyond-pricing
-cd beyond-pricing/app
-cp .env.local.example .env.local  # preencher vars
-npm install
-npm run dev
+curl -X POST https://beyond-pricing.vercel.app/api/admin/bootstrap
 ```
 
-*Beyond Focus Studios © 2026*
+---
+
+## Configuração Dropbox
+
+1. Criar app em [dropbox.com/developers](https://www.dropbox.com/developers)
+2. **Redirect URI**: `https://beyond-pricing.vercel.app/api/dropbox/callback`
+3. Permissões: `files.metadata.read`, `files.content.read`
+4. Copiar `App key` e `App secret` para `.env`
+5. Ligar em `/app/projects/[id]` → aba "Entregas" → "Conectar Dropbox"
+
+---
+
+## Módulos
+
+### Área Interna (/app)
+
+| Rota | Módulo |
+|------|--------|
+| /app | Dashboard |
+| /app/projects | Projetos + Orçamentos |
+| /app/projects/[id] | Detalhe (itens, PPTX, Dropbox, timeline) |
+| /app/clients | Clientes + convites (admin only) |
+| /app/checklists | Checklists de produção |
+| /app/templates | Templates reutilizáveis |
+| /app/tasks | Kanban drag-drop + voz |
+| /app/crm | Contactos + Pipeline de deals |
+| /app/journal | Notas + voz + export .md |
+| /app/inbox | Mensagens com clientes |
+| /app/callsheets | Call Sheets + scaletta |
+| /app/logistics | Planeador de rotas + gasolina |
+| /app/weather | Open-Meteo para dias de rodagem |
+| /app/insights | Análise de orçamentos |
+
+### Portal do Cliente (/portal)
+
+| Rota | Descrição |
+|------|-----------|
+| /portal | Lista de projetos |
+| /portal/projects/[id] | Overview + Entregas + Pedidos + Mensagens |
+
+---
+
+## RBAC
+
+| Role | Acesso |
+|------|--------|
+| `owner` | Tudo — gestão de clientes, membros, admin |
+| `admin` | Maioria dos recursos |
+| `member` | Projetos onde é membro |
+| `client_viewer` | Portal — só leitura |
+| `client_approver` | Portal — pode aprovar e criar pedidos |
+
+### Convidar membro
+
+```bash
+curl -X POST /api/admin/invite \
+  -H "Content-Type: application/json" \
+  -d '{"email":"novo@beyond.pt","role":"member"}'
+```
+
+---
+
+## Dropbox — Categorização Automática
+
+| Padrão | Resultado |
+|--------|-----------|
+| `*.mp4`, `*.mov`, `*.r3d` | categoria: `video` |
+| `*.jpg`, `*.raw`, `*.dng` | categoria: `photo` |
+| `FINAL`, `EXPORT` no nome | categoria: `final` |
+| `GRADE` no nome | categoria: `grade` |
+| Pasta `01_PRE` / `PRE_PRODUCAO` | fase: `pre` |
+| Pasta `02_SHOOT` / `RODAGEM` | fase: `shoot` |
+| Pasta `03_POST` / `POS_PRODUCAO` | fase: `post` |
+| Pasta `04_FINAL` / `ENTREGA` | fase: `final` |
+
+---
+
+## Cron (Vercel)
+
+Criar `vercel.json` na raiz do projeto:
+
+```json
+{
+  "crons": [
+    {
+      "path": "/api/notifications/dispatch",
+      "schedule": "*/15 * * * *"
+    }
+  ]
+}
+```
+
+---
+
+## QA Checklist
+
+### Auth
+- [ ] Login password → /app
+- [ ] Login OTP código → /app
+- [ ] Reset password funcional
+- [ ] Login portal OTP → /portal
+- [ ] Logout funcional
+
+### Projetos
+- [ ] Criar projeto + itens + calcular
+- [ ] Export PPTX (download)
+- [ ] Export PDF
+- [ ] Conectar Dropbox + sync + filtros
+
+### Portal Cliente
+- [ ] Login OTP em /portal/login
+- [ ] Ver projetos em /portal
+- [ ] Ver milestones + progresso
+- [ ] Criar pedido
+- [ ] Enviar mensagem
+
+### Notificações
+- [ ] Bell badge com unread count
+- [ ] Marcar como lido
+- [ ] Marcar tudo como lido
+
+### Call Sheets
+- [ ] Criar com equipa + scaletta
+- [ ] Ver detalhes
+- [ ] Eliminar (soft delete)
+
+### CRM
+- [ ] Adicionar contacto
+- [ ] Import/Export CSV
+- [ ] Pipeline de deals + mover stages
+
+### Tarefas
+- [ ] Criar tarefa por coluna
+- [ ] Drag-drop entre colunas
+- [ ] Ditar com voz (Chrome/Edge)
+
+### Journal
+- [ ] Criar entrada com voz
+- [ ] Export markdown
+- [ ] Summarize heurístico
+
+---
+
+## Segurança
+
+- **Invite-only**: signups desativados no Supabase
+- **RLS**: todas as tabelas com Row Level Security
+- **Service role**: apenas em server-side routes
+- **Session TTL**: OTP = 1h, normal = 24h, "lembrar-me" = 30d
+- **Rate limiting**: todos os API endpoints
+- **Soft delete**: projetos, clientes, tarefas, CRM
+- **Audit log**: `audit_log` para ações críticas

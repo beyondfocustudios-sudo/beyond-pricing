@@ -2,41 +2,11 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 
-// ── Web Speech API type declarations (avoids conflict with dom lib) ──
-interface BPSpeechRecognitionAlternative {
-  transcript: string;
-  confidence: number;
-}
-interface BPSpeechRecognitionResult {
-  readonly length: number;
-  isFinal: boolean;
-  [index: number]: BPSpeechRecognitionAlternative;
-}
-interface BPSpeechRecognitionResultList {
-  readonly length: number;
-  [index: number]: BPSpeechRecognitionResult;
-}
-interface BPSpeechRecognitionEvent extends Event {
-  resultIndex: number;
-  results: BPSpeechRecognitionResultList;
-}
-interface BPSpeechRecognitionErrorEvent extends Event {
-  error: string;
-}
-interface ISpeechRecognition extends EventTarget {
-  lang: string;
-  continuous: boolean;
-  interimResults: boolean;
-  start(): void;
-  stop(): void;
-  abort(): void;
-  onresult: ((e: BPSpeechRecognitionEvent) => void) | null;
-  onerror: ((e: BPSpeechRecognitionErrorEvent) => void) | null;
-  onend: (() => void) | null;
-}
-type SpeechRecognitionCtor = new () => ISpeechRecognition;
+// ── Fully opaque Speech API types (avoids dom lib conflicts) ──────────────
+// We access everything via unknown + type assertions to avoid TS conflicts
+// with the dom lib's SpeechRecognition types which vary across TS versions.
 
-// ── Types ────────────────────────────────────────────────────
+// ── Public types ──────────────────────────────────────────────────────────
 export interface VoiceDictationState {
   isSupported: boolean;
   isRecording: boolean;
@@ -64,7 +34,31 @@ interface UseVoiceDictationOptions {
 // Language fallback chain
 const LANG_CHAIN = ["pt-PT", "pt-BR", "en-US"];
 
-// ── Hook ─────────────────────────────────────────────────────
+// ── Helper: build a recognition instance (fully opaque) ───────────────────
+function getSpeechRecognitionCtor(): (new () => unknown) | null {
+  if (typeof window === "undefined") return null;
+  const w = window as unknown as Record<string, unknown>;
+  const Ctor = (w["SpeechRecognition"] ?? w["webkitSpeechRecognition"]) as (new () => unknown) | undefined;
+  return Ctor ?? null;
+}
+
+function makeRec(Ctor: new () => unknown, lang: string, continuous: boolean, interimResults: boolean): unknown {
+  const rec = new Ctor() as Record<string, unknown>;
+  rec["lang"] = lang;
+  rec["continuous"] = continuous;
+  rec["interimResults"] = interimResults;
+  return rec;
+}
+
+function setHandler(rec: unknown, event: string, handler: unknown) {
+  (rec as Record<string, unknown>)[event] = handler;
+}
+
+function callMethod(rec: unknown, method: string) {
+  ((rec as Record<string, unknown>)[method] as () => void)();
+}
+
+// ── Hook ──────────────────────────────────────────────────────────────────
 export function useVoiceDictation(opts: UseVoiceDictationOptions = {}): UseVoiceDictationReturn {
   const {
     lang = "pt-PT",
@@ -81,7 +75,7 @@ export function useVoiceDictation(opts: UseVoiceDictationOptions = {}): UseVoice
     error: null,
   });
 
-  const recognitionRef = useRef<ISpeechRecognition | null>(null);
+  const recognitionRef = useRef<unknown>(null);
   const langIndexRef = useRef(0);
   const startingRef = useRef(false);
   const onTranscriptRef = useRef(onTranscript);
@@ -89,80 +83,66 @@ export function useVoiceDictation(opts: UseVoiceDictationOptions = {}): UseVoice
 
   // Check support on mount (client-only)
   useEffect(() => {
-    const supported =
-      typeof window !== "undefined" &&
-      ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
+    const supported = getSpeechRecognitionCtor() !== null;
     setState((s) => ({ ...s, isSupported: supported }));
   }, []);
 
   const buildRecognition = useCallback(
-    (langOverride?: string): ISpeechRecognition | null => {
-      if (typeof window === "undefined") return null;
-      const w = window as typeof window & {
-        SpeechRecognition?: SpeechRecognitionCtor;
-        webkitSpeechRecognition?: SpeechRecognitionCtor;
-      };
-      const SpeechRec = w.SpeechRecognition ?? w.webkitSpeechRecognition;
-      if (!SpeechRec) return null;
+    (langOverride?: string): unknown | null => {
+      const Ctor = getSpeechRecognitionCtor();
+      if (!Ctor) return null;
 
-      const rec = new SpeechRec();
-      rec.lang = langOverride ?? LANG_CHAIN[langIndexRef.current] ?? lang;
-      rec.continuous = continuous;
-      rec.interimResults = interimResults;
+      const activeLang = langOverride ?? LANG_CHAIN[langIndexRef.current] ?? lang;
+      const rec = makeRec(Ctor, activeLang, continuous, interimResults);
 
-      rec.onresult = (e: BPSpeechRecognitionEvent) => {
+      // onresult
+      setHandler(rec, "onresult", (e: unknown) => {
+        const ev = e as Record<string, unknown>;
+        const resultIndex = ev["resultIndex"] as number ?? 0;
+        const results = ev["results"] as Record<number, unknown> & { length: number };
         let interim = "";
         let final = "";
-        for (let i = e.resultIndex; i < e.results.length; i++) {
-          const result = e.results[i];
-          if (result && result.isFinal) {
-            final += result[0]?.transcript ?? "";
-          } else if (result) {
-            interim += result[0]?.transcript ?? "";
-          }
+        for (let i = resultIndex; i < results.length; i++) {
+          const result = results[i] as Record<string, unknown>;
+          const isFinal = result["isFinal"] as boolean;
+          const alternatives = result as Record<number, { transcript: string }>;
+          const text = alternatives[0]?.transcript ?? "";
+          if (isFinal) final += text;
+          else interim += text;
         }
         setState((s) => {
           const newTranscript = s.transcript + (final ? (s.transcript ? " " : "") + final : "");
           if (final && onTranscriptRef.current) onTranscriptRef.current(newTranscript);
-          return {
-            ...s,
-            transcript: newTranscript,
-            interimTranscript: interim,
-            error: null,
-          };
+          return { ...s, transcript: newTranscript, interimTranscript: interim, error: null };
         });
-      };
+      });
 
-      rec.onerror = (e: BPSpeechRecognitionErrorEvent) => {
-        if (e.error === "language-not-supported" || e.error === "no-speech") {
-          // Try next language
+      // onerror
+      setHandler(rec, "onerror", (e: unknown) => {
+        const errCode = (e as Record<string, unknown>)["error"] as string ?? "unknown";
+        if (errCode === "language-not-supported" || errCode === "no-speech") {
           langIndexRef.current = (langIndexRef.current + 1) % LANG_CHAIN.length;
-          if (langIndexRef.current < LANG_CHAIN.length) {
-            const nextLang = LANG_CHAIN[langIndexRef.current];
-            if (nextLang && nextLang !== rec.lang) {
-              rec.stop();
-              setTimeout(() => {
-                const newRec = buildRecognition(nextLang);
-                if (newRec) {
-                  recognitionRef.current = newRec;
-                  newRec.start();
-                }
-              }, 300);
-              return;
-            }
+          const nextLang = LANG_CHAIN[langIndexRef.current];
+          if (nextLang && nextLang !== activeLang) {
+            callMethod(rec, "stop");
+            setTimeout(() => {
+              const newRec = buildRecognition(nextLang);
+              if (newRec) {
+                recognitionRef.current = newRec;
+                callMethod(newRec, "start");
+              }
+            }, 300);
+            return;
           }
         }
-        setState((s) => ({
-          ...s,
-          isRecording: false,
-          error: friendlyError(e.error),
-        }));
-      };
+        setState((s) => ({ ...s, isRecording: false, error: friendlyError(errCode) }));
+      });
 
-      rec.onend = () => {
+      // onend
+      setHandler(rec, "onend", () => {
         startingRef.current = false;
         setState((s) => ({ ...s, isRecording: false, interimTranscript: "" }));
-      };
+      });
 
       return rec;
     },
@@ -171,11 +151,12 @@ export function useVoiceDictation(opts: UseVoiceDictationOptions = {}): UseVoice
 
   // Cleanup on unmount
   useEffect(() => {
-    const stopRef = () => {
-      recognitionRef.current?.stop();
-      recognitionRef.current = null;
+    return () => {
+      if (recognitionRef.current) {
+        try { callMethod(recognitionRef.current, "stop"); } catch { /* ignore */ }
+        recognitionRef.current = null;
+      }
     };
-    return stopRef;
   }, []);
 
   const start = useCallback(() => {
@@ -191,11 +172,13 @@ export function useVoiceDictation(opts: UseVoiceDictationOptions = {}): UseVoice
     }
     recognitionRef.current = rec;
     setState((s) => ({ ...s, isRecording: true, error: null }));
-    try { rec.start(); } catch { startingRef.current = false; }
+    try { callMethod(rec, "start"); } catch { startingRef.current = false; }
   }, [buildRecognition, lang]);
 
   const stop = useCallback(() => {
-    recognitionRef.current?.stop();
+    if (recognitionRef.current) {
+      try { callMethod(recognitionRef.current, "stop"); } catch { /* ignore */ }
+    }
     startingRef.current = false;
     setState((s) => ({ ...s, isRecording: false, interimTranscript: "" }));
   }, []);
@@ -212,7 +195,7 @@ export function useVoiceDictation(opts: UseVoiceDictationOptions = {}): UseVoice
   return { ...state, start, stop, toggle, clear };
 }
 
-// ── Error messages ───────────────────────────────────────────
+// ── Error messages ─────────────────────────────────────────────────────────
 function friendlyError(error: string): string {
   const map: Record<string, string> = {
     "no-speech": "Nenhuma fala detectada. Tenta novamente.",

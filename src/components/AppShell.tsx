@@ -22,8 +22,10 @@ import {
   Truck,
   Cloud,
   Bell,
+  ClipboardList,
 } from "lucide-react";
 import { useState } from "react";
+import NotificationBell from "@/components/NotificationBell";
 
 const NAV_ITEMS = [
   {
@@ -102,6 +104,13 @@ const NAV_ITEMS = [
     icon: Truck,
     exact: false,
     description: "Rotas",
+  },
+  {
+    href: "/app/callsheets",
+    label: "Call Sheets",
+    icon: ClipboardList,
+    exact: false,
+    description: "Fichas de rodagem",
   },
   {
     href: "/app/weather",
@@ -232,13 +241,7 @@ export function AppShell({
                 </span>
               </div>
             </div>
-            <Link
-              href="/app/inbox"
-              className="btn btn-ghost btn-icon-sm"
-              title="Inbox"
-            >
-              <Bell className="h-4 w-4" style={{ color: "var(--text-3)" }} />
-            </Link>
+            <NotificationBell />
           </div>
           <button
             onClick={handleLogout}
@@ -281,13 +284,7 @@ export function AppShell({
           </div>
 
           <div className="flex items-center gap-2">
-            <Link
-              href="/app/inbox"
-              className="btn btn-ghost btn-icon-sm"
-              title="Inbox"
-            >
-              <Bell className="h-4 w-4" />
-            </Link>
+            <NotificationBell />
             <button
               onClick={handleLogout}
               disabled={signingOut}

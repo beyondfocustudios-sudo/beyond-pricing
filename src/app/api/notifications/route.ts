@@ -1,46 +1,86 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase-server";
-import { createClient as createAdminClient } from "@supabase/supabase-js";
+import { createClient } from "@/lib/supabase/server";
+import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
-// GET /api/notifications?limit=20
 export async function GET(req: NextRequest) {
-  const sb = await createClient();
-  const { data: { user }, error: authErr } = await sb.auth.getUser();
-  if (authErr || !user) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  const ip = req.headers.get("x-forwarded-for") ?? "unknown";
+  const rl = rateLimit(`notif-get-${ip}`, { max: 60, windowSec: 60 });
+  if (!rl.allowed) return rateLimitResponse(rl);
 
-  const limit = Math.min(parseInt(req.nextUrl.searchParams.get("limit") ?? "20"), 50);
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { data, error } = await sb
+  const limit = parseInt(req.nextUrl.searchParams.get("limit") ?? "20");
+  const unreadOnly = req.nextUrl.searchParams.get("unreadOnly") === "true";
+
+  let query = supabase
     .from("notifications")
-    .select("id, type, payload, created_at, read_at")
+    .select("*")
     .eq("user_id", user.id)
     .order("created_at", { ascending: false })
-    .limit(limit);
+    .limit(Math.min(limit, 100));
 
+  if (unreadOnly) query = query.is("read_at", null);
+
+  const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  const unread = data?.filter((n) => !n.read_at).length ?? 0;
-  return NextResponse.json({ notifications: data, unread });
+  return NextResponse.json(data ?? []);
 }
 
-// POST /api/notifications/read  body: { ids: string[] | "all" }
 export async function POST(req: NextRequest) {
-  const sb = await createClient();
-  const { data: { user }, error: authErr } = await sb.auth.getUser();
-  if (authErr || !user) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { ids } = await req.json() as { ids?: string[] | "all" };
+  const body = await req.json() as {
+    action?: "markRead" | "markAllRead" | "create";
+    id?: string;
+    // for "create"
+    type?: string;
+    title?: string;
+    bodyText?: string;
+    projectId?: string;
+    targetUserId?: string;
+    linkUrl?: string;
+  };
 
-  const admin = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } }
-  );
+  if (body.action === "markRead" && body.id) {
+    await supabase
+      .from("notifications")
+      .update({ read_at: new Date().toISOString() })
+      .eq("id", body.id)
+      .eq("user_id", user.id);
+    return NextResponse.json({ ok: true });
+  }
 
-  let q = admin.from("notifications").update({ read_at: new Date().toISOString() }).eq("user_id", user.id).is("read_at", null);
-  if (Array.isArray(ids)) q = q.in("id", ids);
+  if (body.action === "markAllRead") {
+    await supabase
+      .from("notifications")
+      .update({ read_at: new Date().toISOString() })
+      .eq("user_id", user.id)
+      .is("read_at", null);
+    return NextResponse.json({ ok: true });
+  }
 
-  const { error } = await q;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true });
+  if (body.action === "create" || !body.action) {
+    // Insert notification for target user
+    const targetId = body.targetUserId ?? user.id;
+    const { data, error } = await supabase
+      .from("notifications")
+      .insert({
+        user_id: targetId,
+        type: body.type ?? "general",
+        title: body.title ?? "Notificação",
+        body: body.bodyText,
+        project_id: body.projectId,
+        link_url: body.linkUrl,
+      })
+      .select()
+      .single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(data, { status: 201 });
+  }
+
+  return NextResponse.json({ error: "Unknown action" }, { status: 400 });
 }

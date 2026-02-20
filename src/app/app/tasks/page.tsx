@@ -1,305 +1,299 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
-import { ListTodo, Plus, Mic, MicOff, ChevronRight, X, AlignLeft } from "lucide-react";
-
-type Priority = "low" | "medium" | "high" | "urgent";
-type Status = "todo" | "in_progress" | "done";
-
-const PRIORITY_COLORS: Record<Priority, string> = {
-  low: "#6b7280",
-  medium: "#3b82f6",
-  high: "#f59e0b",
-  urgent: "#ef4444",
-};
-
-const PRIORITY_LABELS: Record<Priority, string> = {
-  low: "Baixa", medium: "Média", high: "Alta", urgent: "Urgente",
-};
-
-const COLUMNS: { id: Status; label: string; next: Status | null; prev: Status | null }[] = [
-  { id: "todo", label: "A Fazer", next: "in_progress", prev: null },
-  { id: "in_progress", label: "Em Progresso", next: "done", prev: "todo" },
-  { id: "done", label: "Concluído", next: null, prev: "in_progress" },
-];
+import { useEffect, useState, useCallback } from "react";
+import {
+  Plus, X, Loader2, Mic,
+  Flag, Calendar, GripVertical,
+} from "lucide-react";
+import { VoiceButton } from "@/components/VoiceButton";
 
 interface Task {
   id: string;
   title: string;
   description?: string;
-  priority: Priority;
-  status: Status;
+  status: "todo" | "in_progress" | "done";
+  priority: "low" | "medium" | "high" | "urgent";
   due_date?: string;
-  project?: string;
+  position: number;
+  assignee_id?: string;
+  project_id?: string;
+  tags?: string[];
 }
 
-interface SpeechRecognitionEvent extends Event {
-  results: SpeechRecognitionResultList;
-}
-interface SpeechRecognitionInstance extends EventTarget {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  start(): void;
-  stop(): void;
-  onresult: ((e: SpeechRecognitionEvent) => void) | null;
-  onerror: ((e: Event) => void) | null;
-}
-declare global {
-  interface Window {
-    SpeechRecognition?: new () => SpeechRecognitionInstance;
-    webkitSpeechRecognition?: new () => SpeechRecognitionInstance;
-  }
-}
+const COLUMNS: { id: Task["status"]; label: string; color: string }[] = [
+  { id: "todo", label: "A fazer", color: "bg-white/5 border-white/8" },
+  { id: "in_progress", label: "Em curso", color: "bg-blue-500/5 border-blue-500/15" },
+  { id: "done", label: "Concluído", color: "bg-emerald-500/5 border-emerald-500/15" },
+];
+
+const PRIORITY_COLORS = {
+  low: "text-white/30",
+  medium: "text-amber-400",
+  high: "text-orange-400",
+  urgent: "text-rose-400",
+};
+
+const PRIORITY_LABELS = {
+  low: "Baixa",
+  medium: "Média",
+  high: "Alta",
+  urgent: "Urgente",
+};
 
 export default function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [filterProject, setFilterProject] = useState<string>("all");
-  const [projects, setProjects] = useState<string[]>([]);
-
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [priority, setPriority] = useState<Priority>("medium");
-  const [dueDate, setDueDate] = useState("");
-  const [project, setProject] = useState("");
+  const [showAdd, setShowAdd] = useState<Task["status"] | null>(null);
+  const [newTask, setNewTask] = useState({ title: "", description: "", priority: "medium" as Task["priority"], due_date: "" });
   const [saving, setSaving] = useState(false);
+  const [voiceOpen, setVoiceOpen] = useState(false);
+  const [parseText, setParseText] = useState("");
+  const [parsing, setParsing] = useState(false);
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [dragOverCol, setDragOverCol] = useState<Task["status"] | null>(null);
 
-  const [recording, setRecording] = useState(false);
-  const [speechSupported, setSpeechSupported] = useState(false);
-  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
-
-  const [fromTextOpen, setFromTextOpen] = useState(false);
-  const [fromText, setFromText] = useState("");
-  const [suggestions, setSuggestions] = useState<Task[]>([]);
-  const [suggesting, setSuggesting] = useState(false);
-
-  useEffect(() => {
-    const SR = window.SpeechRecognition ?? window.webkitSpeechRecognition;
-    setSpeechSupported(!!SR);
-  }, []);
-
-  const fetchTasks = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/tasks");
-      if (res.ok) {
-        const data = await res.json() as { tasks: Task[] };
-        const t = data.tasks ?? [];
-        setTasks(t);
-        const ps = Array.from(new Set(t.map((x) => x.project).filter(Boolean))) as string[];
-        setProjects(ps);
-      }
-    } finally {
-      setLoading(false);
+  const loadTasks = useCallback(async () => {
+    const res = await fetch("/api/tasks?limit=200");
+    if (res.ok) {
+      const data = await res.json() as Task[];
+      setTasks(data);
     }
+    setLoading(false);
   }, []);
 
-  useEffect(() => { fetchTasks(); }, [fetchTasks]);
+  useEffect(() => { loadTasks(); }, [loadTasks]);
 
-  const toggleVoice = () => {
-    const SR = window.SpeechRecognition ?? window.webkitSpeechRecognition;
-    if (!SR) return;
-    if (recording) { recognitionRef.current?.stop(); setRecording(false); return; }
-    const rec = new SR();
-    rec.continuous = false; rec.interimResults = false; rec.lang = "pt-PT";
-    rec.onresult = (e: SpeechRecognitionEvent) => {
-      setTitle(e.results[0][0].transcript);
-      setRecording(false);
-    };
-    rec.onerror = () => setRecording(false);
-    rec.start();
-    recognitionRef.current = rec;
-    setRecording(true);
-  };
-
-  const handleSave = async () => {
-    if (!title.trim()) return;
+  const addTask = async () => {
+    if (!newTask.title.trim() || saving) return;
     setSaving(true);
-    try {
-      await fetch("/api/tasks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, description, priority, due_date: dueDate, project }),
-      });
-      setTitle(""); setDescription(""); setPriority("medium"); setDueDate(""); setProject("");
-      setShowForm(false);
-      await fetchTasks();
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const moveTask = async (taskId: string, newStatus: Status) => {
-    setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, status: newStatus } : t));
-    await fetch(`/api/tasks/${taskId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: newStatus }),
-    });
-  };
-
-  const handleFromText = async () => {
-    if (!fromText.trim()) return;
-    setSuggesting(true);
-    try {
-      const res = await fetch("/api/tasks/from-text", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: fromText }),
-      });
-      if (res.ok) {
-        const data = await res.json() as { tasks: Task[] };
-        setSuggestions(data.tasks ?? []);
-      }
-    } finally {
-      setSuggesting(false);
-    }
-  };
-
-  const acceptSuggestion = async (t: Task) => {
+    const colTasks = tasks.filter(t => t.status === (showAdd ?? "todo"));
     await fetch("/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(t),
+      body: JSON.stringify({
+        title: newTask.title,
+        description: newTask.description,
+        status: showAdd ?? "todo",
+        priority: newTask.priority,
+        due_date: newTask.due_date || null,
+        position: colTasks.length,
+      }),
     });
-    setSuggestions((prev) => prev.filter((s) => s.id !== t.id));
-    await fetchTasks();
+    setNewTask({ title: "", description: "", priority: "medium", due_date: "" });
+    setShowAdd(null);
+    setSaving(false);
+    loadTasks();
   };
 
-  const filtered = tasks.filter((t) => filterProject === "all" || t.project === filterProject);
+  const moveTask = async (taskId: string, newStatus: Task["status"]) => {
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
+    await fetch("/api/tasks", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: taskId, status: newStatus }),
+    });
+  };
+
+  const deleteTask = async (taskId: string) => {
+    setTasks(prev => prev.filter(t => t.id !== taskId));
+    await fetch(`/api/tasks?id=${taskId}`, { method: "DELETE" });
+  };
+
+  const parseFromText = async () => {
+    if (!parseText.trim() || parsing) return;
+    setParsing(true);
+    const res = await fetch("/api/tasks/from-text", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: parseText }),
+    });
+    if (res.ok) {
+      const { tasks: newTasks } = await res.json() as { tasks: Array<{ title: string; priority?: string }> };
+      for (const t of newTasks) {
+        await fetch("/api/tasks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: t.title, status: "todo", priority: t.priority ?? "medium", position: 0 }),
+        });
+      }
+      setParseText("");
+      setVoiceOpen(false);
+      loadTasks();
+    }
+    setParsing(false);
+  };
+
+  // Drag and drop handlers
+  const handleDragStart = (e: React.DragEvent, id: string) => {
+    setDraggedId(id);
+    e.dataTransfer.effectAllowed = "move";
+  };
+  const handleDragOver = (e: React.DragEvent, col: Task["status"]) => {
+    e.preventDefault();
+    setDragOverCol(col);
+  };
+  const handleDrop = (e: React.DragEvent, col: Task["status"]) => {
+    e.preventDefault();
+    if (draggedId) moveTask(draggedId, col);
+    setDraggedId(null);
+    setDragOverCol(null);
+  };
+
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center">
+      <Loader2 className="w-6 h-6 animate-spin text-white/40" />
+    </div>
+  );
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3">
-          <ListTodo className="h-6 w-6" style={{ color: "var(--accent)" }} />
+    <div className="min-h-screen p-4 md:p-6">
+      <div className="max-w-7xl mx-auto">
+        <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-xl font-bold" style={{ color: "var(--text)" }}>Tarefas</h1>
-            <p className="text-sm" style={{ color: "var(--text-3)" }}>Kanban board</p>
+            <h1 className="text-2xl font-bold text-white">Tarefas</h1>
+            <p className="text-sm text-white/40 mt-0.5">{tasks.length} tarefa{tasks.length !== 1 ? "s" : ""}</p>
           </div>
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          {projects.length > 0 && (
-            <select className="input text-sm py-1.5 px-3 h-auto" value={filterProject} onChange={(e) => setFilterProject(e.target.value)}>
-              <option value="all">Todos projetos</option>
-              {projects.map((p) => <option key={p} value={p}>{p}</option>)}
-            </select>
-          )}
-          <button className="btn btn-secondary btn-sm" onClick={() => setFromTextOpen(!fromTextOpen)}>
-            <AlignLeft className="h-3.5 w-3.5" /> Do texto
-          </button>
-          <button className="btn btn-primary btn-sm" onClick={() => setShowForm(!showForm)}>
-            <Plus className="h-4 w-4" /> Nova tarefa
+          <button
+            onClick={() => setVoiceOpen(o => !o)}
+            className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/10 hover:bg-white/15 text-sm font-medium transition-all"
+          >
+            <Mic className="w-4 h-4" />
+            Ditar tarefas
           </button>
         </div>
-      </div>
 
-      {fromTextOpen && (
-        <div className="card-glass rounded-xl p-4 space-y-3">
-          <p className="text-sm font-medium" style={{ color: "var(--text)" }}>Criar tarefas a partir de texto</p>
-          <textarea className="input w-full min-h-[80px] resize-y text-sm" placeholder="Cola aqui texto livre ou uma lista..." value={fromText} onChange={(e) => setFromText(e.target.value)} />
-          <button className="btn btn-primary btn-sm" onClick={handleFromText} disabled={suggesting || !fromText.trim()}>
-            {suggesting ? "A analisar…" : "Gerar sugestões"}
-          </button>
-          {suggestions.length > 0 && (
-            <div className="space-y-2">
-              {suggestions.map((s, i) => (
-                <div key={i} className="flex items-center justify-between gap-3 p-3 rounded-lg" style={{ background: "var(--surface-2)" }}>
-                  <p className="text-sm" style={{ color: "var(--text)" }}>{s.title}</p>
-                  <button className="btn btn-primary btn-sm shrink-0" onClick={() => acceptSuggestion(s)}>Aceitar</button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+        {/* Voice / parse panel */}
+        {voiceOpen && (
+          <div className="mb-6 rounded-2xl bg-white/5 border border-white/10 p-4 space-y-3">
+            <p className="text-sm text-white/60">Dita ou escreve as tuas tarefas — uma por linha.</p>
+            <VoiceButton
+              onInsert={text => setParseText(t => t ? t + " " + text : text)}
+            />
+            <textarea
+              value={parseText}
+              onChange={e => setParseText(e.target.value)}
+              placeholder={"Exemplo: Editar vídeo de Lisboa\nEnviar orçamento ao cliente\nPreparar call sheet"}
+              rows={4}
+              className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-sm text-white placeholder-white/30 focus:outline-none resize-none"
+            />
+            <button
+              onClick={parseFromText}
+              disabled={parsing || !parseText.trim()}
+              className="px-4 py-2 rounded-xl bg-white text-gray-900 text-sm font-semibold disabled:opacity-50 hover:bg-white/90 transition-all"
+            >
+              {parsing ? "A processar…" : "Criar tarefas"}
+            </button>
+          </div>
+        )}
 
-      {showForm && (
-        <div className="card-glass rounded-xl p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <p className="font-semibold" style={{ color: "var(--text)" }}>Nova tarefa</p>
-            <button className="btn btn-ghost btn-icon-sm" onClick={() => setShowForm(false)}><X className="h-4 w-4" /></button>
-          </div>
-          <div className="flex gap-2">
-            <input className="input flex-1" placeholder="Título da tarefa..." value={title} onChange={(e) => setTitle(e.target.value)} />
-            {speechSupported && (
-              <button className={`btn btn-sm shrink-0 ${recording ? "btn-primary" : "btn-secondary"}`} onClick={toggleVoice}>
-                {recording ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
-              </button>
-            )}
-          </div>
-          <textarea className="input w-full min-h-[60px] resize-y text-sm" placeholder="Descrição (opcional)..." value={description} onChange={(e) => setDescription(e.target.value)} />
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-            <select className="input text-sm" value={priority} onChange={(e) => setPriority(e.target.value as Priority)}>
-              {(Object.keys(PRIORITY_LABELS) as Priority[]).map((p) => <option key={p} value={p}>{PRIORITY_LABELS[p]}</option>)}
-            </select>
-            <input className="input text-sm" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
-            <input className="input text-sm col-span-2" placeholder="Projeto..." value={project} onChange={(e) => setProject(e.target.value)} />
-          </div>
-          <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving || !title.trim()}>
-            {saving ? "A guardar…" : "Criar tarefa"}
-          </button>
-        </div>
-      )}
-
-      {loading ? (
+        {/* Kanban columns */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {[1, 2, 3].map((i) => <div key={i} className="card-glass rounded-xl h-40 animate-pulse" style={{ background: "var(--surface)" }} />)}
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {COLUMNS.map((col) => {
-            const colTasks = filtered.filter((t) => t.status === col.id);
+          {COLUMNS.map(col => {
+            const colTasks = tasks
+              .filter(t => t.status === col.id)
+              .sort((a, b) => a.position - b.position);
+
             return (
-              <div key={col.id} className="space-y-3">
-                <div className="flex items-center justify-between px-1">
-                  <p className="text-sm font-semibold" style={{ color: "var(--text-2)" }}>{col.label}</p>
-                  <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "var(--surface-2)", color: "var(--text-3)" }}>
-                    {colTasks.length}
-                  </span>
+              <div
+                key={col.id}
+                onDragOver={e => handleDragOver(e, col.id)}
+                onDrop={e => handleDrop(e, col.id)}
+                className={`rounded-2xl border p-4 min-h-[300px] transition-colors ${col.color} ${dragOverCol === col.id ? "ring-2 ring-white/30" : ""}`}
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-white/80">{col.label}</span>
+                    <span className="text-xs text-white/40 bg-white/8 rounded-full px-2 py-0.5">{colTasks.length}</span>
+                  </div>
+                  <button
+                    onClick={() => setShowAdd(col.id)}
+                    className="p-1 rounded-lg hover:bg-white/10 transition-colors text-white/40 hover:text-white"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
                 </div>
-                {colTasks.length === 0 && (
-                  <div className="card-glass rounded-xl p-6 text-center" style={{ border: "1px dashed var(--border)" }}>
-                    <p className="text-sm" style={{ color: "var(--text-3)" }}>Sem tarefas</p>
+
+                {/* Add task form */}
+                {showAdd === col.id && (
+                  <div className="mb-3 rounded-xl bg-white/8 border border-white/15 p-3 space-y-2">
+                    <input
+                      autoFocus
+                      value={newTask.title}
+                      onChange={e => setNewTask(n => ({ ...n, title: e.target.value }))}
+                      onKeyDown={e => { if (e.key === "Enter") addTask(); if (e.key === "Escape") setShowAdd(null); }}
+                      placeholder="Título da tarefa…"
+                      className="w-full bg-transparent text-sm text-white placeholder-white/30 focus:outline-none"
+                    />
+                    <div className="flex gap-2">
+                      <select
+                        value={newTask.priority}
+                        onChange={e => setNewTask(n => ({ ...n, priority: e.target.value as Task["priority"] }))}
+                        className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white focus:outline-none"
+                      >
+                        {Object.entries(PRIORITY_LABELS).map(([k, v]) => (
+                          <option key={k} value={k}>{v}</option>
+                        ))}
+                      </select>
+                      <input
+                        type="date"
+                        value={newTask.due_date}
+                        onChange={e => setNewTask(n => ({ ...n, due_date: e.target.value }))}
+                        className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white focus:outline-none"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={addTask} disabled={saving} className="flex-1 py-1.5 rounded-lg bg-white text-gray-900 text-xs font-semibold disabled:opacity-50">
+                        {saving ? "…" : "Adicionar"}
+                      </button>
+                      <button onClick={() => setShowAdd(null)} className="px-2 py-1.5 rounded-lg bg-white/10 text-white/60 hover:text-white">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 )}
-                {colTasks.map((task) => {
-                  const colDef = COLUMNS.find((c) => c.id === col.id)!;
-                  return (
-                    <div key={task.id} className="card-glass rounded-xl p-3 space-y-2">
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="text-sm font-medium" style={{ color: "var(--text)" }}>{task.title}</p>
-                        <span className="text-xs px-1.5 py-0.5 rounded font-medium shrink-0" style={{ background: PRIORITY_COLORS[task.priority] + "22", color: PRIORITY_COLORS[task.priority] }}>
-                          {PRIORITY_LABELS[task.priority]}
-                        </span>
-                      </div>
-                      {task.description && <p className="text-xs" style={{ color: "var(--text-3)" }}>{task.description}</p>}
-                      <div className="flex items-center gap-2 flex-wrap">
-                        {task.due_date && <span className="text-xs" style={{ color: "var(--text-3)" }}>{new Date(task.due_date).toLocaleDateString("pt-PT")}</span>}
-                        {task.project && <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: "var(--surface-2)", color: "var(--text-3)" }}>{task.project}</span>}
-                      </div>
-                      <div className="flex gap-1.5">
-                        {colDef.prev && (
-                          <button className="btn btn-ghost btn-sm text-xs flex-1" onClick={() => moveTask(task.id, colDef.prev!)}>
-                            ← Recuar
-                          </button>
-                        )}
-                        {colDef.next && (
-                          <button className="btn btn-primary btn-sm text-xs flex-1" onClick={() => moveTask(task.id, colDef.next!)}>
-                            Avançar <ChevronRight className="h-3 w-3" />
-                          </button>
-                        )}
+
+                {/* Task cards */}
+                <div className="space-y-2">
+                  {colTasks.map(task => (
+                    <div
+                      key={task.id}
+                      draggable
+                      onDragStart={e => handleDragStart(e, task.id)}
+                      className={`group rounded-xl bg-gray-900/60 border border-white/8 p-3 cursor-grab active:cursor-grabbing hover:border-white/15 transition-all ${draggedId === task.id ? "opacity-40" : ""}`}
+                    >
+                      <div className="flex items-start gap-2">
+                        <GripVertical className="w-3.5 h-3.5 text-white/20 mt-0.5 shrink-0 group-hover:text-white/40" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-white/90 leading-snug">{task.title}</p>
+                          {task.description && <p className="text-xs text-white/40 mt-0.5 line-clamp-2">{task.description}</p>}
+                          <div className="flex items-center gap-2 mt-2 flex-wrap">
+                            <span className={`text-xs ${PRIORITY_COLORS[task.priority]}`}>
+                              <Flag className="w-3 h-3 inline mr-0.5" />
+                              {PRIORITY_LABELS[task.priority]}
+                            </span>
+                            {task.due_date && (
+                              <span className="text-xs text-white/40 flex items-center gap-0.5">
+                                <Calendar className="w-3 h-3" />
+                                {new Date(task.due_date).toLocaleDateString("pt-PT", { day: "2-digit", month: "short" })}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => deleteTask(task.id)}
+                          className="opacity-0 group-hover:opacity-100 p-1 rounded-lg hover:bg-rose-500/20 text-white/30 hover:text-rose-400 transition-all shrink-0"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </div>
-                  );
-                })}
+                  ))}
+                </div>
               </div>
             );
           })}
         </div>
-      )}
+      </div>
     </div>
   );
 }
