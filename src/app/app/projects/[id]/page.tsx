@@ -1290,19 +1290,6 @@ export default function ProjectPage() {
               </div>
             </div>
 
-            {/* Weather section */}
-            {geoData && (
-              <div className="card space-y-4">
-                <WeatherWidget
-                  lat={geoData.lat}
-                  lng={geoData.lng}
-                  projectId={projectId}
-                  startDate={(inputs as unknown as Record<string, unknown>).shoot_date_start as string | undefined}
-                  endDate={(inputs as unknown as Record<string, unknown>).shoot_date_end as string | undefined}
-                />
-              </div>
-            )}
-
             {/* Client brief */}
             <div className="card space-y-4">
               <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>
