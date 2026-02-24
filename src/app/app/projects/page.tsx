@@ -29,6 +29,7 @@ export default function ProjectsPage() {
     const { data } = await sb
       .from("projects")
       .select("id, project_name, client_name, status, created_at, calc")
+      .is("deleted_at", null)
       .order("created_at", { ascending: false });
     setProjects((data ?? []) as ProjectRow[]);
     setLoading(false);

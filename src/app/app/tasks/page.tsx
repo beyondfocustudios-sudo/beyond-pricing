@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   Plus, X, Loader2, Mic,
   Flag, Calendar, GripVertical,
@@ -51,12 +51,14 @@ export default function TasksPage() {
   const [parsing, setParsing] = useState(false);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverCol, setDragOverCol] = useState<Task["status"] | null>(null);
+  const [swipeX, setSwipeX] = useState<Record<string, number>>({});
+  const touchStartX = React.useRef<Record<string, number>>({});
 
   const loadTasks = useCallback(async () => {
     const res = await fetch("/api/tasks?limit=200");
     if (res.ok) {
-      const data = await res.json() as Task[];
-      setTasks(data);
+      const data = await res.json() as { tasks?: Task[] };
+      setTasks(data.tasks ?? []);
     }
     setLoading(false);
   }, []);
@@ -121,6 +123,22 @@ export default function TasksPage() {
       loadTasks();
     }
     setParsing(false);
+  };
+
+  // Swipe-to-delete (mobile)
+  const handleTouchStart = (id: string, e: React.TouchEvent) => {
+    touchStartX.current[id] = e.touches[0].clientX;
+  };
+  const handleTouchMove = (id: string, e: React.TouchEvent) => {
+    const dx = e.touches[0].clientX - (touchStartX.current[id] ?? e.touches[0].clientX);
+    if (dx < 0) setSwipeX((prev) => ({ ...prev, [id]: Math.max(dx, -80) }));
+  };
+  const handleTouchEnd = (id: string) => {
+    const dx = swipeX[id] ?? 0;
+    if (dx <= -60) {
+      deleteTask(id);
+    }
+    setSwipeX((prev) => ({ ...prev, [id]: 0 }));
   };
 
   // Drag and drop handlers
@@ -257,9 +275,24 @@ export default function TasksPage() {
                   {colTasks.map(task => (
                     <div
                       key={task.id}
+                      className="relative overflow-hidden rounded-xl"
+                    >
+                      {/* Swipe delete background */}
+                      <div
+                        className="absolute inset-y-0 right-0 flex items-center justify-center w-20 rounded-r-xl"
+                        style={{ background: "rgba(239,68,68,0.85)" }}
+                        aria-hidden="true"
+                      >
+                        <X className="w-5 h-5 text-white" />
+                      </div>
+                    <div
                       draggable
                       onDragStart={e => handleDragStart(e, task.id)}
-                      className={`group rounded-xl bg-gray-900/60 border border-white/8 p-3 cursor-grab active:cursor-grabbing hover:border-white/15 transition-all ${draggedId === task.id ? "opacity-40" : ""}`}
+                      onTouchStart={e => handleTouchStart(task.id, e)}
+                      onTouchMove={e => handleTouchMove(task.id, e)}
+                      onTouchEnd={() => handleTouchEnd(task.id)}
+                      style={{ transform: `translateX(${swipeX[task.id] ?? 0}px)`, transition: swipeX[task.id] ? "none" : "transform 0.2s ease" }}
+                      className={`group relative rounded-xl bg-gray-900/60 border border-white/8 p-3 cursor-grab active:cursor-grabbing hover:border-white/15 transition-colors ${draggedId === task.id ? "opacity-40" : ""}`}
                     >
                       <div className="flex items-start gap-2">
                         <GripVertical className="w-3.5 h-3.5 text-white/20 mt-0.5 shrink-0 group-hover:text-white/40" />
@@ -286,6 +319,7 @@ export default function TasksPage() {
                           <X className="w-3.5 h-3.5" />
                         </button>
                       </div>
+                    </div>
                     </div>
                   ))}
                 </div>

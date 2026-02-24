@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { BookOpen, Mic, MicOff, Download, Sparkles, Plus, X, ChevronDown, ChevronUp } from "lucide-react";
+import { useToast } from "@/components/Toast";
 
 type Mood = "great" | "good" | "neutral" | "bad" | "terrible";
 
@@ -48,6 +49,7 @@ declare global {
 }
 
 export default function JournalPage() {
+  const toast = useToast();
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -78,11 +80,15 @@ export default function JournalPage() {
       if (res.ok) {
         const data = await res.json() as { entries: JournalEntry[] };
         setEntries(data.entries ?? []);
+      } else {
+        toast.error("Erro ao carregar entradas do journal");
       }
+    } catch {
+      toast.error("Sem ligação — não foi possível carregar o journal");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => { fetchEntries(); }, [fetchEntries]);
 
@@ -115,14 +121,22 @@ export default function JournalPage() {
     setSaving(true);
     try {
       const tags = tagsInput.split(",").map((t) => t.trim()).filter(Boolean);
-      await fetch("/api/journal", {
+      const res = await fetch("/api/journal", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title, body, mood, tags }),
       });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({})) as { error?: string };
+        toast.error(errData.error ?? "Erro ao guardar entrada");
+        return;
+      }
+      toast.success("Entrada guardada");
       setTitle(""); setBody(""); setMood(null); setTagsInput(""); setSummary(null);
       setShowForm(false);
       await fetchEntries();
+    } catch {
+      toast.error("Sem ligação — entrada não guardada");
     } finally {
       setSaving(false);
     }

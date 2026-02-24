@@ -47,6 +47,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { WeatherWidget } from "@/components/WeatherWidget";
+import { CatalogModal } from "@/components/CatalogModal";
 
 // ── Default inputs ────────────────────────────────────────────
 const DEFAULT_INPUTS: ProjectInputs = {
@@ -220,6 +221,8 @@ export default function ProjectPage() {
   const [saved, setSaved] = useState(false);
   const [activeTab, setActiveTab] = useState<"items" | "parametros" | "resumo" | "brief" | "entregas">("items");
   const [expandedCat, setExpandedCat] = useState<string | null>("crew");
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [catalogCat, setCatalogCat] = useState<Categoria>("crew");
   const [editingName, setEditingName] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
 
@@ -733,7 +736,7 @@ export default function ProjectPage() {
                           </AnimatePresence>
 
                           <button
-                            onClick={() => addItem(cat.value as Categoria)}
+                            onClick={() => { setCatalogCat(cat.value as Categoria); setCatalogOpen(true); }}
                             className="btn btn-ghost btn-sm w-full mt-1"
                             style={{ color: cat.color, justifyContent: "flex-start" }}
                           >
@@ -1558,6 +1561,17 @@ export default function ProjectPage() {
           </div>
         </div>
       )}
+
+      {/* Catalog modal */}
+      <CatalogModal
+        open={catalogOpen}
+        defaultCategoria={catalogCat}
+        onClose={() => setCatalogOpen(false)}
+        onSelect={(item) => {
+          setInputs((prev) => ({ ...prev, itens: [...prev.itens, item] }));
+          setExpandedCat(item.categoria);
+        }}
+      />
     </div>
   );
 }

@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { MessageSquare, Send, Sparkles, ArrowLeft, Circle } from "lucide-react";
+import { MessageSquare, Send, Sparkles, ArrowLeft, Circle, Plus, X, ChevronDown } from "lucide-react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense } from "react";
+import { useToast } from "@/components/Toast";
 
 interface Message {
   id: string;
@@ -23,9 +24,17 @@ interface Conversation {
   messages?: Message[];
 }
 
+interface Project {
+  id: string;
+  project_name: string;
+  client_name: string;
+  client_id?: string | null;
+}
+
 function InboxContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const toast = useToast();
   const selectedId = searchParams.get("id");
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -37,18 +46,33 @@ function InboxContent() {
   const [suggesting, setSuggesting] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // New conversation modal
+  const [showNewModal, setShowNewModal] = useState(false);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loadingProjects, setLoadingProjects] = useState(false);
+  const [newProjectId, setNewProjectId] = useState("");
+  const [creatingConv, setCreatingConv] = useState(false);
+
   const fetchConversations = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/conversations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "list" }) });
+      const res = await fetch("/api/conversations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "list" }),
+      });
       if (res.ok) {
         const data = await res.json() as { conversations: Conversation[] };
         setConversations(data.conversations ?? []);
+      } else {
+        toast.error("Erro ao carregar conversas");
       }
+    } catch {
+      toast.error("Sem ligação — não foi possível carregar conversas");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => { fetchConversations(); }, [fetchConversations]);
 
@@ -62,11 +86,15 @@ function InboxContent() {
         setActiveConv(data);
         await fetch(`/api/conversations/${conv.id}/read`, { method: "POST" });
         setConversations((prev) => prev.map((c) => c.id === conv.id ? { ...c, unread_count: 0 } : c));
+      } else {
+        toast.error("Erro ao abrir conversa");
       }
+    } catch {
+      toast.error("Sem ligação");
     } finally {
       setLoadingConv(false);
     }
-  }, [router]);
+  }, [router, toast]);
 
   useEffect(() => {
     if (selectedId && conversations.length > 0 && !activeConv) {
@@ -93,7 +121,13 @@ function InboxContent() {
       if (res.ok) {
         const msg = await res.json() as Message;
         setActiveConv((prev) => prev ? { ...prev, messages: [...(prev.messages ?? []), msg] } : prev);
+      } else {
+        toast.error("Erro ao enviar mensagem");
+        setInput(body); // restore
       }
+    } catch {
+      toast.error("Sem ligação");
+      setInput(body);
     } finally {
       setSending(false);
     }
@@ -107,6 +141,7 @@ function InboxContent() {
       if (res.ok) {
         const data = await res.json() as { suggestion: string };
         if (data.suggestion) setInput(data.suggestion);
+        else toast.info("Sugestão IA ainda não disponível");
       }
     } finally {
       setSuggesting(false);
@@ -136,13 +171,71 @@ function InboxContent() {
     router.push("/app/inbox", { scroll: false });
   };
 
+  // ── New conversation ─────────────────────────────────────
+  const openNewModal = async () => {
+    setShowNewModal(true);
+    setNewProjectId("");
+    setLoadingProjects(true);
+    try {
+      const res = await fetch("/api/projects");
+      if (res.ok) {
+        const data = await res.json() as { projects: Project[] };
+        // Only projects that have a client
+        setProjects((data.projects ?? []).filter((p) => p.client_id));
+      } else {
+        // Fallback: load from supabase directly via API
+        setProjects([]);
+      }
+    } catch {
+      setProjects([]);
+    } finally {
+      setLoadingProjects(false);
+    }
+  };
+
+  const createConversation = async () => {
+    if (!newProjectId) return;
+    setCreatingConv(true);
+    try {
+      const res = await fetch(`/api/conversations?projectId=${newProjectId}`);
+      if (res.ok) {
+        const data = await res.json() as { conversation: { id: string } };
+        setShowNewModal(false);
+        await fetchConversations();
+        // Open the conversation
+        const conv: Conversation = {
+          id: data.conversation.id,
+          unread_count: 0,
+          updated_at: new Date().toISOString(),
+        };
+        openConversation(conv);
+        toast.success("Conversa criada");
+      } else {
+        const err = await res.json() as { error?: string };
+        toast.error(err.error ?? "Erro ao criar conversa");
+      }
+    } catch {
+      toast.error("Sem ligação");
+    } finally {
+      setCreatingConv(false);
+    }
+  };
+
   return (
     <div className="h-[calc(100dvh-8rem)] flex gap-4 max-w-5xl mx-auto">
       {/* Conversation list */}
       <div className={`flex flex-col w-full md:w-80 shrink-0 ${activeConv ? "hidden md:flex" : "flex"}`}>
         <div className="flex items-center gap-3 mb-4">
           <MessageSquare className="h-5 w-5" style={{ color: "var(--accent)" }} />
-          <h1 className="text-lg font-bold" style={{ color: "var(--text)" }}>Inbox</h1>
+          <h1 className="text-lg font-bold flex-1" style={{ color: "var(--text)" }}>Inbox</h1>
+          <button
+            onClick={openNewModal}
+            className="btn btn-primary btn-sm"
+            title="Nova conversa"
+          >
+            <Plus className="h-4 w-4" />
+            <span className="hidden sm:inline">Nova</span>
+          </button>
         </div>
         <div className="flex-1 overflow-y-auto space-y-2">
           {loading ? (
@@ -150,16 +243,19 @@ function InboxContent() {
               <div key={i} className="card-glass rounded-xl h-16 animate-pulse" style={{ background: "var(--surface)" }} />
             ))
           ) : conversations.length === 0 ? (
-            <div className="card-glass rounded-xl p-8 text-center space-y-2">
+            <div className="card-glass rounded-xl p-8 text-center space-y-3">
               <MessageSquare className="h-8 w-8 mx-auto" style={{ color: "var(--text-3)" }} />
               <p style={{ color: "var(--text-2)" }}>Sem conversas</p>
+              <button onClick={openNewModal} className="btn btn-primary btn-sm mx-auto">
+                <Plus className="h-4 w-4" />
+                Iniciar conversa
+              </button>
             </div>
           ) : (
             conversations.map((conv) => (
               <button
                 key={conv.id}
                 className={`w-full text-left card-glass rounded-xl p-3 space-y-1 transition-all ${activeConv?.id === conv.id ? "ring-1" : ""}`}
-
                 onClick={() => openConversation(conv)}
               >
                 <div className="flex items-start justify-between gap-2">
@@ -233,7 +329,7 @@ function InboxContent() {
             <div className="flex gap-2 items-end">
               <textarea
                 className="input flex-1 min-h-[44px] max-h-32 resize-y text-sm"
-                placeholder="Escreve uma mensagem... (Enter para enviar)"
+                placeholder="Escreve uma mensagem… (Enter para enviar)"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
@@ -250,9 +346,75 @@ function InboxContent() {
         </div>
       ) : (
         <div className="hidden md:flex flex-1 items-center justify-center card-glass rounded-xl">
-          <div className="text-center space-y-2">
+          <div className="text-center space-y-3">
             <MessageSquare className="h-10 w-10 mx-auto" style={{ color: "var(--text-3)" }} />
             <p style={{ color: "var(--text-2)" }}>Seleciona uma conversa</p>
+            <button onClick={openNewModal} className="btn btn-primary btn-sm mx-auto">
+              <Plus className="h-4 w-4" />
+              Nova conversa
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── New Conversation Modal ── */}
+      {showNewModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }}
+          onClick={(e) => { if (e.target === e.currentTarget) setShowNewModal(false); }}
+        >
+          <div className="card rounded-2xl w-full max-w-sm space-y-4" style={{ background: "var(--surface)" }}>
+            <div className="flex items-center justify-between">
+              <p className="font-semibold" style={{ color: "var(--text)" }}>Nova Conversa</p>
+              <button className="btn btn-ghost btn-icon-sm" onClick={() => setShowNewModal(false)}>
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div>
+              <label className="label">Projeto</label>
+              {loadingProjects ? (
+                <div className="input flex items-center gap-2" style={{ color: "var(--text-3)" }}>
+                  <div className="animate-spin h-4 w-4 border-2 rounded-full" style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }} />
+                  A carregar projetos…
+                </div>
+              ) : (
+                <div className="relative">
+                  <select
+                    value={newProjectId}
+                    onChange={(e) => setNewProjectId(e.target.value)}
+                    className="input w-full appearance-none pr-8"
+                  >
+                    <option value="">Selecionar projeto com cliente…</option>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.project_name}{p.client_name ? ` — ${p.client_name}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 pointer-events-none" style={{ color: "var(--text-3)" }} />
+                </div>
+              )}
+              {!loadingProjects && projects.length === 0 && (
+                <p className="text-xs mt-1" style={{ color: "var(--text-3)" }}>
+                  Nenhum projeto com cliente associado. Vai a Projetos → Brief para associar um cliente.
+                </p>
+              )}
+            </div>
+
+            <div className="flex gap-2">
+              <button className="btn btn-secondary flex-1" onClick={() => setShowNewModal(false)}>
+                Cancelar
+              </button>
+              <button
+                className="btn btn-primary flex-1"
+                disabled={!newProjectId || creatingConv}
+                onClick={createConversation}
+              >
+                {creatingConv ? "A criar…" : "Criar conversa"}
+              </button>
+            </div>
           </div>
         </div>
       )}

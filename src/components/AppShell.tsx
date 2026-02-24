@@ -23,9 +23,16 @@ import {
   Cloud,
   Bell,
   ClipboardList,
+  Briefcase,
+  User,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import NotificationBell from "@/components/NotificationBell";
+
+type ViewMode = "company" | "ceo";
+
+// CEO mode: high-level items only
+const CEO_HREFS = new Set(["/app", "/app/inbox", "/app/journal", "/app/crm", "/app/insights"]);
 
 const NAV_ITEMS = [
   {
@@ -143,6 +150,22 @@ export function AppShell({
   const pathname = usePathname();
   const router = useRouter();
   const [signingOut, setSigningOut] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>("company");
+
+  useEffect(() => {
+    const saved = (typeof localStorage !== "undefined" ? localStorage.getItem("bp_view_mode") : null) as ViewMode | null;
+    if (saved === "ceo" || saved === "company") setViewMode(saved);
+  }, []);
+
+  const toggleMode = () => {
+    const next: ViewMode = viewMode === "company" ? "ceo" : "company";
+    setViewMode(next);
+    if (typeof localStorage !== "undefined") localStorage.setItem("bp_view_mode", next);
+  };
+
+  const visibleNavItems = viewMode === "ceo"
+    ? NAV_ITEMS.filter((i) => CEO_HREFS.has(i.href))
+    : NAV_ITEMS;
 
   const handleLogout = async () => {
     setSigningOut(true);
@@ -194,7 +217,7 @@ export function AppShell({
         {/* Nav */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
           <p className="section-title px-2 mb-3">Menu</p>
-          {NAV_ITEMS.map((item) => {
+          {visibleNavItems.map((item) => {
             const active = isActive(item.href, pathname, item.exact);
             return (
               <Link
@@ -243,6 +266,15 @@ export function AppShell({
             </div>
             <NotificationBell />
           </div>
+          <button
+            onClick={toggleMode}
+            className="btn btn-ghost btn-sm w-full justify-start"
+            style={{ color: "var(--text-3)" }}
+            title={viewMode === "company" ? "Mudar para modo CEO" : "Mudar para modo Empresa"}
+          >
+            {viewMode === "company" ? <User className="h-3.5 w-3.5" /> : <Briefcase className="h-3.5 w-3.5" />}
+            {viewMode === "company" ? "Modo CEO" : "Modo Empresa"}
+          </button>
           <button
             onClick={handleLogout}
             disabled={signingOut}
@@ -312,7 +344,7 @@ export function AppShell({
             zIndex: 40,
           }}
         >
-          {NAV_ITEMS.map((item) => {
+          {visibleNavItems.slice(0, 5).map((item) => {
             const active = isActive(item.href, pathname, item.exact);
             return (
               <Link
