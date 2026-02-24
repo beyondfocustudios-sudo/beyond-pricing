@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { createClient } from "@/lib/supabase";
 import { formatDateShort, generateId } from "@/lib/utils";
 import { Plus, FileText, X, Check, ChevronRight, Package } from "lucide-react";
+import { useToast } from "@/components/Toast";
 
 interface TemplateRow {
   id: string;
@@ -48,6 +49,7 @@ export default function TemplatesPage() {
   const [templateItems, setTemplateItems] = useState<TemplateItem[]>([]);
   const [loadingItems, setLoadingItems] = useState(false);
   const [successId, setSuccessId] = useState<string | null>(null);
+  const toast = useToast();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -96,10 +98,11 @@ export default function TemplatesPage() {
 
     // Create a new project with this template's defaults
     const defaults = t.defaults as Record<string, number>;
-    const { data: proj } = await sb
+    const { data: proj, error } = await sb
       .from("projects")
       .insert({
         user_id: user.user.id,
+        owner_user_id: user.user.id,  // triggers auto project_member(owner)
         project_name: `${t.name} — Novo Projeto`,
         client_name: "",
         status: "rascunho",
@@ -124,13 +127,16 @@ export default function TemplatesPage() {
       .select()
       .single();
 
+    if (error) {
+      toast.error(`Erro ao criar projeto: ${error.message}`);
+      return;
+    }
     if (proj) {
+      toast.success("Projeto criado a partir do template!");
       setSuccessId(t.id);
       setTimeout(() => {
         window.location.href = `/app/projects/${proj.id}`;
       }, 800);
-    } else {
-      alert("Erro ao criar projeto a partir do template. Tenta novamente.");
     }
   };
 

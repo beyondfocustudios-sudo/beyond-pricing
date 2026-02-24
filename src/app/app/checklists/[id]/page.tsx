@@ -17,6 +17,7 @@ import {
   Folder,
   Edit2,
 } from "lucide-react";
+import { useToast } from "@/components/Toast";
 
 interface ChecklistItem {
   id: string;
@@ -39,6 +40,7 @@ interface ChecklistData {
 export default function ChecklistDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const toast = useToast();
 
   const [checklist, setChecklist] = useState<ChecklistData | null>(null);
   const [items, setItems] = useState<ChecklistItem[]>([]);
@@ -85,8 +87,13 @@ export default function ChecklistDetailPage() {
     setEditingName(false);
     if (!checklistName.trim() || checklistName === checklist?.nome) return;
     const sb = createClient();
-    await sb.from("checklists").update({ nome: checklistName }).eq("id", id);
-    setChecklist((prev) => prev ? { ...prev, nome: checklistName } : prev);
+    const { error } = await sb.from("checklists").update({ nome: checklistName }).eq("id", id);
+    if (error) {
+      toast.error(`Erro ao guardar nome: ${error.message}`);
+      setChecklistName(checklist?.nome ?? "");
+    } else {
+      setChecklist((prev) => prev ? { ...prev, nome: checklistName } : prev);
+    }
   };
 
   // ── Toggle item ──────────────────────────────────────────
@@ -126,7 +133,7 @@ export default function ChecklistDetailPage() {
     newItemRef.current?.focus();
 
     const sb = createClient();
-    const { data } = await sb
+    const { data, error } = await sb
       .from("checklist_items")
       .insert({
         checklist_id: id,
@@ -138,7 +145,11 @@ export default function ChecklistDetailPage() {
       .select()
       .single();
 
-    if (data) {
+    if (error) {
+      // Rollback optimistic update
+      setItems((prev) => prev.filter((it) => it.id !== newItem.id));
+      toast.error(`Erro ao adicionar item: ${error.message}`);
+    } else if (data) {
       setItems((prev) =>
         prev.map((it) => it.id === newItem.id ? { ...(data as ChecklistItem), _local: false } : it)
       );
@@ -147,10 +158,15 @@ export default function ChecklistDetailPage() {
 
   // ── Delete item ──────────────────────────────────────────
   const deleteItem = async (itemId: string, isLocal: boolean) => {
-    setItems((prev) => prev.filter((it) => it.id !== itemId));
+    const prev = items;
+    setItems((p) => p.filter((it) => it.id !== itemId)); // optimistic
     if (!isLocal) {
       const sb = createClient();
-      await sb.from("checklist_items").delete().eq("id", itemId);
+      const { error } = await sb.from("checklist_items").delete().eq("id", itemId);
+      if (error) {
+        setItems(prev); // rollback
+        toast.error(`Erro ao apagar item: ${error.message}`);
+      }
     }
   };
 

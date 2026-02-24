@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { createClient } from "@/lib/supabase";
 import { formatDateShort } from "@/lib/utils";
 import { Plus, CheckSquare } from "lucide-react";
+import { useToast } from "@/components/Toast";
 
 interface ChecklistRow {
   id: string;
@@ -18,17 +19,21 @@ interface ChecklistRow {
 export default function ChecklistsPage() {
   const [checklists, setChecklists] = useState<ChecklistRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const toast = useToast();
 
   const load = useCallback(async () => {
     setLoading(true);
     const sb = createClient();
-    const { data } = await sb
+    const { data, error } = await sb
       .from("checklists")
       .select("id, nome, project_id, created_at, projects(project_name)")
       .order("created_at", { ascending: false });
+    if (error) {
+      toast.error(`Erro ao carregar checklists: ${error.message}`);
+    }
     setChecklists((data ?? []) as unknown as ChecklistRow[]);
     setLoading(false);
-  }, []);
+  }, [toast]);
 
   useEffect(() => { load(); }, [load]);
 

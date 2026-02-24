@@ -24,6 +24,7 @@ export default function NewProjectPage() {
 
       const { data, error } = await sb.from("projects").insert({
         user_id: user.id,
+        owner_user_id: user.id,   // triggers auto project_member(owner) via migration 017
         project_name: "Novo Projeto",
         client_name: "",
         status: "rascunho",

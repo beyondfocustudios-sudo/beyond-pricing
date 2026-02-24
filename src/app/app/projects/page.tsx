@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase";
 import { fmtEur, formatDateShort } from "@/lib/utils";
 import { PROJECT_STATUS, type ProjectStatus } from "@/lib/types";
 import { Plus, Search, Folder, Filter } from "lucide-react";
+import { useToast } from "@/components/Toast";
 
 interface ProjectRow {
   id: string;
@@ -22,18 +23,22 @@ export default function ProjectsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
+  const toast = useToast();
 
   const load = useCallback(async () => {
     setLoading(true);
     const sb = createClient();
-    const { data } = await sb
+    const { data, error } = await sb
       .from("projects")
       .select("id, project_name, client_name, status, created_at, calc")
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
+    if (error) {
+      toast.error(`Erro ao carregar projetos: ${error.message}`);
+    }
     setProjects((data ?? []) as ProjectRow[]);
     setLoading(false);
-  }, []);
+  }, [toast]);
 
   useEffect(() => { load(); }, [load]);
 
