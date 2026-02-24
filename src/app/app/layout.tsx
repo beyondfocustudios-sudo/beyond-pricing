@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase-server";
 import { AppShell } from "@/components/AppShell";
 import { ToastProvider } from "@/components/Toast";
+import { ThemeProvider } from "@/components/ThemeProvider";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   // Env guard — surface misconfiguration immediately
@@ -15,6 +16,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   return (
+    <ThemeProvider>
     <ToastProvider>
       {missingEnv && (
         <div
@@ -31,5 +33,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         {children}
       </AppShell>
     </ToastProvider>
+    </ThemeProvider>
   );
 }

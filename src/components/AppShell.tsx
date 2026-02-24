@@ -25,9 +25,12 @@ import {
   ClipboardList,
   Briefcase,
   User,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import NotificationBell from "@/components/NotificationBell";
+import { useTheme } from "@/components/ThemeProvider";
 
 type ViewMode = "company" | "ceo";
 
@@ -151,6 +154,8 @@ export function AppShell({
   const router = useRouter();
   const [signingOut, setSigningOut] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("company");
+  const [sidebarExpanded, setSidebarExpanded] = useState(false);
+  const { theme, toggleTheme } = useTheme();
 
   useEffect(() => {
     const saved = (typeof localStorage !== "undefined" ? localStorage.getItem("bp_view_mode") : null) as ViewMode | null;
@@ -181,22 +186,27 @@ export function AppShell({
     <div className="flex min-h-dvh" style={{ background: "var(--bg)" }}>
       {/* ── Desktop Sidebar ─────────────────────────── */}
       <aside
-        className="hidden md:flex w-64 flex-col"
+        className="hidden md:flex flex-col transition-all duration-200"
         style={{
           background: "var(--surface)",
           borderRight: "1px solid var(--border)",
           position: "sticky",
           top: 0,
           height: "100dvh",
+          width: sidebarExpanded ? "16rem" : "4rem",
+          zIndex: 30,
+          overflow: "hidden",
         }}
+        onMouseEnter={() => setSidebarExpanded(true)}
+        onMouseLeave={() => setSidebarExpanded(false)}
       >
         {/* Logo */}
         <div
-          className="flex items-center gap-3 px-5 py-5"
-          style={{ borderBottom: "1px solid var(--border)" }}
+          className="flex items-center gap-3 px-3 py-5 shrink-0"
+          style={{ borderBottom: "1px solid var(--border)", minHeight: "4.5rem" }}
         >
           <div
-            className="flex h-8 w-8 items-center justify-center rounded-lg"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
             style={{
               background: "var(--accent)",
               boxShadow: "0 0 16px var(--accent-glow)",
@@ -204,7 +214,10 @@ export function AppShell({
           >
             <Zap className="h-4 w-4 text-white" />
           </div>
-          <div>
+          <div
+            className="overflow-hidden whitespace-nowrap transition-all duration-200"
+            style={{ opacity: sidebarExpanded ? 1 : 0, width: sidebarExpanded ? "auto" : 0 }}
+          >
             <p className="text-sm font-bold" style={{ color: "var(--text)", letterSpacing: "-0.02em" }}>
               Beyond Pricing
             </p>
@@ -215,8 +228,7 @@ export function AppShell({
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          <p className="section-title px-2 mb-3">Menu</p>
+        <nav className="flex-1 px-2 py-4 space-y-0.5 overflow-y-auto overflow-x-hidden">
           {visibleNavItems.map((item) => {
             const active = isActive(item.href, pathname, item.exact);
             return (
@@ -224,10 +236,17 @@ export function AppShell({
                 key={item.href}
                 href={item.href}
                 className={`nav-item ${active ? "active" : ""}`}
+                title={!sidebarExpanded ? item.label : undefined}
+                style={{ justifyContent: sidebarExpanded ? undefined : "center", gap: sidebarExpanded ? undefined : 0, paddingLeft: sidebarExpanded ? undefined : "0.625rem", paddingRight: sidebarExpanded ? undefined : "0.625rem" }}
               >
                 <item.icon className="h-4 w-4 shrink-0" />
-                <span className="flex-1">{item.label}</span>
-                {active && (
+                <span
+                  className="overflow-hidden whitespace-nowrap transition-all duration-150 flex-1"
+                  style={{ opacity: sidebarExpanded ? 1 : 0, width: sidebarExpanded ? "auto" : 0, maxWidth: sidebarExpanded ? "10rem" : 0 }}
+                >
+                  {item.label}
+                </span>
+                {active && sidebarExpanded && (
                   <ChevronRight
                     className="h-3.5 w-3.5 shrink-0"
                     style={{ color: "var(--accent)" }}
@@ -240,49 +259,73 @@ export function AppShell({
 
         {/* User footer */}
         <div
-          className="px-3 py-4 space-y-3"
+          className="px-2 py-4 space-y-1 shrink-0"
           style={{ borderTop: "1px solid var(--border)" }}
         >
-          <div className="flex items-center gap-3 px-2">
-            <div
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
-              style={{ background: "var(--accent)" }}
-            >
-              {userInitial}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p
-                className="truncate text-xs font-medium"
-                style={{ color: "var(--text)" }}
+          {sidebarExpanded && (
+            <div className="flex items-center gap-3 px-2 mb-2">
+              <div
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
+                style={{ background: "var(--accent)" }}
               >
-                {userEmail}
-              </p>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <span className="glow-dot" />
-                <span className="text-xs" style={{ color: "var(--text-3)" }}>
-                  Online
-                </span>
+                {userInitial}
               </div>
+              <div className="min-w-0 flex-1 overflow-hidden">
+                <p className="truncate text-xs font-medium" style={{ color: "var(--text)" }}>
+                  {userEmail}
+                </p>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span className="glow-dot" />
+                  <span className="text-xs" style={{ color: "var(--text-3)" }}>Online</span>
+                </div>
+              </div>
+              <NotificationBell />
             </div>
-            <NotificationBell />
-          </div>
+          )}
+          {!sidebarExpanded && (
+            <div className="flex justify-center py-1 mb-1">
+              <NotificationBell />
+            </div>
+          )}
+          <button
+            onClick={toggleTheme}
+            className="btn btn-ghost btn-sm w-full"
+            style={{ color: "var(--text-3)", justifyContent: sidebarExpanded ? "flex-start" : "center", paddingLeft: sidebarExpanded ? undefined : "0.625rem", paddingRight: sidebarExpanded ? undefined : "0.625rem" }}
+            title={theme === "dark" ? "Modo claro" : "Modo escuro"}
+          >
+            {theme === "dark" ? <Sun className="h-3.5 w-3.5 shrink-0" /> : <Moon className="h-3.5 w-3.5 shrink-0" />}
+            {sidebarExpanded && (
+              <span className="overflow-hidden whitespace-nowrap">
+                {theme === "dark" ? "Modo claro" : "Modo escuro"}
+              </span>
+            )}
+          </button>
           <button
             onClick={toggleMode}
-            className="btn btn-ghost btn-sm w-full justify-start"
-            style={{ color: "var(--text-3)" }}
-            title={viewMode === "company" ? "Mudar para modo CEO" : "Mudar para modo Empresa"}
+            className="btn btn-ghost btn-sm w-full"
+            style={{ color: "var(--text-3)", justifyContent: sidebarExpanded ? "flex-start" : "center", paddingLeft: sidebarExpanded ? undefined : "0.625rem", paddingRight: sidebarExpanded ? undefined : "0.625rem" }}
+            title={viewMode === "company" ? "Modo CEO" : "Modo Empresa"}
           >
-            {viewMode === "company" ? <User className="h-3.5 w-3.5" /> : <Briefcase className="h-3.5 w-3.5" />}
-            {viewMode === "company" ? "Modo CEO" : "Modo Empresa"}
+            {viewMode === "company" ? <User className="h-3.5 w-3.5 shrink-0" /> : <Briefcase className="h-3.5 w-3.5 shrink-0" />}
+            {sidebarExpanded && (
+              <span className="overflow-hidden whitespace-nowrap">
+                {viewMode === "company" ? "Modo CEO" : "Modo Empresa"}
+              </span>
+            )}
           </button>
           <button
             onClick={handleLogout}
             disabled={signingOut}
-            className="btn btn-ghost btn-sm w-full justify-start"
-            style={{ color: "var(--text-3)" }}
+            className="btn btn-ghost btn-sm w-full"
+            style={{ color: "var(--text-3)", justifyContent: sidebarExpanded ? "flex-start" : "center", paddingLeft: sidebarExpanded ? undefined : "0.625rem", paddingRight: sidebarExpanded ? undefined : "0.625rem" }}
+            title="Terminar sessão"
           >
-            <LogOut className="h-3.5 w-3.5" />
-            {signingOut ? "A sair…" : "Terminar sessão"}
+            <LogOut className="h-3.5 w-3.5 shrink-0" />
+            {sidebarExpanded && (
+              <span className="overflow-hidden whitespace-nowrap">
+                {signingOut ? "A sair…" : "Terminar sessão"}
+              </span>
+            )}
           </button>
         </div>
       </aside>
@@ -317,6 +360,9 @@ export function AppShell({
 
           <div className="flex items-center gap-2">
             <NotificationBell />
+            <button onClick={toggleTheme} className="btn btn-ghost btn-icon-sm" title={theme === "dark" ? "Modo claro" : "Modo escuro"}>
+              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </button>
             <button
               onClick={handleLogout}
               disabled={signingOut}

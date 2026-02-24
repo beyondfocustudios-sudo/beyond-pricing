@@ -84,8 +84,8 @@ export default function DashboardPage() {
       subLabel: "valor total",
       icon: Calculator,
       href: "/app/projects",
-      color: "var(--accent)",
-      colorDim: "var(--accent-dim)",
+      pastel: "card-pastel-blue",
+      textColor: "var(--pastel-blue-text)",
     },
     {
       label: "Checklists",
@@ -94,8 +94,8 @@ export default function DashboardPage() {
       subLabel: "de produção",
       icon: CheckSquare,
       href: "/app/checklists",
-      color: "#7c3aed",
-      colorDim: "rgba(124,58,237,0.12)",
+      pastel: "card-pastel-purple",
+      textColor: "var(--pastel-purple-text)",
     },
     {
       label: "Templates",
@@ -104,8 +104,8 @@ export default function DashboardPage() {
       subLabel: "reutilizáveis",
       icon: FileText,
       href: "/app/templates",
-      color: "#d97706",
-      colorDim: "rgba(217,119,6,0.12)",
+      pastel: "card-pastel-amber",
+      textColor: "var(--pastel-amber-text)",
     },
     {
       label: "Pipeline",
@@ -114,19 +114,19 @@ export default function DashboardPage() {
       subLabel: "orçamentos enviados",
       icon: TrendingUp,
       href: "/app/projects",
-      color: "#34d399",
-      colorDim: "rgba(52,211,153,0.1)",
+      pastel: "card-pastel-green",
+      textColor: "var(--pastel-green-text)",
     },
   ];
 
   return (
     <div className="space-y-8">
-      {/* Header */}
+      {/* Hero header */}
       <motion.div
         initial={{ opacity: 0, y: -8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
-        className="page-header"
+        className="bg-gradient-hero rounded-3xl px-8 py-10 flex items-center justify-between gap-4 flex-wrap"
       >
         <div>
           <h1 className="page-title">Dashboard</h1>
@@ -157,36 +157,36 @@ export default function DashboardPage() {
             ))
           : cards.map((c) => (
               <motion.div key={c.label} variants={itemVariants}>
-                <Link href={c.href} className="stat-card block group">
+                <Link href={c.href} className={`${c.pastel} block group card-hover`}>
                   <div className="flex items-start justify-between">
                     <div
                       className="flex h-10 w-10 items-center justify-center rounded-xl"
-                      style={{ background: c.colorDim }}
+                      style={{ background: "rgba(255,255,255,0.3)" }}
                     >
-                      <c.icon className="h-5 w-5" style={{ color: c.color }} />
+                      <c.icon className="h-5 w-5" style={{ color: c.textColor }} />
                     </div>
                     <ArrowRight
-                      className="h-4 w-4 opacity-0 group-hover:opacity-100 transition-opacity"
-                      style={{ color: "var(--text-3)" }}
+                      className="h-4 w-4 opacity-0 group-hover:opacity-60 transition-opacity"
+                      style={{ color: c.textColor }}
                     />
                   </div>
                   <div className="mt-3">
                     <p
                       className="text-2xl font-bold tracking-tight"
-                      style={{ color: "var(--text)", letterSpacing: "-0.03em" }}
+                      style={{ color: c.textColor, letterSpacing: "-0.03em" }}
                     >
                       {c.value}
                     </p>
-                    <p className="text-sm font-medium mt-0.5" style={{ color: "var(--text-2)" }}>
+                    <p className="text-sm font-medium mt-0.5" style={{ color: c.textColor, opacity: 0.8 }}>
                       {c.label}
                     </p>
                     {c.sub && (
-                      <p className="text-xs mt-1" style={{ color: c.color }}>
+                      <p className="text-xs mt-1" style={{ color: c.textColor, opacity: 0.7 }}>
                         {c.sub}
                       </p>
                     )}
                     {!c.sub && (
-                      <p className="text-xs mt-1" style={{ color: "var(--text-3)" }}>
+                      <p className="text-xs mt-1" style={{ color: c.textColor, opacity: 0.6 }}>
                         {c.subLabel}
                       </p>
                     )}

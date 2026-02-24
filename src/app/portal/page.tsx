@@ -21,11 +21,11 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const STATUS_DOT: Record<string, string> = {
-  rascunho: "text-white/30",
-  enviado: "text-blue-400",
-  aprovado: "text-emerald-400",
-  cancelado: "text-rose-400",
-  arquivado: "text-white/20",
+  rascunho: "var(--text-3)",
+  enviado: "var(--pastel-blue-text)",
+  aprovado: "var(--pastel-green-text)",
+  cancelado: "var(--error)",
+  arquivado: "var(--text-3)",
 };
 
 export default function PortalHomePage() {
@@ -68,33 +68,47 @@ export default function PortalHomePage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-950">
-        <Loader2 className="w-8 h-8 text-white/40 animate-spin" />
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg)" }}>
+        <Loader2 className="w-8 h-8 animate-spin" style={{ color: "var(--text-3)" }} />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
-      <header className="px-4 pt-safe-top pb-4 border-b border-white/5 bg-gray-950/80 backdrop-blur-xl sticky top-0 z-30">
-        <div className="max-w-3xl mx-auto flex items-center justify-between">
+    <div className="min-h-screen" style={{ background: "var(--bg)", color: "var(--text)" }}>
+      <header
+        style={{
+          background: "var(--glass-bg)",
+          backdropFilter: "var(--glass-blur)",
+          WebkitBackdropFilter: "var(--glass-blur)",
+          borderBottom: "1px solid var(--border)",
+          position: "sticky",
+          top: 0,
+          zIndex: 30,
+        }}
+      >
+        <div className="max-w-3xl mx-auto px-4 h-14 flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold">Beyond Focus</h1>
-            <p className="text-xs text-white/40 mt-0.5">{userEmail}</p>
+            <h1 className="text-xl font-bold" style={{ color: "var(--text)" }}>Beyond Focus</h1>
+            <p className="text-xs" style={{ color: "var(--text-3)" }}>{userEmail}</p>
           </div>
-          <button onClick={logout} className="text-xs text-white/40 hover:text-white/70 transition-colors px-3 py-1.5 rounded-full border border-white/10 hover:border-white/20">
+          <button
+            onClick={logout}
+            className="btn btn-ghost btn-sm"
+            style={{ color: "var(--text-3)" }}
+          >
             Sair
           </button>
         </div>
       </header>
 
       <main className="max-w-3xl mx-auto px-4 py-6">
-        <h2 className="text-sm font-semibold text-white/50 uppercase tracking-wider mb-4">Os meus projetos</h2>
+        <p className="section-title mb-4">Os meus projetos</p>
         {projects.length === 0 ? (
-          <div className="text-center py-16 text-white/30">
-            <FolderOpen className="w-12 h-12 mx-auto mb-3 opacity-30" />
-            <p className="text-sm">Nenhum projeto associado.</p>
-            <p className="text-xs mt-1">Contacta a Beyond Focus para obter acesso.</p>
+          <div className="empty-state">
+            <FolderOpen className="empty-icon" />
+            <p className="empty-title">Nenhum projeto associado.</p>
+            <p className="empty-desc">Contacta a Beyond Focus para obter acesso.</p>
           </div>
         ) : (
           <div className="space-y-2">
@@ -102,18 +116,19 @@ export default function PortalHomePage() {
               <button
                 key={p.id}
                 onClick={() => router.push(`/portal/projects/${p.id}`)}
-                className="w-full flex items-center gap-4 rounded-2xl bg-white/5 border border-white/8 px-5 py-4 hover:bg-white/8 hover:border-white/15 transition-all text-left group"
+                className="w-full flex items-center gap-4 px-5 py-4 text-left group card card-hover"
+                style={{ padding: "1rem 1.25rem" }}
               >
-                <div className={`shrink-0 ${STATUS_DOT[p.status ?? "enviado"] ?? "text-white/30"}`}>
+                <div className="shrink-0" style={{ color: STATUS_DOT[p.status ?? "enviado"] ?? "var(--text-3)" }}>
                   <Circle className="w-2 h-2 fill-current" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-medium text-sm group-hover:text-white transition-colors">{p.name}</p>
-                  <p className="text-xs text-white/40 mt-0.5">
+                  <p className="font-medium text-sm" style={{ color: "var(--text)" }}>{p.name}</p>
+                  <p className="text-xs mt-0.5" style={{ color: "var(--text-3)" }}>
                     {STATUS_LABELS[p.status ?? "enviado"] ?? p.status} · {new Date(p.updated_at).toLocaleDateString("pt-PT", { day: "2-digit", month: "short", year: "numeric" })}
                   </p>
                 </div>
-                <ChevronRight className="w-4 h-4 text-white/30 group-hover:text-white/60 transition-colors shrink-0" />
+                <ChevronRight className="w-4 h-4 shrink-0" style={{ color: "var(--text-3)" }} />
               </button>
             ))}
           </div>
