@@ -4,8 +4,8 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import {
-  ChevronLeft, MessageSquare, Package, CheckCircle2,
-  Clock, AlertCircle, Send, PlusCircle, X,
+  ChevronLeft, MessageSquare, Package,
+  Clock, Send, PlusCircle, X,
   FileText, Image, Video, Download, Loader2,
   Bell, Star, Calendar, Flag, Paperclip,
 } from "lucide-react";

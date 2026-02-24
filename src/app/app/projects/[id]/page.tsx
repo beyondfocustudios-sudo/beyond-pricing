@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { createClient } from "@/lib/supabase";
 import { calcularOrcamento } from "@/lib/calc";
-import { fmtEur, fmt, generateId } from "@/lib/utils";
+import { fmtEur, fmt } from "@/lib/utils";
 import {
   CATEGORIAS,
   IVA_REGIMES,
@@ -363,23 +363,6 @@ export default function ProjectPage() {
   }, [inputs, projectName, clientName, status, loading, handleSave]);
 
   // ── Item CRUD ─────────────────────────────────────────────
-  const addItem = (categoria: Categoria) => {
-    const newItem: ProjectItem = {
-      id: generateId(),
-      categoria,
-      nome: "",
-      unidade: "dia",
-      quantidade: 1,
-      preco_unitario: 0,
-      total: 0,
-    };
-    setInputs((prev) => ({
-      ...prev,
-      itens: [...prev.itens, newItem],
-    }));
-    setExpandedCat(categoria);
-  };
-
   const updateItem = (id: string, updated: ProjectItem) => {
     setInputs((prev) => ({
       ...prev,
@@ -682,7 +665,7 @@ export default function ProjectPage() {
                 </div>
               </div>
               <p className="text-sm" style={{ color: "var(--text-2)" }}>
-                O projeto <strong style={{ color: "var(--text)" }}>"{projectName}"</strong> será arquivado e removido da lista principal. Podes recuperá-lo mais tarde.
+                O projeto <strong style={{ color: "var(--text)" }}>&quot;{projectName}&quot;</strong> será arquivado e removido da lista principal. Podes recuperá-lo mais tarde.
               </p>
               <div className="flex gap-2">
                 <button

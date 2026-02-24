@@ -148,7 +148,7 @@ export default function DiagnosticsPage() {
     setRunning(false);
   };
 
-  useEffect(() => { runChecks(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { runChecks(); }, []); // run once on mount
 
   const StatusIcon = ({ status }: { status: Check["status"] }) => {
     if (status === "ok") return <CheckCircle2 className="h-4 w-4 shrink-0" style={{ color: "var(--success)" }} />;

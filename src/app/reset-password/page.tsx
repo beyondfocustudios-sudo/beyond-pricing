@@ -1,12 +1,11 @@
 "use client";
 
 import { useState, useEffect, Suspense } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import { Eye, EyeOff, Lock, CheckCircle2, XCircle } from "lucide-react";
 
 function ResetPasswordForm() {
-  const params = useSearchParams();
   const router = useRouter();
   const supabase = createClient();
 

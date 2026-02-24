@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import Link from "next/link";
-import { LogOut, Folder, ChevronRight } from "lucide-react";
+import { LogOut } from "lucide-react";
 import { ThemeProvider } from "@/components/ThemeProvider";
 
 export default function PortalLayout({

@@ -3,8 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import {
   Plus, X, Loader2, Search, Upload, Download,
-  User, Building2, DollarSign, TrendingUp,
-  ChevronRight, Filter, Phone, Mail, Globe,
+  User, Building2, Phone, Mail,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────

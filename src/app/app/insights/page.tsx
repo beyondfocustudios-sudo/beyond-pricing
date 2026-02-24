@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase";
 import { fmtEur } from "@/lib/utils";
 import { TrendingUp, BarChart2, Target, AlertTriangle, CheckCircle } from "lucide-react";
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LineChart, Line,
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
 } from "recharts";
 
 interface ProjectRow {

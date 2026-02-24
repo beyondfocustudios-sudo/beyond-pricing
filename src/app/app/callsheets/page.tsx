@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
 import {
   Plus, Loader2, Calendar, MapPin, Clock,
-  Users, Trash2, Edit2, X, ChevronDown, ChevronUp,
-  FileText, Phone, Mail,
+  Users, Trash2, X, ChevronDown, ChevronUp,
+  FileText, Phone,
 } from "lucide-react";
 
 interface Person {
@@ -43,7 +42,6 @@ interface CallSheet {
 }
 
 export default function CallSheetsPage() {
-  const router = useRouter();
   const [sheets, setSheets] = useState<CallSheet[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
