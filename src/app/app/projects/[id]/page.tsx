@@ -48,6 +48,7 @@ import {
 import Link from "next/link";
 import { WeatherWidget } from "@/components/WeatherWidget";
 import { CatalogModal } from "@/components/CatalogModal";
+import { useToast } from "@/components/Toast";
 
 // ── Default inputs ────────────────────────────────────────────
 const DEFAULT_INPUTS: ProjectInputs = {
@@ -210,6 +211,7 @@ export default function ProjectPage() {
   const params = useParams();
   const router = useRouter();
   const projectId = params.id as string;
+  const toast = useToast();
 
   const [projectName, setProjectName] = useState("Novo Projeto");
   const [clientName, setClientName] = useState("");
@@ -339,11 +341,13 @@ export default function ProjectPage() {
       .eq("id", projectId);
 
     setSaving(false);
-    if (!error) {
+    if (error) {
+      toast.error(`Erro ao guardar: ${error.message}`);
+    } else {
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     }
-  }, [calc, projectName, clientName, status, inputs, projectId]);
+  }, [calc, projectName, clientName, status, inputs, projectId, toast]);
 
   // Auto-save on changes (debounced)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -412,7 +416,7 @@ export default function ProjectPage() {
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      alert("Erro ao gerar PDF");
+      toast.error("Erro ao gerar PDF — tenta novamente");
     }
   };
 
@@ -450,7 +454,7 @@ export default function ProjectPage() {
     setPptxLoading(true);
     try {
       const res = await fetch(`/api/export/pptx?projectId=${projectId}`);
-      if (!res.ok) { alert("Erro ao gerar apresentação"); return; }
+      if (!res.ok) { toast.error("Erro ao gerar apresentação PPTX"); return; }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -458,7 +462,7 @@ export default function ProjectPage() {
       a.download = `${projectName.replace(/\s+/g, "-").toLowerCase()}.pptx`;
       a.click();
       URL.revokeObjectURL(url);
-    } catch { alert("Erro ao gerar apresentação"); }
+    } catch { toast.error("Erro ao gerar apresentação"); }
     finally { setPptxLoading(false); }
   };
 
@@ -1160,7 +1164,7 @@ export default function ProjectPage() {
                         try {
                           const gRes = await fetch(`/api/geo/geocode?q=${encodeURIComponent(inputs.cidade!)}`);
                           const gJson = await gRes.json() as { lat: number; lng: number; label?: string } | null;
-                          if (!gJson) { alert("Local não encontrado"); setGeocoding(false); return; }
+                          if (!gJson) { toast.error("Local não encontrado — tenta uma cidade mais específica"); setGeocoding(false); return; }
 
                           const rRes = await fetch(`/api/geo/route?lat=${gJson.lat}&lng=${gJson.lng}`);
                           const rJson = await rRes.json() as { travel_km: number; travel_minutes: number };
@@ -1179,7 +1183,7 @@ export default function ProjectPage() {
                             travel_minutes: newGeo.travel_minutes,
                           }).eq("id", projectId);
                         } catch {
-                          alert("Erro ao geocodificar");
+                          toast.error("Erro ao geocodificar — verifica a ligação");
                         }
                         setGeocoding(false);
                       }}

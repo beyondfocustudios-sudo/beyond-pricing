@@ -4,9 +4,10 @@ import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase";
 import { motion, AnimatePresence } from "framer-motion";
 import { slugify } from "@/lib/utils";
+import { useToast } from "@/components/Toast";
 import {
-  Plus, Users, ChevronRight, X, Building2, User,
-  Mail, Shield, FolderOpen, Check, AlertCircle, Copy,
+  Plus, Users, X, Building2, User,
+  Shield, FolderOpen, Check, Copy,
   Loader2, Lock,
 } from "lucide-react";
 
@@ -46,13 +47,13 @@ export default function ClientsPage() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [orgRole, setOrgRole] = useState<string | null>(null);
   const [accessChecked, setAccessChecked] = useState(false);
+  const toast = useToast();
 
   const [newClientName, setNewClientName] = useState("");
   const [newEmail, setNewEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newRole, setNewRole] = useState<"client_viewer" | "client_approver">("client_viewer");
   const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [unassignedProjects, setUnassignedProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
@@ -63,7 +64,6 @@ export default function ClientsPage() {
   const load = useCallback(async () => {
     const sb = createClient();
 
-    // Check org role via API (reads team_members + app_metadata)
     const roleRes = await fetch("/api/admin/org-role");
     if (roleRes.ok) {
       const roleData = await roleRes.json() as { role: string | null; isAdmin: boolean };
@@ -72,13 +72,17 @@ export default function ClientsPage() {
     }
     setAccessChecked(true);
 
-    // Load clients (RLS will allow if in team_members)
-    const { data: clientsData } = await sb
+    const { data: clientsData, error: clientsErr } = await sb
       .from("clients")
       .select("id, name, slug, created_at")
       .order("created_at", { ascending: false });
 
-    // Enrich with counts
+    if (clientsErr) {
+      toast.error(`Erro ao carregar clientes: ${clientsErr.message}`);
+      setLoading(false);
+      return;
+    }
+
     const enriched = await Promise.all(
       (clientsData ?? []).map(async (c) => {
         const { count: projCount } = await sb
@@ -95,26 +99,29 @@ export default function ClientsPage() {
 
     setClients(enriched);
 
-    // Load all projects
     const { data: projData } = await sb
       .from("projects")
       .select("id, project_name, client_id, status")
+      .is("deleted_at", null)
       .order("project_name");
     setAllProjects(projData ?? []);
     setLoading(false);
-  }, []);
+  }, [toast]);
 
   useEffect(() => { load(); }, [load]);
 
   const createClient_ = async () => {
     if (!newClientName.trim() || saving) return;
     setSaving(true);
-    setSaveError(null);
     const sb = createClient();
     const slug = slugify(newClientName);
     const { error } = await sb.from("clients").insert({ name: newClientName.trim(), slug });
     setSaving(false);
-    if (error) { setSaveError(error.message); return; }
+    if (error) {
+      toast.error(`Erro ao criar cliente: ${error.message}`);
+      return;
+    }
+    toast.success(`Cliente "${newClientName.trim()}" criado`);
     setNewClientName("");
     setModal(null);
     load();
@@ -123,7 +130,6 @@ export default function ClientsPage() {
   const createClientUser = async () => {
     if (modal?.type !== "create_user" || !newEmail.trim() || !newPassword || saving) return;
     setSaving(true);
-    setSaveError(null);
     const res = await fetch("/api/admin/create-user", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -136,8 +142,13 @@ export default function ClientsPage() {
     });
     const data = await res.json() as { error?: string; password?: string };
     setSaving(false);
-    if (!res.ok) { setSaveError(data.error ?? "Erro"); return; }
-    setSaveSuccess(`Utilizador criado! Password: ${data.password ?? newPassword}`);
+    if (!res.ok) {
+      toast.error(data.error ?? "Erro ao criar utilizador");
+      return;
+    }
+    const pwd = data.password ?? newPassword;
+    setSaveSuccess(`Utilizador criado! Password: ${pwd}`);
+    toast.success("Utilizador criado com sucesso");
     setNewEmail("");
     setNewPassword("");
     load();
@@ -147,8 +158,13 @@ export default function ClientsPage() {
     if (modal?.type !== "assign_project" || !selectedProjectId || saving) return;
     setSaving(true);
     const sb = createClient();
-    await sb.from("projects").update({ client_id: modal.clientId }).eq("id", selectedProjectId);
+    const { error } = await sb.from("projects").update({ client_id: modal.clientId }).eq("id", selectedProjectId);
     setSaving(false);
+    if (error) {
+      toast.error(`Erro ao associar projeto: ${error.message}`);
+      return;
+    }
+    toast.success("Projeto associado ao cliente");
     setSelectedProjectId("");
     setModal(null);
     load();
@@ -156,10 +172,11 @@ export default function ClientsPage() {
 
   const loadMembers = async (clientId: string) => {
     const sb = createClient();
-    const { data } = await sb
+    const { data, error } = await sb
       .from("client_users")
       .select("id, user_id, role")
       .eq("client_id", clientId);
+    if (error) toast.error(`Erro ao carregar membros: ${error.message}`);
     setMembers(data ?? []);
   };
 
@@ -167,60 +184,84 @@ export default function ClientsPage() {
     if (!selectedMemberProjectId || saving) return;
     setSaving(true);
     const sb = createClient();
-    await sb.from("project_members").upsert(
+    const { error } = await sb.from("project_members").upsert(
       { project_id: selectedMemberProjectId, user_id: userId, role: "client_viewer" },
       { onConflict: "project_id,user_id" }
     );
     setSaving(false);
-    setSaveSuccess("Acesso concedido!");
+    if (error) {
+      toast.error(`Erro ao conceder acesso: ${error.message}`);
+      return;
+    }
+    toast.success("Acesso concedido ao projeto");
   };
 
-  const copyToClipboard = (text: string) => navigator.clipboard.writeText(text).catch(() => {});
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text)
+      .then(() => toast.success("Copiado"))
+      .catch(() => toast.error("Não foi possível copiar"));
+  };
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="w-6 h-6 animate-spin text-white/40" />
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <Loader2 className="w-6 h-6 animate-spin" style={{ color: "var(--text-3)" }} />
       </div>
     );
   }
 
-  // Access denied state
   if (accessChecked && !isAdmin) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-4 text-center p-8">
-        <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center">
-          <Lock className="w-7 h-7 text-white/30" />
+      <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4 text-center p-8">
+        <div
+          className="w-16 h-16 rounded-2xl flex items-center justify-center"
+          style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}
+        >
+          <Lock className="w-7 h-7" style={{ color: "var(--text-3)" }} />
         </div>
-        <h2 className="text-xl font-bold text-white">Acesso Restrito</h2>
-        <p className="text-white/50 text-sm max-w-sm">
-          Precisas de ser <strong className="text-white/80">owner</strong> ou <strong className="text-white/80">admin</strong> da organização Beyond Focus para gerir clientes.
+        <h2 className="text-xl font-bold" style={{ color: "var(--text)" }}>Acesso Restrito</h2>
+        <p className="text-sm max-w-sm" style={{ color: "var(--text-2)" }}>
+          Precisas de ser <strong style={{ color: "var(--text)" }}>owner</strong> ou{" "}
+          <strong style={{ color: "var(--text)" }}>admin</strong> da organização Beyond Focus para gerir clientes.
         </p>
-        <p className="text-white/30 text-xs mt-2">
-          O teu role atual: <code className="bg-white/5 px-2 py-0.5 rounded">{orgRole ?? "sem role"}</code>
+        <p className="text-xs" style={{ color: "var(--text-3)" }}>
+          O teu role atual:{" "}
+          <code
+            className="px-2 py-0.5 rounded text-xs"
+            style={{ background: "var(--surface-2)", color: "var(--text-2)" }}
+          >
+            {orgRole ?? "sem role"}
+          </code>
         </p>
-        <p className="text-white/25 text-xs">
-          Pede ao owner para correr <code className="bg-white/5 px-1 rounded">/api/admin/bootstrap</code> ou para te adicionar em team_members.
+        <p className="text-xs" style={{ color: "var(--text-3)" }}>
+          Pede ao owner para correr{" "}
+          <code
+            className="px-1 rounded text-xs"
+            style={{ background: "var(--surface-2)", color: "var(--text-2)" }}
+          >
+            /api/admin/bootstrap
+          </code>{" "}
+          ou para te adicionar em team_members.
         </p>
       </div>
     );
   }
 
   return (
-    <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-6">
+    <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="page-header">
         <div>
-          <h1 className="text-2xl font-bold text-white">Clientes</h1>
-          <p className="text-sm text-white/40 mt-0.5">
+          <h1 className="page-title">Clientes</h1>
+          <p className="page-subtitle">
             {clients.length === 0 ? "Nenhum cliente ainda" : `${clients.length} cliente${clients.length !== 1 ? "s" : ""}`}
-            {orgRole && <span className="ml-2 text-white/25">· {orgRole}</span>}
+            {orgRole && <span style={{ color: "var(--text-3)" }}> · {orgRole}</span>}
           </p>
         </div>
         {isAdmin && (
           <button
-            onClick={() => { setModal({ type: "create_client" }); setSaveError(null); setSaveSuccess(null); }}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-white text-gray-900 text-sm font-semibold hover:bg-white/90 transition-all"
+            onClick={() => { setModal({ type: "create_client" }); setSaveSuccess(null); }}
+            className="btn btn-primary"
           >
             <Plus className="w-4 h-4" />
             Novo Cliente
@@ -230,53 +271,51 @@ export default function ClientsPage() {
 
       {/* Empty state */}
       {clients.length === 0 && (
-        <div className="flex flex-col items-center gap-4 py-20 text-center">
-          <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/8 flex items-center justify-center">
-            <Building2 className="w-7 h-7 text-white/20" />
+        <div className="card">
+          <div className="empty-state">
+            <Building2 className="empty-icon" />
+            <p className="empty-title">Nenhum cliente ainda</p>
+            <p className="empty-desc">Cria o primeiro cliente para começar a partilhar projetos.</p>
+            {isAdmin && (
+              <button
+                onClick={() => { setModal({ type: "create_client" }); setSaveSuccess(null); }}
+                className="btn btn-primary btn-sm"
+              >
+                <Plus className="w-4 h-4" />
+                Criar 1º Cliente
+              </button>
+            )}
           </div>
-          <div>
-            <p className="text-white/60 font-medium">Nenhum cliente ainda</p>
-            <p className="text-white/30 text-sm mt-1">Cria o primeiro cliente para começar a partilhar projetos.</p>
-          </div>
-          {isAdmin && (
-            <button
-              onClick={() => { setModal({ type: "create_client" }); setSaveError(null); setSaveSuccess(null); }}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-white text-gray-900 text-sm font-semibold hover:bg-white/90 transition-all"
-            >
-              <Plus className="w-4 h-4" />
-              Criar 1º Cliente
-            </button>
-          )}
         </div>
       )}
 
       {/* Client cards */}
       <div className="grid gap-4 sm:grid-cols-2">
         {clients.map((client) => (
-          <div
-            key={client.id}
-            className="rounded-2xl bg-white/5 border border-white/8 p-5 hover:bg-white/8 hover:border-white/15 transition-all"
-          >
+          <div key={client.id} className="card card-hover">
             <div className="flex items-start justify-between mb-3">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-white/10 flex items-center justify-center">
-                  <Building2 className="w-5 h-5 text-white/50" />
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center"
+                  style={{ background: "var(--accent-dim)", border: "1px solid var(--border)" }}
+                >
+                  <Building2 className="w-5 h-5" style={{ color: "var(--accent-2)" }} />
                 </div>
                 <div>
-                  <p className="font-semibold text-white text-sm">{client.name}</p>
-                  <p className="text-xs text-white/30">/{client.slug}</p>
+                  <p className="font-semibold text-sm" style={{ color: "var(--text)" }}>{client.name}</p>
+                  <p className="text-xs" style={{ color: "var(--text-3)" }}>/{client.slug}</p>
                 </div>
               </div>
               <button
                 onClick={() => copyToClipboard(client.slug)}
-                className="p-1.5 rounded-lg hover:bg-white/10 text-white/30 hover:text-white/60 transition-all"
+                className="btn btn-ghost btn-icon-sm"
                 title="Copiar slug"
               >
                 <Copy className="w-3.5 h-3.5" />
               </button>
             </div>
 
-            <div className="flex items-center gap-4 text-xs text-white/40 mb-4">
+            <div className="flex items-center gap-4 text-xs mb-4" style={{ color: "var(--text-3)" }}>
               <span className="flex items-center gap-1">
                 <FolderOpen className="w-3 h-3" />
                 {client._projectCount} projeto{client._projectCount !== 1 ? "s" : ""}
@@ -292,20 +331,20 @@ export default function ClientsPage() {
                 <button
                   onClick={() => {
                     setModal({ type: "create_user", clientId: client.id, clientName: client.name });
-                    setSaveError(null); setSaveSuccess(null);
+                    setSaveSuccess(null);
                   }}
-                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl bg-white/8 hover:bg-white/12 text-white/60 hover:text-white transition-all"
+                  className="btn btn-secondary btn-sm text-xs"
                 >
                   <User className="w-3.5 h-3.5" /> Convidar utilizador
                 </button>
                 <button
                   onClick={() => {
-                    const unassigned = allProjects.filter(p => !p.client_id);
+                    const unassigned = allProjects.filter((p) => !p.client_id);
                     setUnassignedProjects(unassigned);
                     setModal({ type: "assign_project", clientId: client.id, clientName: client.name });
-                    setSaveError(null); setSaveSuccess(null);
+                    setSaveSuccess(null);
                   }}
-                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl bg-white/8 hover:bg-white/12 text-white/60 hover:text-white transition-all"
+                  className="btn btn-secondary btn-sm text-xs"
                 >
                   <FolderOpen className="w-3.5 h-3.5" /> Associar projeto
                 </button>
@@ -313,9 +352,9 @@ export default function ClientsPage() {
                   onClick={async () => {
                     await loadMembers(client.id);
                     setModal({ type: "members", clientId: client.id, clientName: client.name });
-                    setSaveError(null); setSaveSuccess(null);
+                    setSaveSuccess(null);
                   }}
-                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl bg-white/8 hover:bg-white/12 text-white/60 hover:text-white transition-all"
+                  className="btn btn-secondary btn-sm text-xs"
                 >
                   <Shield className="w-3.5 h-3.5" /> Membros
                 </button>
@@ -332,23 +371,24 @@ export default function ClientsPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
-            onClick={e => { if (e.target === e.currentTarget) setModal(null); }}
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
+            style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }}
+            onClick={(e) => { if (e.target === e.currentTarget) setModal(null); }}
           >
             <motion.div
               initial={{ y: 24, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 24, opacity: 0 }}
-              className="w-full max-w-md rounded-2xl bg-gray-900 border border-white/10 shadow-2xl p-6"
+              className="modal-content w-full max-w-md"
             >
               <div className="flex items-center justify-between mb-5">
-                <h2 className="font-semibold text-white">
+                <h2 className="font-semibold" style={{ color: "var(--text)" }}>
                   {modal.type === "create_client" && "Novo Cliente"}
                   {modal.type === "create_user" && `Convidar para ${modal.clientName}`}
                   {modal.type === "assign_project" && `Associar Projeto a ${modal.clientName}`}
                   {modal.type === "members" && `Membros de ${modal.clientName}`}
                 </h2>
-                <button onClick={() => setModal(null)} className="text-white/40 hover:text-white">
+                <button onClick={() => setModal(null)} className="btn btn-ghost btn-icon-sm">
                   <X className="w-5 h-5" />
                 </button>
               </div>
@@ -358,69 +398,96 @@ export default function ClientsPage() {
                   <input
                     autoFocus
                     value={newClientName}
-                    onChange={e => setNewClientName(e.target.value)}
-                    onKeyDown={e => e.key === "Enter" && createClient_()}
+                    onChange={(e) => setNewClientName(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && createClient_()}
                     placeholder="Nome do cliente"
-                    className="w-full px-4 py-3 rounded-xl bg-white/8 border border-white/10 text-white placeholder-white/30 focus:outline-none focus:border-white/25"
+                    className="input w-full"
                   />
                   {newClientName && (
-                    <p className="text-xs text-white/40">Slug: <code className="text-white/60">/{slugify(newClientName)}</code></p>
+                    <p className="text-xs" style={{ color: "var(--text-3)" }}>
+                      Slug:{" "}
+                      <code style={{ color: "var(--text-2)" }}>/{slugify(newClientName)}</code>
+                    </p>
                   )}
-                  {saveError && <p className="text-xs text-rose-400">{saveError}</p>}
-                  <button
-                    onClick={createClient_}
-                    disabled={saving || !newClientName.trim()}
-                    className="w-full py-3 rounded-xl bg-white text-gray-900 font-semibold disabled:opacity-50 hover:bg-white/90 transition-all"
-                  >
-                    {saving ? "A criar…" : "Criar cliente"}
-                  </button>
+                  <div className="flex gap-2">
+                    <button onClick={() => setModal(null)} className="btn btn-secondary flex-1">
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={createClient_}
+                      disabled={saving || !newClientName.trim()}
+                      className="btn btn-primary flex-1"
+                    >
+                      {saving ? "A criar…" : "Criar cliente"}
+                    </button>
+                  </div>
                 </div>
               )}
 
               {modal.type === "create_user" && (
                 <div className="space-y-3">
                   {saveSuccess ? (
-                    <div className="rounded-xl bg-emerald-500/15 border border-emerald-500/25 p-4">
-                      <div className="flex items-center gap-2 text-emerald-400 mb-1">
+                    <div
+                      className="rounded-xl p-4"
+                      style={{ background: "var(--success-bg)", border: "1px solid var(--success-border)" }}
+                    >
+                      <div className="flex items-center gap-2 mb-1" style={{ color: "var(--success)" }}>
                         <Check className="w-4 h-4" /> Utilizador criado!
                       </div>
-                      <p className="text-xs text-white/60 font-mono break-all">{saveSuccess}</p>
-                      <button onClick={() => copyToClipboard(saveSuccess)} className="text-xs text-white/40 hover:text-white mt-2 flex items-center gap-1">
+                      <p className="text-xs font-mono break-all" style={{ color: "var(--text-2)" }}>{saveSuccess}</p>
+                      <button
+                        onClick={() => copyToClipboard(saveSuccess)}
+                        className="btn btn-ghost btn-sm text-xs mt-2"
+                        style={{ color: "var(--text-3)" }}
+                      >
                         <Copy className="w-3 h-3" /> Copiar
                       </button>
                     </div>
                   ) : (
                     <>
-                      <input
-                        type="email"
-                        value={newEmail}
-                        onChange={e => setNewEmail(e.target.value)}
-                        placeholder="Email do utilizador"
-                        className="w-full px-4 py-3 rounded-xl bg-white/8 border border-white/10 text-white placeholder-white/30 focus:outline-none focus:border-white/25"
-                      />
-                      <input
-                        type="password"
-                        value={newPassword}
-                        onChange={e => setNewPassword(e.target.value)}
-                        placeholder="Password temporária"
-                        className="w-full px-4 py-3 rounded-xl bg-white/8 border border-white/10 text-white placeholder-white/30 focus:outline-none focus:border-white/25"
-                      />
-                      <select
-                        value={newRole}
-                        onChange={e => setNewRole(e.target.value as "client_viewer" | "client_approver")}
-                        className="w-full px-4 py-3 rounded-xl bg-white/8 border border-white/10 text-white focus:outline-none"
-                      >
-                        <option value="client_viewer">Visualizador</option>
-                        <option value="client_approver">Aprovador</option>
-                      </select>
-                      {saveError && <p className="text-xs text-rose-400">{saveError}</p>}
-                      <button
-                        onClick={createClientUser}
-                        disabled={saving || !newEmail.trim() || !newPassword}
-                        className="w-full py-3 rounded-xl bg-white text-gray-900 font-semibold disabled:opacity-50 hover:bg-white/90 transition-all"
-                      >
-                        {saving ? "A criar…" : "Criar utilizador"}
-                      </button>
+                      <div>
+                        <label className="label">Email</label>
+                        <input
+                          type="email"
+                          value={newEmail}
+                          onChange={(e) => setNewEmail(e.target.value)}
+                          placeholder="email@cliente.com"
+                          className="input w-full"
+                        />
+                      </div>
+                      <div>
+                        <label className="label">Password temporária</label>
+                        <input
+                          type="password"
+                          value={newPassword}
+                          onChange={(e) => setNewPassword(e.target.value)}
+                          placeholder="Mínimo 6 caracteres"
+                          className="input w-full"
+                        />
+                      </div>
+                      <div>
+                        <label className="label">Função</label>
+                        <select
+                          value={newRole}
+                          onChange={(e) => setNewRole(e.target.value as "client_viewer" | "client_approver")}
+                          className="input w-full"
+                        >
+                          <option value="client_viewer">Visualizador</option>
+                          <option value="client_approver">Aprovador</option>
+                        </select>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => setModal(null)} className="btn btn-secondary flex-1">
+                          Cancelar
+                        </button>
+                        <button
+                          onClick={createClientUser}
+                          disabled={saving || !newEmail.trim() || !newPassword}
+                          className="btn btn-primary flex-1"
+                        >
+                          {saving ? "A criar…" : "Criar utilizador"}
+                        </button>
+                      </div>
                     </>
                   )}
                 </div>
@@ -429,26 +496,40 @@ export default function ClientsPage() {
               {modal.type === "assign_project" && (
                 <div className="space-y-3">
                   {unassignedProjects.length === 0 ? (
-                    <p className="text-sm text-white/50 text-center py-4">Sem projetos por associar.</p>
+                    <div className="empty-state py-8">
+                      <FolderOpen className="empty-icon" />
+                      <p className="empty-desc">Sem projetos por associar.</p>
+                      <p className="text-xs mt-1" style={{ color: "var(--text-3)" }}>
+                        Todos os projetos já têm cliente associado, ou não há projetos.
+                      </p>
+                    </div>
                   ) : (
                     <>
-                      <select
-                        value={selectedProjectId}
-                        onChange={e => setSelectedProjectId(e.target.value)}
-                        className="w-full px-4 py-3 rounded-xl bg-white/8 border border-white/10 text-white focus:outline-none"
-                      >
-                        <option value="">Selecionar projeto…</option>
-                        {unassignedProjects.map(p => (
-                          <option key={p.id} value={p.id}>{p.project_name}</option>
-                        ))}
-                      </select>
-                      <button
-                        onClick={assignProject}
-                        disabled={saving || !selectedProjectId}
-                        className="w-full py-3 rounded-xl bg-white text-gray-900 font-semibold disabled:opacity-50 hover:bg-white/90 transition-all"
-                      >
-                        {saving ? "A associar…" : "Associar"}
-                      </button>
+                      <div>
+                        <label className="label">Projeto</label>
+                        <select
+                          value={selectedProjectId}
+                          onChange={(e) => setSelectedProjectId(e.target.value)}
+                          className="input w-full"
+                        >
+                          <option value="">Selecionar projeto…</option>
+                          {unassignedProjects.map((p) => (
+                            <option key={p.id} value={p.id}>{p.project_name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => setModal(null)} className="btn btn-secondary flex-1">
+                          Cancelar
+                        </button>
+                        <button
+                          onClick={assignProject}
+                          disabled={saving || !selectedProjectId}
+                          className="btn btn-primary flex-1"
+                        >
+                          {saving ? "A associar…" : "Associar"}
+                        </button>
+                      </div>
                     </>
                   )}
                 </div>
@@ -457,48 +538,56 @@ export default function ClientsPage() {
               {modal.type === "members" && (
                 <div className="space-y-3">
                   {members.length === 0 ? (
-                    <p className="text-sm text-white/50 text-center py-4">Sem membros ainda.</p>
+                    <div className="empty-state py-8">
+                      <Users className="empty-icon" />
+                      <p className="empty-desc">Sem membros ainda.</p>
+                    </div>
                   ) : (
                     <div className="space-y-2">
+                      <div>
+                        <label className="label">Conceder acesso a projeto</label>
+                        <select
+                          value={selectedMemberProjectId}
+                          onChange={(e) => setSelectedMemberProjectId(e.target.value)}
+                          className="input w-full"
+                        >
+                          <option value="">Selecionar projeto…</option>
+                          {allProjects.map((p) => (
+                            <option key={p.id} value={p.id}>{p.project_name}</option>
+                          ))}
+                        </select>
+                      </div>
                       {members.map((m) => (
-                        <div key={m.id} className="flex items-center justify-between rounded-xl bg-white/5 px-4 py-3">
+                        <div
+                          key={m.id}
+                          className="flex items-center justify-between rounded-xl px-4 py-3"
+                          style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}
+                        >
                           <div className="flex items-center gap-3">
-                            <User className="w-4 h-4 text-white/40" />
+                            <User className="w-4 h-4" style={{ color: "var(--text-3)" }} />
                             <div>
-                              <p className="text-sm text-white/80">{m.email ?? m.user_id.slice(0, 8)}</p>
-                              <p className="text-xs text-white/40">{m.role}</p>
+                              <p className="text-sm" style={{ color: "var(--text)" }}>
+                                {m.email ?? m.user_id.slice(0, 12) + "…"}
+                              </p>
+                              <p className="text-xs" style={{ color: "var(--text-3)" }}>{m.role}</p>
                             </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <select
-                              value={selectedMemberProjectId}
-                              onChange={e => setSelectedMemberProjectId(e.target.value)}
-                              className="text-xs px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white focus:outline-none"
+                          {selectedMemberProjectId && (
+                            <button
+                              onClick={() => grantProjectAccess(m.user_id)}
+                              disabled={saving}
+                              className="btn btn-primary btn-sm text-xs"
                             >
-                              <option value="">+ Projeto</option>
-                              {allProjects.map(p => (
-                                <option key={p.id} value={p.id}>{p.project_name}</option>
-                              ))}
-                            </select>
-                            {selectedMemberProjectId && (
-                              <button
-                                onClick={() => grantProjectAccess(m.user_id)}
-                                disabled={saving}
-                                className="text-xs px-2 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-white/70 transition-all"
-                              >
-                                {saving ? "…" : "Dar acesso"}
-                              </button>
-                            )}
-                          </div>
+                              {saving ? "…" : "Dar acesso"}
+                            </button>
+                          )}
                         </div>
                       ))}
                     </div>
                   )}
-                  {saveSuccess && (
-                    <div className="flex items-center gap-2 text-emerald-400 text-xs">
-                      <Check className="w-3.5 h-3.5" /> {saveSuccess}
-                    </div>
-                  )}
+                  <button onClick={() => setModal(null)} className="btn btn-secondary w-full">
+                    Fechar
+                  </button>
                 </div>
               )}
             </motion.div>

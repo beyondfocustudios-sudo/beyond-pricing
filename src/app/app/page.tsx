@@ -52,25 +52,29 @@ export default function DashboardPage() {
   useEffect(() => {
     const load = async () => {
       const sb = createClient();
-      const [proj, chk, tpl] = await Promise.all([
-        sb.from("projects").select("id, project_name, client_name, status, created_at, calc").order("created_at", { ascending: false }).limit(5),
+      const [projAll, projRecent, chk, tpl] = await Promise.all([
+        // Real total count of ALL projects (no limit)
+        sb.from("projects").select("id, calc", { count: "exact" }).is("deleted_at", null),
+        // Only the 5 most recent for the "recent projects" list
+        sb.from("projects").select("id, project_name, client_name, status, created_at, calc").is("deleted_at", null).order("created_at", { ascending: false }).limit(5),
         sb.from("checklists").select("id", { count: "exact", head: true }),
         sb.from("templates").select("id", { count: "exact", head: true }),
       ]);
 
-      const projectsData = (proj.data ?? []) as RecentProject[];
-      const totalValor = projectsData.reduce((sum, p) => {
+      const allProjectsData = (projAll.data ?? []) as { calc: { preco_recomendado?: number } | null }[];
+      const recentData = (projRecent.data ?? []) as RecentProject[];
+      const totalValor = allProjectsData.reduce((sum, p) => {
         const val = (p.calc as { preco_recomendado?: number } | null)?.preco_recomendado ?? 0;
         return sum + val;
       }, 0);
 
       setStats({
-        projects: projectsData.length,
+        projects: projAll.count ?? 0,  // real total, not capped at 5
         projetos_valor: totalValor,
         checklists: chk.count ?? 0,
         templates: tpl.count ?? 0,
       });
-      setRecentes(projectsData);
+      setRecentes(recentData);
       setLoading(false);
     };
     load();

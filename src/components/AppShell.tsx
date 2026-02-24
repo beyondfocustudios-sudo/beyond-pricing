@@ -27,6 +27,7 @@ import {
   User,
   Sun,
   Moon,
+  Activity,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import NotificationBell from "@/components/NotificationBell";
@@ -135,6 +136,13 @@ const NAV_ITEMS = [
     icon: Settings,
     exact: false,
     description: "Configurar",
+  },
+  {
+    href: "/app/diagnostics",
+    label: "Diagnósticos",
+    icon: Activity,
+    exact: false,
+    description: "Sistema",
   },
 ];
 
@@ -373,14 +381,14 @@ export function AppShell({
           </div>
         </header>
 
-        {/* Main content */}
-        <main className="flex-1 overflow-auto pb-20">
-          <div className="px-4 py-5 md:px-8 md:py-8">{children}</div>
+        {/* Main content — padded so content doesn't hide under bottom nav */}
+        <main className="flex-1 overflow-auto" style={{ paddingBottom: "calc(4.5rem + env(safe-area-inset-bottom))" }}>
+          <div className="px-4 py-5">{children}</div>
         </main>
 
-        {/* Mobile bottom nav */}
+        {/* Mobile bottom nav — horizontally scrollable so all items are accessible on tablet too */}
         <nav
-          className="fixed bottom-0 left-0 right-0 flex items-center"
+          className="fixed bottom-0 left-0 right-0"
           style={{
             background: "var(--glass-bg)",
             backdropFilter: "var(--glass-blur)",
@@ -390,39 +398,51 @@ export function AppShell({
             zIndex: 40,
           }}
         >
-          {visibleNavItems.slice(0, 5).map((item) => {
-            const active = isActive(item.href, pathname, item.exact);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="relative flex flex-1 flex-col items-center justify-center py-3 gap-1 transition-all"
-                style={{
-                  color: active ? "var(--accent-2)" : "var(--text-3)",
-                  WebkitTapHighlightColor: "transparent",
-                }}
-              >
-                {active && (
-                  <motion.div
-                    layoutId="mobile-nav-indicator"
-                    className="absolute inset-x-1 top-0 h-0.5 rounded-full"
-                    style={{ background: "var(--accent)" }}
-                    transition={{ type: "spring", stiffness: 400, damping: 30 }}
-                  />
-                )}
-                <item.icon className="h-5 w-5" />
-                <span className="text-xs font-medium" style={{ fontSize: "0.65rem" }}>
-                  {item.label}
-                </span>
-              </Link>
-            );
-          })}
+          {/* Scrollable inner row */}
+          <div
+            className="flex items-stretch overflow-x-auto"
+            style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}
+          >
+            {visibleNavItems.map((item) => {
+              const active = isActive(item.href, pathname, item.exact);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="relative flex shrink-0 flex-col items-center justify-center gap-0.5 transition-all"
+                  style={{
+                    color: active ? "var(--accent-2)" : "var(--text-3)",
+                    WebkitTapHighlightColor: "transparent",
+                    /* On small phones: equal-width up to 6 items; on wider screens: auto */
+                    minWidth: "3.5rem",
+                    flex: "1 0 auto",
+                    maxWidth: "5rem",
+                    paddingTop: "0.5rem",
+                    paddingBottom: "0.5rem",
+                  }}
+                >
+                  {active && (
+                    <motion.div
+                      layoutId="mobile-nav-indicator"
+                      className="absolute left-2 right-2 top-0 h-0.5 rounded-full"
+                      style={{ background: "var(--accent)" }}
+                      transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                    />
+                  )}
+                  <item.icon className="h-5 w-5" />
+                  <span className="font-medium" style={{ fontSize: "0.6rem", lineHeight: 1.3 }}>
+                    {item.label}
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
         </nav>
       </div>
 
       {/* ── Desktop main content ─────────────────────── */}
       <main className="hidden md:flex flex-1 flex-col min-w-0 overflow-auto">
-        <div className="flex-1 px-8 py-8">{children}</div>
+        <div className="flex-1 px-6 py-6 lg:px-8 lg:py-8">{children}</div>
       </main>
     </div>
   );
