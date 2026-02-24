@@ -394,6 +394,26 @@ export default function ProjectPage() {
     }));
   };
 
+  // ── Delete project (soft delete) ──────────────────────────
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDeleteProject = async () => {
+    setDeleting(true);
+    const sb = createClient();
+    const { error } = await sb
+      .from("projects")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", projectId);
+    setDeleting(false);
+    if (error) {
+      toast.error(`Erro ao apagar projeto: ${error.message}`);
+    } else {
+      toast.success("Projeto arquivado com sucesso");
+      router.push("/app/projects");
+    }
+  };
+
   // ── Export PDF ────────────────────────────────────────────
   const handleExport = async () => {
     try {
@@ -620,8 +640,70 @@ export default function ProjectPage() {
             <Save className="h-4 w-4" />
             {saving ? "…" : <span className="hidden sm:inline">Guardar</span>}
           </button>
+          <button
+            onClick={() => setShowDeleteModal(true)}
+            className="btn btn-ghost btn-icon-sm"
+            title="Arquivar projeto"
+            style={{ color: "var(--error)" }}
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
         </div>
       </div>
+
+      {/* ── Delete confirmation modal ── */}
+      <AnimatePresence>
+        {showDeleteModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+            onClick={(e) => { if (e.target === e.currentTarget) setShowDeleteModal(false); }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 12, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.95, y: 12, opacity: 0 }}
+              className="card w-full max-w-sm space-y-4"
+              style={{ border: "1px solid var(--error-border)", background: "var(--surface)" }}
+            >
+              <div className="flex items-center gap-3">
+                <div
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+                  style={{ background: "var(--error-bg)" }}
+                >
+                  <Trash2 className="h-5 w-5" style={{ color: "var(--error)" }} />
+                </div>
+                <div>
+                  <p className="font-semibold" style={{ color: "var(--text)" }}>Arquivar Projeto</p>
+                  <p className="text-xs" style={{ color: "var(--text-3)" }}>Esta ação é reversível</p>
+                </div>
+              </div>
+              <p className="text-sm" style={{ color: "var(--text-2)" }}>
+                O projeto <strong style={{ color: "var(--text)" }}>"{projectName}"</strong> será arquivado e removido da lista principal. Podes recuperá-lo mais tarde.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowDeleteModal(false)}
+                  className="btn btn-secondary flex-1"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleDeleteProject}
+                  disabled={deleting}
+                  className="btn btn-sm flex-1"
+                  style={{ background: "var(--error)", color: "white", borderRadius: "var(--r-full)" }}
+                >
+                  {deleting ? "A arquivar…" : "Arquivar"}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── Tabs ── */}
       <div className="tabs-list">

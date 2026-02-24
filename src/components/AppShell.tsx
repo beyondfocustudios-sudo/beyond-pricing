@@ -21,7 +21,6 @@ import {
   Users2,
   Truck,
   Cloud,
-  Bell,
   ClipboardList,
   Briefcase,
   User,
