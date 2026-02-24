@@ -25,6 +25,8 @@ The Beyond Pricing app uses Supabase with automatic migrations managed via the C
 | 015 | `fix_conversations_rls` | RLS fix | Conversations/messages RLS improvements |
 | 016 | `catalog_presets` | Catalog items | Catalog presets for item templates |
 | 017 | `stabilize_rls_schema` | Core stabilization | Project auto-member trigger, RLS hardening |
+| 018 | `weather_logistics_refactor` | Weather & logistics | Location fields, org fuel settings, weather caching |
+| 019 | `ensure_soft_delete_columns` | Soft delete validation | Ensures all tables have deleted_at, updates RLS policies |
 
 ## Applying Migrations to Supabase
 
@@ -40,15 +42,16 @@ The Beyond Pricing app uses Supabase with automatic migrations managed via the C
 2. **Verify in Supabase dashboard**:
    - Go to https://supabase.com → your project
    - SQL Editor → Look for applied migrations in public schema
-   - Check that latest migration version is 017
+   - Check that latest migration version is 019
 
 ### Manual (if needed)
 
 If automatic push fails, you can manually run migrations:
 
-1. Copy SQL from `supabase/migrations/017_stabilize_rls_schema.sql` (the latest)
+1. Copy SQL from `supabase/migrations/019_ensure_soft_delete_columns.sql` (the latest)
 2. In Supabase SQL Editor, paste and run the entire script
 3. Verify no errors appear
+4. If migration 019 fails, try 018 first, then 019
 
 ## Troubleshooting
 
