@@ -46,6 +46,7 @@ import {
   Presentation,
 } from "lucide-react";
 import Link from "next/link";
+import { WeatherWidget } from "@/components/WeatherWidget";
 
 // ── Default inputs ────────────────────────────────────────────
 const DEFAULT_INPUTS: ProjectInputs = {
@@ -222,6 +223,13 @@ export default function ProjectPage() {
   const [editingName, setEditingName] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
 
+  // ── Geo state ─────────────────────────────────────────────
+  const [geoData, setGeoData] = useState<{
+    lat: number; lng: number; label?: string;
+    travel_km?: number; travel_minutes?: number;
+  } | null>(null);
+  const [geocoding, setGeocoding] = useState(false);
+
   // ── Entregas state ────────────────────────────────────────
   interface DelivFile {
     id: string; filename: string; ext: string; file_type: string;
@@ -263,6 +271,17 @@ export default function ProjectPage() {
       itens: inp?.itens ?? [],
     });
     setCalc(data.calc as ProjectCalc);
+
+    // Load geo data if already geocoded
+    const d2 = data as Record<string, unknown>;
+    if (typeof d2.location_lat === "number" && typeof d2.location_lng === "number") {
+      setGeoData({
+        lat: d2.location_lat as number,
+        lng: d2.location_lng as number,
+        travel_km: typeof d2.travel_km === "number" ? d2.travel_km as number : undefined,
+        travel_minutes: typeof d2.travel_minutes === "number" ? d2.travel_minutes as number : undefined,
+      });
+    }
 
     // Load Dropbox config + files
     const sb2 = createClient();
@@ -1099,14 +1118,107 @@ export default function ProjectPage() {
                   />
                 </div>
                 <div>
-                  <label className="label">Cidade / Local</label>
+                  <label className="label">Data Início de Rodagem</label>
                   <input
-                    type="text"
-                    value={inputs.cidade ?? ""}
-                    onChange={(e) => setInputs((p) => ({ ...p, cidade: e.target.value }))}
+                    type="date"
+                    value={(inputs as unknown as Record<string, unknown>).shoot_date_start as string ?? ""}
+                    onChange={(e) => setInputs((p) => ({ ...p, shoot_date_start: e.target.value }))}
                     className="input"
-                    placeholder="Ex: Lisboa, Porto…"
                   />
+                </div>
+                <div>
+                  <label className="label">Data Fim de Rodagem</label>
+                  <input
+                    type="date"
+                    value={(inputs as unknown as Record<string, unknown>).shoot_date_end as string ?? ""}
+                    onChange={(e) => setInputs((p) => ({ ...p, shoot_date_end: e.target.value }))}
+                    className="input"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="label">Cidade / Local de Rodagem</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={inputs.cidade ?? ""}
+                      onChange={(e) => {
+                        setInputs((p) => ({ ...p, cidade: e.target.value }));
+                        setGeoData(null);
+                      }}
+                      className="input flex-1"
+                      placeholder="Ex: Lisboa, Porto, Setúbal…"
+                    />
+                    <button
+                      type="button"
+                      disabled={geocoding || !inputs.cidade?.trim()}
+                      onClick={async () => {
+                        if (!inputs.cidade?.trim()) return;
+                        setGeocoding(true);
+                        try {
+                          const gRes = await fetch(`/api/geo/geocode?q=${encodeURIComponent(inputs.cidade!)}`);
+                          const gJson = await gRes.json() as { lat: number; lng: number; label?: string } | null;
+                          if (!gJson) { alert("Local não encontrado"); setGeocoding(false); return; }
+
+                          const rRes = await fetch(`/api/geo/route?lat=${gJson.lat}&lng=${gJson.lng}`);
+                          const rJson = await rRes.json() as { travel_km: number; travel_minutes: number };
+
+                          const newGeo = { ...gJson, travel_km: rJson.travel_km, travel_minutes: rJson.travel_minutes };
+                          setGeoData(newGeo);
+
+                          // Save lat/lng/travel to project directly
+                          const { createClient: mkClient } = await import("@/lib/supabase");
+                          const sb = mkClient();
+                          await sb.from("projects").update({
+                            location_text: inputs.cidade,
+                            location_lat: newGeo.lat,
+                            location_lng: newGeo.lng,
+                            travel_km: newGeo.travel_km,
+                            travel_minutes: newGeo.travel_minutes,
+                          }).eq("id", projectId);
+                        } catch {
+                          alert("Erro ao geocodificar");
+                        }
+                        setGeocoding(false);
+                      }}
+                      className="btn btn-secondary btn-sm shrink-0"
+                    >
+                      {geocoding ? (
+                        <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                        </svg>
+                      ) : (
+                        <span>📍 Localizar</span>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Travel info */}
+                  {geoData && (
+                    <div className="mt-3 flex flex-wrap gap-3">
+                      <div
+                        className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm"
+                        style={{ background: "var(--surface-2)", color: "var(--text-2)" }}
+                      >
+                        <span>🚗</span>
+                        <span className="font-semibold" style={{ color: "var(--text)" }}>
+                          {geoData.travel_km} km
+                        </span>
+                        <span style={{ color: "var(--border-3)" }}>·</span>
+                        <span>desde Setúbal</span>
+                      </div>
+                      <div
+                        className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm"
+                        style={{ background: "var(--surface-2)", color: "var(--text-2)" }}
+                      >
+                        <span>⏱</span>
+                        <span className="font-semibold" style={{ color: "var(--text)" }}>
+                          {geoData.travel_minutes} min
+                        </span>
+                        <span>de viagem</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="label">País</label>
@@ -1130,6 +1242,19 @@ export default function ProjectPage() {
                 </div>
               </div>
             </div>
+
+            {/* Weather section */}
+            {geoData && (
+              <div className="card space-y-4">
+                <WeatherWidget
+                  lat={geoData.lat}
+                  lng={geoData.lng}
+                  projectId={projectId}
+                  startDate={(inputs as unknown as Record<string, unknown>).shoot_date_start as string | undefined}
+                  endDate={(inputs as unknown as Record<string, unknown>).shoot_date_end as string | undefined}
+                />
+              </div>
+            )}
 
             {/* Client brief */}
             <div className="card space-y-4">
