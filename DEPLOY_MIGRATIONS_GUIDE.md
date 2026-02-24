@@ -1,12 +1,58 @@
 # 🚀 Deploy Migrations to Supabase — Step-by-Step Guide
 
-**Status**: 🔴 CRITICAL — No migrations applied yet
+**Status**: 🔴 CRITICAL — Ready for deployment
 **Supabase Project**: wjzcutnjnzxylzqysneg
-**Action**: Follow this guide to apply all 19 migrations
+**Deploy File**: `supabase/schema.deploy.sql` (NEW — includes all 19 migrations)
+**Time**: 30-40 minutes
 
 ---
 
-## Quick Start (Estimated Time: 30-90 minutes)
+## ⚡ Quick Start (RECOMMENDED)
+
+### Option 1: Deploy Everything at Once (EASIEST - Recommended)
+
+**Time**: 5 minutes to setup + 30-40 minutes to run
+
+1. **Open Supabase SQL Editor**
+   ```
+   https://app.supabase.com/project/wjzcutnjnzxylzqysneg
+   → SQL Editor → New Query
+   ```
+
+2. **Open Deploy File**
+   ```
+   File: supabase/schema.deploy.sql
+   Size: ~3000 lines (all 19 migrations concatenated)
+   ```
+
+3. **Copy All Content**
+   ```bash
+   # In terminal:
+   cat supabase/schema.deploy.sql | pbcopy  # macOS
+   # or
+   cat supabase/schema.deploy.sql | xclip -selection clipboard  # Linux
+   ```
+
+4. **Paste into Supabase**
+   - Paste entire content into SQL Editor query box
+   - Should see 3000+ lines of SQL
+
+5. **Click RUN**
+   - Click "RUN" button (top right)
+   - Wait for "Query succeeded"
+   - Expected: 30-40 minutes
+
+6. **Verify Success**
+   ```bash
+   export $(cat .env.local | xargs) && npx tsx scripts/audit-schema-gaps-standalone.ts
+   ```
+   - Expected: ✅ READY (0 missing tables, 0 missing columns)
+
+---
+
+## Option 2: Deploy Migrations Individually (MANUAL)
+
+If you prefer deploying one migration at a time (slower but safer):
 
 ### Step 1: Go to Supabase Dashboard
 ```
@@ -20,77 +66,66 @@ Left sidebar → SQL Editor → New Query
 
 ### Step 3: Run Migrations in Order
 
-Copy each migration file content and execute:
+For each migration 001-019:
 
+1. **Open** `supabase/migrations/NNN_filename.sql`
+2. **Copy all content** (Cmd+A)
+3. **In Supabase**: Paste into query editor
+4. **Click RUN**
+5. **Wait** for "Query succeeded"
+6. **Create new query** for next migration
+7. **Repeat** for migrations 002-019
+
+**Migration list in order**:
 ```
-migrations/
-  001_initial_schema.sql          ← START HERE
-  002_seed_templates.sql          ← Run after 001
-  003_client_portal_rbac.sql      ← Run after 002
-  004_portal_messaging.sql        ← Run after 003
-  ... (continue through 019)
-  019_ensure_soft_delete_columns.sql ← LAST
+001_initial_schema.sql              (foundation)
+002_seed_templates.sql              (data)
+003_client_portal_rbac.sql          (portal)
+004_portal_messaging.sql            (messaging)
+005_premium_features.sql            (premium)
+006_seed_checklist_templates.sql    (data)
+007_admin_bootstrap.sql             (admin)
+008_rbac_soft_delete.sql            (CRITICAL — soft delete)
+009_portal_enhancements.sql         (enhancements)
+010_dropbox_sync.sql                (dropbox)
+011_callsheets_weather.sql          (callsheets)
+012_crm_deals_pipeline.sql          (CRM)
+013_org_clients_rbac.sql            (org access)
+014_project_geo_weather.sql         (geo/weather)
+015_fix_conversations_rls.sql       (fixes)
+016_catalog_presets.sql             (catalog)
+017_stabilize_rls_schema.sql        (RLS hardening)
+018_weather_logistics_refactor.sql  (logistics - CRITICAL)
+019_ensure_soft_delete_columns.sql  (validation)
 ```
+
+**Total time**: ~32 minutes (1-2 min per migration)
 
 ---
 
-## Detailed Steps
+## What Gets Deployed
 
-### Migration 1: Initial Schema (Foundation)
+### All 19 Migrations Included:
+- ✅ Core schema (rates, preferences, projects, templates, checklists)
+- ✅ CRM system (contacts, deals, companies, stages, activities)
+- ✅ Portal & messaging (conversations, messages, briefs, deliverables)
+- ✅ Org structure (clients, team_members, organizations)
+- ✅ Project features (callsheets, logistics_routes, catalog_items)
+- ✅ User data (journal_entries, tasks)
+- ✅ Soft delete pattern (deleted_at columns + triggers)
+- ✅ Location & travel data (projects table enhancements)
+- ✅ RLS policies (full row-level security)
+- ✅ Admin functions (bootstrap helpers)
 
-**File**: `supabase/migrations/001_initial_schema.sql`
-
-1. In Supabase SQL Editor, create new query
-2. Click "📄 Open file" or copy entire file content
-3. Paste all of `001_initial_schema.sql`
-4. Click "RUN" (top right)
-5. Wait for success message (should show "Query succeeded")
-6. ✅ Should create: rates, preferences, projects, templates, checklists, checklist_items, clients, client_users, crm_contacts, crm_deals, crm_companies, crm_activities, crm_stages
-
-**Expected Output**:
+### Result After Deploy:
 ```
-Query succeeded (12 rows affected)
+Tables:     28 created
+Columns:    Projects now has 14 (was 6)
+RLS:        All policies enforced
+Soft Delete: All critical tables
+Functions:  Admin bootstrap helper
+Triggers:   Auto-update timestamps, auto-soft-delete
 ```
-
-**Verify**: In Table Inspector (left sidebar), you should now see:
-- ✅ projects
-- ✅ templates
-- ✅ checklists
-- ... (13 total tables)
-
----
-
-### Migration 2: Seed Templates (Data Population)
-
-**File**: `supabase/migrations/002_seed_templates.sql`
-
-1. Create new query
-2. Paste entire `002_seed_templates.sql`
-3. Run
-4. ✅ Populates default templates
-
-**Expected Output**:
-```
-Query succeeded
-```
-
----
-
-### Migrations 3-19: Repeat Pattern
-
-For each migration file (003 through 019):
-
-1. **Open** `supabase/migrations/NNN_*.sql`
-2. **Copy all content**
-3. **In Supabase SQL Editor**: New Query → Paste → Run
-4. **Wait** for "Query succeeded"
-5. **Move to next** migration
-
-**Order is important** — migrations build on each other:
-- 003 depends on 001
-- 004 depends on 003
-- 005 depends on 004
-- ... etc.
 
 ---
 
