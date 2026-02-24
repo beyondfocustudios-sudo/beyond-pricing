@@ -39,3 +39,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# supabase local state (contains connection URLs)
+supabase/.temp/
+
+# playwright test results
+test-results/
+playwright-report/
