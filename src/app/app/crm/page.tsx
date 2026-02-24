@@ -48,6 +48,7 @@ export default function CrmPage() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [showAddContact, setShowAddContact] = useState(false);
   const [showAddDeal, setShowAddDeal] = useState(false);
@@ -57,13 +58,26 @@ export default function CrmPage() {
   const [importing, setImporting] = useState(false);
 
   const loadContacts = useCallback(async () => {
+    setLoadError(null);
     const res = await fetch("/api/crm?limit=200");
-    if (res.ok) setContacts(await res.json());
+    if (res.ok) {
+      const payload = await res.json() as { contacts?: Contact[] };
+      setContacts(payload.contacts ?? []);
+    } else {
+      const err = await res.json().catch(() => ({})) as { error?: string };
+      setLoadError(err.error ?? "Erro ao carregar contactos");
+    }
   }, []);
 
   const loadDeals = useCallback(async () => {
     const res = await fetch("/api/crm/deals");
-    if (res.ok) setDeals(await res.json());
+    if (res.ok) {
+      const payload = await res.json() as Deal[];
+      setDeals(payload ?? []);
+    } else {
+      const err = await res.json().catch(() => ({})) as { error?: string };
+      setLoadError(err.error ?? "Erro ao carregar deals");
+    }
   }, []);
 
   useEffect(() => {
@@ -158,6 +172,22 @@ export default function CrmPage() {
   if (loading) return (
     <div className="flex items-center justify-center py-20">
       <Loader2 className="w-6 h-6 animate-spin" style={{ color: "var(--text-3)" }} />
+    </div>
+  );
+
+  if (loadError) return (
+    <div className="card text-center space-y-3">
+      <p style={{ color: "var(--text-2)" }}>{loadError}</p>
+      <button
+        className="btn btn-secondary btn-sm"
+        onClick={async () => {
+          setLoading(true);
+          await Promise.all([loadContacts(), loadDeals()]);
+          setLoading(false);
+        }}
+      >
+        Tentar novamente
+      </button>
     </div>
   );
 

@@ -4,6 +4,7 @@
 -- Add deleted_at to project_milestones + deliverable_versions
 ALTER TABLE project_milestones ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
 ALTER TABLE deliverable_versions ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
+ALTER TABLE deliverables ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
 
 -- deliverable_comments: support video timestamps + image pins
 ALTER TABLE deliverable_comments ADD COLUMN IF NOT EXISTS video_timestamp_seconds numeric;

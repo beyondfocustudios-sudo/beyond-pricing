@@ -7,6 +7,29 @@
 ALTER TABLE checklists      DISABLE ROW LEVEL SECURITY;
 ALTER TABLE checklist_items DISABLE ROW LEVEL SECURITY;
 
+ALTER TABLE checklists
+  ADD COLUMN IF NOT EXISTS is_template boolean NOT NULL DEFAULT false;
+
+ALTER TABLE checklists
+  ALTER COLUMN user_id DROP NOT NULL;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint c
+    JOIN pg_class t ON t.oid = c.conrelid
+    JOIN pg_namespace n ON n.oid = t.relnamespace
+    WHERE n.nspname = 'public'
+      AND t.relname = 'checklists'
+      AND c.conname = 'checklists_user_required_unless_template_chk'
+  ) THEN
+    ALTER TABLE checklists
+      ADD CONSTRAINT checklists_user_required_unless_template_chk
+      CHECK (is_template OR user_id IS NOT NULL);
+  END IF;
+END$$;
+
 -- ── Template IDs (stable UUIDs for idempotency) ───────────────
 -- T1: Vídeo Institucional
 -- T2: Documentário
@@ -14,10 +37,10 @@ ALTER TABLE checklist_items DISABLE ROW LEVEL SECURITY;
 -- T4: Evento
 
 -- ── T1: Vídeo Institucional ───────────────────────────────────
-INSERT INTO checklists (id, user_id, project_id, nome) VALUES
-  ('10000000-0000-0000-0000-000000000001', NULL, NULL, '[Template] Vídeo Institucional — Pré-Produção'),
-  ('10000000-0000-0000-0000-000000000002', NULL, NULL, '[Template] Vídeo Institucional — Rodagem'),
-  ('10000000-0000-0000-0000-000000000003', NULL, NULL, '[Template] Vídeo Institucional — Pós-Produção')
+INSERT INTO checklists (id, user_id, project_id, nome, is_template) VALUES
+  ('10000000-0000-0000-0000-000000000001', NULL, NULL, '[Template] Vídeo Institucional — Pré-Produção', true),
+  ('10000000-0000-0000-0000-000000000002', NULL, NULL, '[Template] Vídeo Institucional — Rodagem', true),
+  ('10000000-0000-0000-0000-000000000003', NULL, NULL, '[Template] Vídeo Institucional — Pós-Produção', true)
 ON CONFLICT DO NOTHING;
 
 INSERT INTO checklist_items (checklist_id, fase, texto, concluido, ordem) VALUES
@@ -64,10 +87,10 @@ INSERT INTO checklist_items (checklist_id, fase, texto, concluido, ordem) VALUES
 ON CONFLICT DO NOTHING;
 
 -- ── T2: Documentário ──────────────────────────────────────────
-INSERT INTO checklists (id, user_id, project_id, nome) VALUES
-  ('10000000-0000-0000-0000-000000000004', NULL, NULL, '[Template] Documentário — Pré-Produção'),
-  ('10000000-0000-0000-0000-000000000005', NULL, NULL, '[Template] Documentário — Rodagem'),
-  ('10000000-0000-0000-0000-000000000006', NULL, NULL, '[Template] Documentário — Pós-Produção')
+INSERT INTO checklists (id, user_id, project_id, nome, is_template) VALUES
+  ('10000000-0000-0000-0000-000000000004', NULL, NULL, '[Template] Documentário — Pré-Produção', true),
+  ('10000000-0000-0000-0000-000000000005', NULL, NULL, '[Template] Documentário — Rodagem', true),
+  ('10000000-0000-0000-0000-000000000006', NULL, NULL, '[Template] Documentário — Pós-Produção', true)
 ON CONFLICT DO NOTHING;
 
 INSERT INTO checklist_items (checklist_id, fase, texto, concluido, ordem) VALUES
@@ -90,10 +113,10 @@ INSERT INTO checklist_items (checklist_id, fase, texto, concluido, ordem) VALUES
 ON CONFLICT DO NOTHING;
 
 -- ── T3: Short-Form / Social Media ────────────────────────────
-INSERT INTO checklists (id, user_id, project_id, nome) VALUES
-  ('10000000-0000-0000-0000-000000000007', NULL, NULL, '[Template] Short-Form Social — Pré-Produção'),
-  ('10000000-0000-0000-0000-000000000008', NULL, NULL, '[Template] Short-Form Social — Rodagem'),
-  ('10000000-0000-0000-0000-000000000009', NULL, NULL, '[Template] Short-Form Social — Pós-Produção')
+INSERT INTO checklists (id, user_id, project_id, nome, is_template) VALUES
+  ('10000000-0000-0000-0000-000000000007', NULL, NULL, '[Template] Short-Form Social — Pré-Produção', true),
+  ('10000000-0000-0000-0000-000000000008', NULL, NULL, '[Template] Short-Form Social — Rodagem', true),
+  ('10000000-0000-0000-0000-000000000009', NULL, NULL, '[Template] Short-Form Social — Pós-Produção', true)
 ON CONFLICT DO NOTHING;
 
 INSERT INTO checklist_items (checklist_id, fase, texto, concluido, ordem) VALUES
@@ -112,10 +135,10 @@ INSERT INTO checklist_items (checklist_id, fase, texto, concluido, ordem) VALUES
 ON CONFLICT DO NOTHING;
 
 -- ── T4: Evento ────────────────────────────────────────────────
-INSERT INTO checklists (id, user_id, project_id, nome) VALUES
-  ('10000000-0000-0000-0000-000000000010', NULL, NULL, '[Template] Evento — Pré-Produção'),
-  ('10000000-0000-0000-0000-000000000011', NULL, NULL, '[Template] Evento — Rodagem'),
-  ('10000000-0000-0000-0000-000000000012', NULL, NULL, '[Template] Evento — Pós-Produção')
+INSERT INTO checklists (id, user_id, project_id, nome, is_template) VALUES
+  ('10000000-0000-0000-0000-000000000010', NULL, NULL, '[Template] Evento — Pré-Produção', true),
+  ('10000000-0000-0000-0000-000000000011', NULL, NULL, '[Template] Evento — Rodagem', true),
+  ('10000000-0000-0000-0000-000000000012', NULL, NULL, '[Template] Evento — Pós-Produção', true)
 ON CONFLICT DO NOTHING;
 
 INSERT INTO checklist_items (checklist_id, fase, texto, concluido, ordem) VALUES

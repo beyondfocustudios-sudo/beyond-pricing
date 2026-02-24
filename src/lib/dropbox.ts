@@ -2,7 +2,6 @@
 // Uses refresh token flow: access_token expires in 4h, auto-refresh
 
 const DROPBOX_API = "https://api.dropboxapi.com/2";
-const DROPBOX_CONTENT_API = "https://content.dropboxapi.com/2";
 const TOKEN_URL = "https://api.dropboxapi.com/oauth2/token";
 
 export interface DropboxFile {

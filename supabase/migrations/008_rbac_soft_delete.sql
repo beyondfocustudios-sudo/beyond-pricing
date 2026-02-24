@@ -50,7 +50,7 @@ CREATE POLICY "audit_log_admin_only" ON audit_log FOR ALL
   USING (
     EXISTS (
       SELECT 1 FROM team_members tm
-      WHERE tm.user_id = auth.uid() AND tm.role IN ('owner','admin')
+      WHERE tm.user_id = auth.uid() AND tm.role::text IN ('owner','admin')
     )
   );
 
@@ -106,7 +106,7 @@ CREATE OR REPLACE FUNCTION is_org_role(roles text[])
 RETURNS boolean LANGUAGE sql SECURITY DEFINER AS $$
   SELECT EXISTS (
     SELECT 1 FROM team_members
-    WHERE user_id = auth.uid() AND role = ANY(roles)
+    WHERE user_id = auth.uid() AND role::text = ANY(roles)
   );
 $$;
 

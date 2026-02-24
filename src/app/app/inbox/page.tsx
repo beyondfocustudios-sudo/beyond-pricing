@@ -39,6 +39,7 @@ function InboxContent() {
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [activeConv, setActiveConv] = useState<Conversation | null>(null);
   const [loadingConv, setLoadingConv] = useState(false);
   const [input, setInput] = useState("");
@@ -55,6 +56,7 @@ function InboxContent() {
 
   const fetchConversations = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const res = await fetch("/api/conversations", {
         method: "POST",
@@ -65,10 +67,14 @@ function InboxContent() {
         const data = await res.json() as { conversations: Conversation[] };
         setConversations(data.conversations ?? []);
       } else {
-        toast.error("Erro ao carregar conversas");
+        const msg = "Erro ao carregar conversas";
+        setLoadError(msg);
+        toast.error(msg);
       }
     } catch {
-      toast.error("Sem ligação — não foi possível carregar conversas");
+      const msg = "Sem ligação — não foi possível carregar conversas";
+      setLoadError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -242,6 +248,13 @@ function InboxContent() {
             [...Array(4)].map((_, i) => (
               <div key={i} className="card-glass rounded-xl h-16 animate-pulse" style={{ background: "var(--surface)" }} />
             ))
+          ) : loadError ? (
+            <div className="card-glass rounded-xl p-6 text-center space-y-3">
+              <p style={{ color: "var(--text-2)" }}>{loadError}</p>
+              <button onClick={fetchConversations} className="btn btn-secondary btn-sm mx-auto">
+                Tentar novamente
+              </button>
+            </div>
           ) : conversations.length === 0 ? (
             <div className="card-glass rounded-xl p-8 text-center space-y-3">
               <MessageSquare className="h-8 w-8 mx-auto" style={{ color: "var(--text-3)" }} />

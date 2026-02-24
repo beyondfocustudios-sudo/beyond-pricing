@@ -5,6 +5,26 @@
 
 -- Enable uuid extension (usually already enabled)
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- Supabase projects can miss uuid-ossp runtime function even if extension metadata exists.
+-- Keep migration idempotent by providing a compatible fallback.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE p.proname = 'uuid_generate_v4'
+      AND n.nspname = 'public'
+      AND p.pronargs = 0
+  ) THEN
+    CREATE OR REPLACE FUNCTION public.uuid_generate_v4()
+    RETURNS uuid
+    LANGUAGE sql
+    AS $fn$SELECT gen_random_uuid();$fn$;
+  END IF;
+END$$;
 
 -- ── Rates (tarifas base do utilizador) ─────────────────────────
 CREATE TABLE IF NOT EXISTS rates (

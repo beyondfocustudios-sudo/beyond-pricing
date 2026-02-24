@@ -43,6 +43,7 @@ type Modal =
 export default function ClientsPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [modal, setModal] = useState<Modal | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [orgRole, setOrgRole] = useState<string | null>(null);
@@ -62,6 +63,7 @@ export default function ClientsPage() {
   const [allProjects, setAllProjects] = useState<Project[]>([]);
 
   const load = useCallback(async () => {
+    setLoadError(null);
     const sb = createClient();
 
     const roleRes = await fetch("/api/admin/org-role");
@@ -69,6 +71,8 @@ export default function ClientsPage() {
       const roleData = await roleRes.json() as { role: string | null; isAdmin: boolean };
       setOrgRole(roleData.role);
       setIsAdmin(roleData.isAdmin);
+    } else {
+      setLoadError("Não foi possível validar permissões da organização.");
     }
     setAccessChecked(true);
 
@@ -79,6 +83,7 @@ export default function ClientsPage() {
 
     if (clientsErr) {
       toast.error(`Erro ao carregar clientes: ${clientsErr.message}`);
+      setLoadError(clientsErr.message);
       setLoading(false);
       return;
     }
@@ -206,6 +211,16 @@ export default function ClientsPage() {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
         <Loader2 className="w-6 h-6 animate-spin" style={{ color: "var(--text-3)" }} />
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4 text-center p-8">
+        <p className="text-lg font-semibold" style={{ color: "var(--text)" }}>Erro ao carregar clientes</p>
+        <p className="text-sm" style={{ color: "var(--text-2)" }}>{loadError}</p>
+        <button className="btn btn-secondary btn-sm" onClick={load}>Tentar novamente</button>
       </div>
     );
   }

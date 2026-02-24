@@ -5,6 +5,16 @@
 -- ============================================================
 
 -- ── 1. Add weather/geo fields to projects if missing ──
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS location_text text DEFAULT NULL;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS location_lat numeric(10,7) DEFAULT NULL;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS location_lng numeric(10,7) DEFAULT NULL;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS location_address text DEFAULT NULL;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS logistics_start_date date DEFAULT NULL;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS logistics_end_date date DEFAULT NULL;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS travel_km numeric(8,2) DEFAULT NULL;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS travel_minutes integer DEFAULT NULL;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS weather_snapshot jsonb DEFAULT NULL;
+
 DO $$ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.columns
@@ -39,6 +49,13 @@ DO $$ BEGIN
 END $$;
 
 -- ── 2. Enhance org_settings for geo/fuel configuration ──
+ALTER TABLE org_settings ADD COLUMN IF NOT EXISTS diesel_price_per_liter numeric(6,3) DEFAULT 1.50;
+ALTER TABLE org_settings ADD COLUMN IF NOT EXISTS petrol_price_per_liter numeric(6,3) DEFAULT 1.65;
+ALTER TABLE org_settings ADD COLUMN IF NOT EXISTS avg_fuel_consumption_l_per_100km numeric(5,2) DEFAULT 7.5;
+ALTER TABLE org_settings ADD COLUMN IF NOT EXISTS default_work_location_lat numeric(10,7) DEFAULT NULL;
+ALTER TABLE org_settings ADD COLUMN IF NOT EXISTS default_work_location_lng numeric(10,7) DEFAULT NULL;
+ALTER TABLE org_settings ADD COLUMN IF NOT EXISTS default_work_location_name text DEFAULT NULL;
+
 DO $$ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.columns
@@ -62,6 +79,11 @@ DO $$ BEGIN
 END $$;
 
 -- ── 3. Ensure weather_cache has proper structure ──
+ALTER TABLE weather_cache ADD COLUMN IF NOT EXISTS latitude numeric(10,7);
+ALTER TABLE weather_cache ADD COLUMN IF NOT EXISTS longitude numeric(10,7);
+ALTER TABLE weather_cache ADD COLUMN IF NOT EXISTS location_name text DEFAULT NULL;
+ALTER TABLE weather_cache ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE;
+
 DO $$ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.columns
@@ -119,7 +141,7 @@ CREATE POLICY "weather_cache_update" ON weather_cache
     OR EXISTS (
       SELECT 1 FROM team_members tm
       WHERE tm.user_id = auth.uid()
-        AND tm.role IN ('owner', 'admin')
+        AND tm.role::text IN ('owner', 'admin')
     )
   );
 

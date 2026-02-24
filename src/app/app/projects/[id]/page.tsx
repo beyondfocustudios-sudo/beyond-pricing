@@ -46,7 +46,6 @@ import {
   Presentation,
 } from "lucide-react";
 import Link from "next/link";
-import { WeatherWidget } from "@/components/WeatherWidget";
 import { CatalogModal } from "@/components/CatalogModal";
 import { ProjectLogisticsTab } from "@/components/ProjectLogisticsTab";
 import { useToast } from "@/components/Toast";

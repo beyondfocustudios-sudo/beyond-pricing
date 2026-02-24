@@ -52,6 +52,7 @@ export default function JournalPage() {
   const toast = useToast();
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -75,16 +76,21 @@ export default function JournalPage() {
 
   const fetchEntries = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const res = await fetch("/api/journal");
       if (res.ok) {
         const data = await res.json() as { entries: JournalEntry[] };
         setEntries(data.entries ?? []);
       } else {
-        toast.error("Erro ao carregar entradas do journal");
+        const msg = "Erro ao carregar entradas do journal";
+        setLoadError(msg);
+        toast.error(msg);
       }
     } catch {
-      toast.error("Sem ligação — não foi possível carregar o journal");
+      const msg = "Sem ligação — não foi possível carregar o journal";
+      setLoadError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -279,6 +285,11 @@ export default function JournalPage() {
           {[1, 2, 3].map((i) => (
             <div key={i} className="card-glass rounded-xl p-4 animate-pulse h-20" style={{ background: "var(--surface)" }} />
           ))}
+        </div>
+      ) : loadError ? (
+        <div className="card-glass rounded-xl p-10 text-center space-y-3">
+          <p style={{ color: "var(--text-2)" }}>{loadError}</p>
+          <button className="btn btn-secondary btn-sm" onClick={fetchEntries}>Tentar novamente</button>
         </div>
       ) : entries.length === 0 ? (
         <div className="card-glass rounded-xl p-10 text-center space-y-2">

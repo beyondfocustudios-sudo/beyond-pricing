@@ -171,6 +171,7 @@ export async function POST(req: NextRequest) {
 // GET - get connection status + recent sync log
 export async function GET(req: NextRequest) {
   const projectId = req.nextUrl.searchParams.get("projectId");
+  const limit = Math.min(Number(req.nextUrl.searchParams.get("limit") ?? "20"), 100);
   if (!projectId) return NextResponse.json({ error: "projectId required" }, { status: 400 });
 
   try { await requireProjectAccess(projectId); } catch {
@@ -189,7 +190,7 @@ export async function GET(req: NextRequest) {
     .select("*")
     .eq("project_id", projectId)
     .order("started_at", { ascending: false })
-    .limit(5);
+    .limit(limit);
 
   return NextResponse.json({ connected: !!conn, connection: conn, logs });
 }

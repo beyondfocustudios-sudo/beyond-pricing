@@ -89,7 +89,8 @@ export async function PATCH(req: NextRequest) {
   const id = (body.id as string) ?? req.nextUrl.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id obrigatório" }, { status: 400 });
 
-  const { id: _id, ...updates } = body;
+  const updates = { ...body };
+  delete updates.id;
   const { data, error } = await sb
     .from("tasks")
     .update({ ...updates, updated_at: new Date().toISOString() })

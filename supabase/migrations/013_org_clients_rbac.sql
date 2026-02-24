@@ -31,14 +31,14 @@ CREATE POLICY "team_members_read" ON team_members FOR SELECT
     user_id = auth.uid()
     OR EXISTS (
       SELECT 1 FROM team_members tm2
-      WHERE tm2.user_id = auth.uid() AND tm2.role IN ('owner','admin')
+      WHERE tm2.user_id = auth.uid() AND tm2.role::text IN ('owner','admin')
     )
   );
 
 CREATE POLICY "team_members_write" ON team_members FOR INSERT WITH CHECK (
   EXISTS (
     SELECT 1 FROM team_members tm2
-    WHERE tm2.user_id = auth.uid() AND tm2.role IN ('owner','admin')
+    WHERE tm2.user_id = auth.uid() AND tm2.role::text IN ('owner','admin')
   )
 );
 
@@ -46,7 +46,7 @@ CREATE POLICY "team_members_update" ON team_members FOR UPDATE
   USING (
     EXISTS (
       SELECT 1 FROM team_members tm2
-      WHERE tm2.user_id = auth.uid() AND tm2.role IN ('owner','admin')
+      WHERE tm2.user_id = auth.uid() AND tm2.role::text IN ('owner','admin')
     )
   );
 
@@ -69,7 +69,7 @@ CREATE POLICY "clients_select" ON clients FOR SELECT
 CREATE POLICY "clients_insert" ON clients FOR INSERT WITH CHECK (
   EXISTS (
     SELECT 1 FROM team_members tm
-    WHERE tm.user_id = auth.uid() AND tm.role IN ('owner','admin')
+    WHERE tm.user_id = auth.uid() AND tm.role::text IN ('owner','admin')
   )
 );
 
@@ -77,7 +77,7 @@ CREATE POLICY "clients_update" ON clients FOR UPDATE
   USING (
     EXISTS (
       SELECT 1 FROM team_members tm
-      WHERE tm.user_id = auth.uid() AND tm.role IN ('owner','admin')
+      WHERE tm.user_id = auth.uid() AND tm.role::text IN ('owner','admin')
     )
   );
 
@@ -85,7 +85,7 @@ CREATE POLICY "clients_delete" ON clients FOR DELETE
   USING (
     EXISTS (
       SELECT 1 FROM team_members tm
-      WHERE tm.user_id = auth.uid() AND tm.role IN ('owner','admin')
+      WHERE tm.user_id = auth.uid() AND tm.role::text IN ('owner','admin')
     )
   );
 
@@ -107,7 +107,7 @@ CREATE POLICY "client_users_select" ON client_users FOR SELECT
 CREATE POLICY "client_users_insert" ON client_users FOR INSERT WITH CHECK (
   EXISTS (
     SELECT 1 FROM team_members tm
-    WHERE tm.user_id = auth.uid() AND tm.role IN ('owner','admin')
+    WHERE tm.user_id = auth.uid() AND tm.role::text IN ('owner','admin')
   )
 );
 
@@ -115,7 +115,7 @@ CREATE POLICY "client_users_delete" ON client_users FOR DELETE
   USING (
     EXISTS (
       SELECT 1 FROM team_members tm
-      WHERE tm.user_id = auth.uid() AND tm.role IN ('owner','admin')
+      WHERE tm.user_id = auth.uid() AND tm.role::text IN ('owner','admin')
     )
   );
 
@@ -124,7 +124,7 @@ CREATE OR REPLACE FUNCTION is_team_member_role(roles text[])
 RETURNS boolean LANGUAGE sql SECURITY DEFINER STABLE AS $$
   SELECT EXISTS (
     SELECT 1 FROM team_members
-    WHERE user_id = auth.uid() AND role = ANY(roles)
+    WHERE user_id = auth.uid() AND role::text = ANY(roles)
   )
 $$;
 

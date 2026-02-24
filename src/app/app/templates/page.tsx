@@ -45,6 +45,7 @@ const TYPE_COLORS: Record<string, string> = {
 export default function TemplatesPage() {
   const [templates, setTemplates] = useState<TemplateRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [selected, setSelected] = useState<TemplateRow | null>(null);
   const [templateItems, setTemplateItems] = useState<TemplateItem[]>([]);
   const [loadingItems, setLoadingItems] = useState(false);
@@ -53,13 +54,17 @@ export default function TemplatesPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setErrorMsg(null);
     const sb = createClient();
-    const { data } = await sb
+    const { data, error } = await sb
       .from("templates")
       .select("id, name, type, defaults, created_at, user_id")
       .order("created_at", { ascending: true });
 
-    if (data) {
+    if (error) {
+      toast.error(`Erro ao carregar templates: ${error.message}`);
+      setErrorMsg(error.message);
+    } else if (data) {
       // Get item counts
       const ids = data.map((t) => t.id);
       const counts = await Promise.all(
@@ -74,7 +79,7 @@ export default function TemplatesPage() {
       setTemplates(withCounts as TemplateRow[]);
     }
     setLoading(false);
-  }, []);
+  }, [toast]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -168,6 +173,15 @@ export default function TemplatesPage() {
               <div className="skeleton h-4 w-24" />
             </div>
           ))}
+        </div>
+      ) : errorMsg ? (
+        <div className="card">
+          <div className="empty-state">
+            <FileText className="empty-icon" />
+            <p className="empty-title">Erro ao carregar templates</p>
+            <p className="empty-desc">{errorMsg}</p>
+            <button className="btn btn-secondary btn-sm" onClick={load}>Tentar novamente</button>
+          </div>
         </div>
       ) : (
         <>

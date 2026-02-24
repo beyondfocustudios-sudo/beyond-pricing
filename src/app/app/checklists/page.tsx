@@ -19,10 +19,12 @@ interface ChecklistRow {
 export default function ChecklistsPage() {
   const [checklists, setChecklists] = useState<ChecklistRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const toast = useToast();
 
   const load = useCallback(async () => {
     setLoading(true);
+    setErrorMsg(null);
     const sb = createClient();
     const { data, error } = await sb
       .from("checklists")
@@ -30,6 +32,7 @@ export default function ChecklistsPage() {
       .order("created_at", { ascending: false });
     if (error) {
       toast.error(`Erro ao carregar checklists: ${error.message}`);
+      setErrorMsg(error.message);
     }
     setChecklists((data ?? []) as unknown as ChecklistRow[]);
     setLoading(false);
@@ -63,6 +66,15 @@ export default function ChecklistsPage() {
               </div>
             </div>
           ))}
+        </div>
+      ) : errorMsg ? (
+        <div className="card">
+          <div className="empty-state">
+            <CheckSquare className="empty-icon" />
+            <p className="empty-title">Erro ao carregar checklists</p>
+            <p className="empty-desc">{errorMsg}</p>
+            <button className="btn btn-secondary btn-sm" onClick={load}>Tentar novamente</button>
+          </div>
         </div>
       ) : checklists.length === 0 ? (
         <div className="card">

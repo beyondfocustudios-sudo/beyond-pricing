@@ -43,6 +43,7 @@ const PRIORITY_LABELS: Record<Task["priority"], string> = {
 export default function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState<Task["status"] | null>(null);
   const [newTask, setNewTask] = useState({ title: "", description: "", priority: "medium" as Task["priority"], due_date: "" });
   const [saving, setSaving] = useState(false);
@@ -55,10 +56,14 @@ export default function TasksPage() {
   const touchStartX = React.useRef<Record<string, number>>({});
 
   const loadTasks = useCallback(async () => {
+    setLoadError(null);
     const res = await fetch("/api/tasks?limit=200");
     if (res.ok) {
       const data = await res.json() as { tasks?: Task[] };
       setTasks(data.tasks ?? []);
+    } else {
+      const err = await res.json().catch(() => ({})) as { error?: string };
+      setLoadError(err.error ?? "Erro ao carregar tarefas");
     }
     setLoading(false);
   }, []);
@@ -160,6 +165,13 @@ export default function TasksPage() {
   if (loading) return (
     <div className="flex items-center justify-center py-20">
       <Loader2 className="w-6 h-6 animate-spin" style={{ color: "var(--text-3)" }} />
+    </div>
+  );
+
+  if (loadError) return (
+    <div className="card text-center space-y-3">
+      <p style={{ color: "var(--text-2)" }}>{loadError}</p>
+      <button className="btn btn-secondary btn-sm" onClick={loadTasks}>Tentar novamente</button>
     </div>
   );
 

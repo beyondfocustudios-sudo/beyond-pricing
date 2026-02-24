@@ -21,12 +21,14 @@ interface ProjectRow {
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<ProjectRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const toast = useToast();
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError(null);
     const sb = createClient();
     const { data, error } = await sb
       .from("projects")
@@ -35,6 +37,7 @@ export default function ProjectsPage() {
       .order("created_at", { ascending: false });
     if (error) {
       toast.error(`Erro ao carregar projetos: ${error.message}`);
+      setError(error.message);
     }
     setProjects((data ?? []) as ProjectRow[]);
     setLoading(false);
@@ -107,6 +110,15 @@ export default function ProjectsPage() {
               </div>
             </div>
           ))}
+        </div>
+      ) : error ? (
+        <div className="card">
+          <div className="empty-state">
+            <Folder className="empty-icon" />
+            <p className="empty-title">Erro ao carregar projetos</p>
+            <p className="empty-desc">{error}</p>
+            <button className="btn btn-secondary btn-sm" onClick={load}>Tentar novamente</button>
+          </div>
         </div>
       ) : filtered.length === 0 ? (
         <div className="card">

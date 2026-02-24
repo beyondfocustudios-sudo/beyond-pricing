@@ -20,7 +20,8 @@ export function VoiceButton({ onInsert, lang = "pt-PT", className = "" }: VoiceB
   // Auto-stop on unmount (safety)
   const stopRef = useRef<(() => void) | null>(null);
   useEffect(() => {
-    return () => { stopRef.current?.(); };
+    const stop = stopRef.current;
+    return () => { stop?.(); };
   }, []);
 
   if (!isSupported) {

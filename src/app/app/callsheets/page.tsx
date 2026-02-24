@@ -44,6 +44,7 @@ interface CallSheet {
 export default function CallSheetsPage() {
   const [sheets, setSheets] = useState<CallSheet[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [newSheet, setNewSheet] = useState({
@@ -59,8 +60,14 @@ export default function CallSheetsPage() {
   const [saving, setSaving] = useState(false);
 
   const loadSheets = useCallback(async () => {
+    setLoadError(null);
     const res = await fetch("/api/callsheets");
-    if (res.ok) setSheets(await res.json());
+    if (res.ok) {
+      setSheets(await res.json());
+    } else {
+      const err = await res.json().catch(() => ({})) as { error?: string };
+      setLoadError(err.error ?? "Erro ao carregar call sheets");
+    }
     setLoading(false);
   }, []);
 
@@ -115,6 +122,13 @@ export default function CallSheetsPage() {
   if (loading) return (
     <div className="flex items-center justify-center py-20">
       <Loader2 className="w-6 h-6 animate-spin" style={{ color: "var(--text-3)" }} />
+    </div>
+  );
+
+  if (loadError) return (
+    <div className="card text-center space-y-3">
+      <p style={{ color: "var(--text-2)" }}>{loadError}</p>
+      <button className="btn btn-secondary btn-sm" onClick={loadSheets}>Tentar novamente</button>
     </div>
   );
 

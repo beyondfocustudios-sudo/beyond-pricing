@@ -22,6 +22,7 @@ ALTER TABLE call_sheet_people ADD COLUMN IF NOT EXISTS notes text;
 -- call_sheet_schedule: ensure columns  
 ALTER TABLE call_sheet_schedule ADD COLUMN IF NOT EXISTS department text;
 ALTER TABLE call_sheet_schedule ADD COLUMN IF NOT EXISTS notes text;
+ALTER TABLE call_sheet_schedule ADD COLUMN IF NOT EXISTS start_time time;
 ALTER TABLE call_sheet_schedule ADD COLUMN IF NOT EXISTS duration_minutes int DEFAULT 0;
 
 -- weather_cache: enhancements

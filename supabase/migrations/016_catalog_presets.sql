@@ -15,6 +15,13 @@ CREATE TABLE IF NOT EXISTS catalog_items (
   created_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
+ALTER TABLE team_members
+  ADD COLUMN IF NOT EXISTS org_id uuid REFERENCES organizations(id) ON DELETE CASCADE;
+
+UPDATE team_members
+SET org_id = '00000000-0000-0000-0000-000000000001'
+WHERE org_id IS NULL;
+
 -- Global presets are readable by everyone; org items are org-scoped
 ALTER TABLE catalog_items ENABLE ROW LEVEL SECURITY;
 
@@ -40,7 +47,7 @@ CREATE POLICY "catalog_update" ON catalog_items FOR UPDATE USING (
   OR org_id IN (
     SELECT o.id FROM organizations o
     JOIN team_members tm ON tm.org_id = o.id
-    WHERE tm.user_id = auth.uid() AND tm.role IN ('owner', 'admin')
+    WHERE tm.user_id = auth.uid() AND tm.role::text IN ('owner', 'admin')
   )
 );
 
@@ -49,7 +56,7 @@ CREATE POLICY "catalog_delete" ON catalog_items FOR DELETE USING (
   OR org_id IN (
     SELECT o.id FROM organizations o
     JOIN team_members tm ON tm.org_id = o.id
-    WHERE tm.user_id = auth.uid() AND tm.role IN ('owner', 'admin')
+    WHERE tm.user_id = auth.uid() AND tm.role::text IN ('owner', 'admin')
   )
 );
 
