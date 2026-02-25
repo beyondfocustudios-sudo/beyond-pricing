@@ -39,6 +39,7 @@ export async function middleware(request: NextRequest) {
     "/auth/set-session",
     "/login",
     "/portal/login",
+    "/portal/invite",
     "/reset-password",
   ];
   if (publicPaths.some((p) => pathname.startsWith(p))) {

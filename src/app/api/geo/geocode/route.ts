@@ -41,7 +41,13 @@ export async function GET(req: NextRequest) {
 
     const json = await res.json() as Array<{ lat: string; lon: string; display_name: string }>;
     const result = json[0]
-      ? { lat: parseFloat(json[0].lat), lng: parseFloat(json[0].lon), label: json[0].display_name }
+      ? {
+          lat: parseFloat(json[0].lat),
+          lng: parseFloat(json[0].lon),
+          label: json[0].display_name,
+          name: (json[0].display_name ?? "").split(",")[0]?.trim() || json[0].display_name,
+          address: json[0].display_name,
+        }
       : null;
 
     cache.set(cacheKey, { data: result, exp: now + 30 * 60 * 1000 });

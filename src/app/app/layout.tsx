@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase-server";
 import { AppShell } from "@/components/AppShell";
 import { ToastProvider } from "@/components/Toast";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import { resolveAudienceMembership } from "@/lib/login-audience";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   // Env guard — surface misconfiguration immediately
@@ -15,8 +16,17 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     redirect("/login");
   }
 
+  const membership = await resolveAudienceMembership(supabase, user);
+  if (!membership.isTeam) {
+    await supabase.auth.signOut();
+    if (membership.isClient || membership.isCollaborator) {
+      redirect("/portal/login?mismatch=1");
+    }
+    redirect("/login?mode=team&mismatch=1");
+  }
+
   return (
-    <ThemeProvider>
+    <ThemeProvider userId={user.id}>
     <ToastProvider>
       {missingEnv && (
         <div

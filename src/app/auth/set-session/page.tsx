@@ -14,29 +14,65 @@
 
 import { Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { setSessionCookieClient, SESSION_TTL } from "@/lib/session";
+import { createClient } from "@/lib/supabase";
+import { clearSessionCookieClient, setSessionCookieClient, SESSION_TTL } from "@/lib/session";
+import { parseAudience } from "@/lib/login-audience";
 
 function SetSessionInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
   useEffect(() => {
-    const ttlParam = searchParams.get("ttl") ?? "24h";
-    const rawNext = searchParams.get("next") ?? "/app";
-    // Validate next to prevent open redirect
-    const next =
-      rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/app";
+    const run = async () => {
+      const ttlParam = searchParams.get("ttl") ?? "24h";
+      const rawNext = searchParams.get("next") ?? "/app";
+      const audience = parseAudience(searchParams.get("audience"));
 
-    // Map ttl param to seconds
-    const ttlSeconds =
-      ttlParam === "30d"
-        ? SESSION_TTL.LONG
-        : ttlParam === "1h"
-          ? SESSION_TTL.SHORT
-          : SESSION_TTL.DAY; // "24h" default
+      // Validate next to prevent open redirect
+      const next =
+        rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/app";
 
-    setSessionCookieClient(ttlSeconds);
-    router.replace(next);
+      // Map ttl param to seconds
+      const ttlSeconds =
+        ttlParam === "30d"
+          ? SESSION_TTL.LONG
+          : ttlParam === "1h"
+            ? SESSION_TTL.SHORT
+            : SESSION_TTL.DAY; // "24h" default
+
+      setSessionCookieClient(ttlSeconds);
+
+      if (audience) {
+        const res = await fetch(`/api/auth/validate-audience?audience=${audience}`, { cache: "no-store" });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({} as { suggestedPath?: string }));
+          const suggestedPath = typeof data?.suggestedPath === "string"
+            ? data.suggestedPath
+            : audience === "client"
+              ? "/portal/login?mode=client"
+              : audience === "collaborator"
+                ? "/portal/login?mode=collaborator"
+                : "/login?mode=team";
+
+          try {
+            const sb = createClient();
+            await sb.auth.signOut();
+          } catch {
+            // Keep redirect fallback.
+          }
+          clearSessionCookieClient();
+          const mismatchPath = suggestedPath.includes("?")
+            ? `${suggestedPath}&mismatch=1`
+            : `${suggestedPath}?mismatch=1`;
+          router.replace(mismatchPath);
+          return;
+        }
+      }
+
+      router.replace(next);
+    };
+
+    void run();
   }, [router, searchParams]);
 
   return null;

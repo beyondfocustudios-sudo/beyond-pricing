@@ -19,6 +19,6 @@ export default defineConfig({
         command: "npm run dev",
         url: baseURL,
         reuseExistingServer: true,
-        timeout: 120_000,
+        timeout: 240_000,
       },
 });

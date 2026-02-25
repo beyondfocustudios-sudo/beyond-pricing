@@ -25,17 +25,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
   }
 
-  // ── 2. Verify caller is internal (not a portal client) ────────────
-  // Check that the calling user is NOT a client_user (i.e. is team)
-  const { data: clientUser } = await sb
-    .from("client_users")
-    .select("id")
+  // ── 2. Verify caller is owner/admin ────────────────────────────────
+  const { data: teamMember } = await sb
+    .from("team_members")
+    .select("role")
     .eq("user_id", caller.id)
     .maybeSingle();
 
-  if (clientUser) {
+  const callerRole = String(teamMember?.role ?? caller.app_metadata?.role ?? "").toLowerCase();
+  const isAdmin = callerRole === "owner" || callerRole === "admin";
+  if (!isAdmin) {
     return NextResponse.json(
-      { error: "Acesso negado. Apenas membros da equipa podem criar utilizadores." },
+      { error: "Acesso negado. Apenas owner/admin podem criar utilizadores." },
       { status: 403 }
     );
   }

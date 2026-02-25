@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { Bell, X, MessageSquare, Package, Star, AlertCircle, CheckCheck } from "lucide-react";
 import { createClient } from "@/lib/supabase";
 import Link from "next/link";
@@ -40,7 +40,7 @@ export default function NotificationBell() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unread, setUnread] = useState(0);
   const panelRef = useRef<HTMLDivElement>(null);
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const loadNotifications = useCallback(async () => {
     const res = await fetch("/api/notifications?limit=20");

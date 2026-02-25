@@ -2,6 +2,18 @@ import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 
+const themeInitScript = `
+(() => {
+  try {
+    let theme = localStorage.getItem("bp_theme");
+    if (theme !== "light" && theme !== "dark") {
+      theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    }
+    document.documentElement.setAttribute("data-theme", theme);
+  } catch {}
+})();
+`;
+
 const inter = Inter({
   subsets: ["latin"],
   variable: "--font-inter",
@@ -27,7 +39,10 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="pt-PT" className={inter.variable}>
+    <html lang="pt-PT" className={inter.variable} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
       <body className="min-h-dvh antialiased">{children}</body>
     </html>
   );

@@ -5,6 +5,7 @@ import {
   Plus, X, Loader2, Search, Upload, Download,
   User, Building2, Phone, Mail,
 } from "lucide-react";
+import { useToast } from "@/components/Toast";
 
 // ── Types ─────────────────────────────────────────────────────
 interface Contact {
@@ -44,6 +45,7 @@ const STAGES = [
 type CrmTab = "contacts" | "pipeline";
 
 export default function CrmPage() {
+  const toast = useToast();
   const [tab, setTab] = useState<CrmTab>("contacts");
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [deals, setDeals] = useState<Deal[]>([]);
@@ -59,24 +61,32 @@ export default function CrmPage() {
 
   const loadContacts = useCallback(async () => {
     setLoadError(null);
-    const res = await fetch("/api/crm?limit=200");
-    if (res.ok) {
-      const payload = await res.json() as { contacts?: Contact[] };
-      setContacts(payload.contacts ?? []);
-    } else {
-      const err = await res.json().catch(() => ({})) as { error?: string };
-      setLoadError(err.error ?? "Erro ao carregar contactos");
+    try {
+      const res = await fetch("/api/crm?limit=200");
+      if (res.ok) {
+        const payload = await res.json() as { contacts?: Contact[] };
+        setContacts(payload.contacts ?? []);
+      } else {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        setLoadError(err.error ?? "Erro ao carregar contactos");
+      }
+    } catch {
+      setLoadError("Sem ligação — não foi possível carregar contactos");
     }
   }, []);
 
   const loadDeals = useCallback(async () => {
-    const res = await fetch("/api/crm/deals");
-    if (res.ok) {
-      const payload = await res.json() as Deal[];
-      setDeals(payload ?? []);
-    } else {
-      const err = await res.json().catch(() => ({})) as { error?: string };
-      setLoadError(err.error ?? "Erro ao carregar deals");
+    try {
+      const res = await fetch("/api/crm/deals");
+      if (res.ok) {
+        const payload = await res.json() as Deal[];
+        setDeals(payload ?? []);
+      } else {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        setLoadError(err.error ?? "Erro ao carregar deals");
+      }
+    } catch {
+      setLoadError("Sem ligação — não foi possível carregar deals");
     }
   }, []);
 
@@ -91,38 +101,60 @@ export default function CrmPage() {
   const addContact = async () => {
     if (!newContact.name.trim() || saving) return;
     setSaving(true);
-    await fetch("/api/crm", {
+    const res = await fetch("/api/crm", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(newContact),
     });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({})) as { error?: string };
+      toast.error(err.error ?? "Erro ao criar contacto");
+      setSaving(false);
+      return;
+    }
     setSaving(false);
     setShowAddContact(false);
     setNewContact({ name: "", email: "", phone: "", company: "", role: "" });
-    loadContacts();
+    await loadContacts();
+    toast.success("Contacto criado");
   };
 
   const addDeal = async () => {
     if (!newDeal.title.trim() || saving) return;
     setSaving(true);
-    await fetch("/api/crm/deals", {
+    const res = await fetch("/api/crm/deals", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...newDeal, value: parseFloat(newDeal.value) || 0, probability: parseInt(newDeal.probability) || 50 }),
     });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({})) as { error?: string };
+      toast.error(err.error ?? "Erro ao criar deal");
+      setSaving(false);
+      return;
+    }
     setSaving(false);
     setShowAddDeal(false);
     setNewDeal({ title: "", stage: "lead", value: "", probability: "50", notes: "" });
-    loadDeals();
+    await loadDeals();
+    toast.success("Deal criado");
   };
 
   const moveStage = async (dealId: string, newStage: string) => {
+    const prev = deals;
     setDeals(prev => prev.map(d => d.id === dealId ? { ...d, stage: newStage } : d));
-    await fetch("/api/crm/deals", {
+    const res = await fetch("/api/crm/deals", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: dealId, stage: newStage }),
     });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({})) as { error?: string };
+      setDeals(prev);
+      toast.error(err.error ?? "Erro ao mover deal");
+      return;
+    }
+    toast.success("Etapa do deal atualizada");
   };
 
   const exportCSV = () => {
@@ -149,14 +181,22 @@ export default function CrmPage() {
       return Object.fromEntries(headers.map((h, i) => [h, vals[i]?.trim() ?? ""]));
     });
     if (records.length > 0) {
-      await fetch("/api/crm/import", {
+      const res = await fetch("/api/crm/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ contacts: records }),
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        toast.error(err.error ?? "Erro ao importar CSV");
+        setImporting(false);
+        e.target.value = "";
+        return;
+      }
     }
     setImporting(false);
-    loadContacts();
+    await loadContacts();
+    toast.success("CSV importado");
     e.target.value = "";
   };
 

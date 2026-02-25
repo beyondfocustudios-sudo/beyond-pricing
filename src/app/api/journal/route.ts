@@ -11,7 +11,13 @@ export async function GET(req: NextRequest) {
   const projectId = req.nextUrl.searchParams.get("projectId");
   const limit = Math.min(parseInt(req.nextUrl.searchParams.get("limit") ?? "20"), 100);
 
-  let q = sb.from("journal_entries").select("*").eq("user_id", user.id).order("created_at", { ascending: false }).limit(limit);
+  let q = sb
+    .from("journal_entries")
+    .select("*")
+    .eq("user_id", user.id)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false })
+    .limit(limit);
   if (projectId) q = q.eq("project_id", projectId);
 
   const { data, error } = await q;
@@ -56,7 +62,14 @@ export async function PUT(req: NextRequest) {
   if (!id) return NextResponse.json({ error: "id obrigatório" }, { status: 400 });
 
   const body = await req.json() as Record<string, unknown>;
-  const { data, error } = await sb.from("journal_entries").update(body).eq("id", id).eq("user_id", user.id).select().single();
+  const { data, error } = await sb
+    .from("journal_entries")
+    .update({ ...body, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("user_id", user.id)
+    .is("deleted_at", null)
+    .select()
+    .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ entry: data });
@@ -71,7 +84,12 @@ export async function DELETE(req: NextRequest) {
   const id = req.nextUrl.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id obrigatório" }, { status: 400 });
 
-  const { error } = await sb.from("journal_entries").delete().eq("id", id).eq("user_id", user.id);
+  const { error } = await sb
+    .from("journal_entries")
+    .update({ deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("user_id", user.id)
+    .is("deleted_at", null);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

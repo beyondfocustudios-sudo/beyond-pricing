@@ -7,7 +7,7 @@ import { slugify } from "@/lib/utils";
 import { useToast } from "@/components/Toast";
 import {
   Plus, Users, X, Building2, User,
-  Shield, FolderOpen, Check, Copy,
+  Shield, FolderOpen, Check, Copy, Mail,
   Loader2, Lock,
 } from "lucide-react";
 
@@ -37,6 +37,7 @@ interface ClientUser {
 type Modal =
   | { type: "create_client" }
   | { type: "create_user"; clientId: string; clientName: string }
+  | { type: "invite_client"; clientId: string; clientName: string }
   | { type: "assign_project"; clientId: string; clientName: string }
   | { type: "members"; clientId: string; clientName: string };
 
@@ -54,6 +55,10 @@ export default function ClientsPage() {
   const [newEmail, setNewEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newRole, setNewRole] = useState<"client_viewer" | "client_approver">("client_viewer");
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<"client_viewer" | "client_approver">("client_viewer");
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [inviteExpiresAt, setInviteExpiresAt] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [unassignedProjects, setUnassignedProjects] = useState<Project[]>([]);
@@ -156,6 +161,31 @@ export default function ClientsPage() {
     toast.success("Utilizador criado com sucesso");
     setNewEmail("");
     setNewPassword("");
+    load();
+  };
+
+  const createClientInvite = async () => {
+    if (modal?.type !== "invite_client" || !inviteEmail.trim() || saving) return;
+    setSaving(true);
+    const res = await fetch("/api/clients/invites", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        clientId: modal.clientId,
+        email: inviteEmail.trim(),
+        role: inviteRole,
+        expiresInDays: 7,
+      }),
+    });
+    const data = await res.json() as { error?: string; inviteUrl?: string; expiresAt?: string };
+    setSaving(false);
+    if (!res.ok || !data.inviteUrl) {
+      toast.error(data.error ?? "Erro ao gerar convite");
+      return;
+    }
+    setInviteLink(data.inviteUrl);
+    setInviteExpiresAt(data.expiresAt ?? null);
+    toast.success("Link de convite criado");
     load();
   };
 
@@ -354,6 +384,19 @@ export default function ClientsPage() {
                 </button>
                 <button
                   onClick={() => {
+                    setModal({ type: "invite_client", clientId: client.id, clientName: client.name });
+                    setInviteEmail("");
+                    setInviteRole("client_viewer");
+                    setInviteLink(null);
+                    setInviteExpiresAt(null);
+                    setSaveSuccess(null);
+                  }}
+                  className="btn btn-secondary btn-sm text-xs"
+                >
+                  <Mail className="w-3.5 h-3.5" /> Convidar cliente
+                </button>
+                <button
+                  onClick={() => {
                     const unassigned = allProjects.filter((p) => !p.client_id);
                     setUnassignedProjects(unassigned);
                     setModal({ type: "assign_project", clientId: client.id, clientName: client.name });
@@ -400,6 +443,7 @@ export default function ClientsPage() {
                 <h2 className="font-semibold" style={{ color: "var(--text)" }}>
                   {modal.type === "create_client" && "Novo Cliente"}
                   {modal.type === "create_user" && `Convidar para ${modal.clientName}`}
+                  {modal.type === "invite_client" && `Convidar cliente para ${modal.clientName}`}
                   {modal.type === "assign_project" && `Associar Projeto a ${modal.clientName}`}
                   {modal.type === "members" && `Membros de ${modal.clientName}`}
                 </h2>
@@ -501,6 +545,71 @@ export default function ClientsPage() {
                           className="btn btn-primary flex-1"
                         >
                           {saving ? "A criar…" : "Criar utilizador"}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {modal.type === "invite_client" && (
+                <div className="space-y-3">
+                  {inviteLink ? (
+                    <div
+                      className="rounded-xl p-4"
+                      style={{ background: "var(--success-bg)", border: "1px solid var(--success-border)" }}
+                    >
+                      <div className="flex items-center gap-2 mb-1" style={{ color: "var(--success)" }}>
+                        <Check className="w-4 h-4" /> Convite criado!
+                      </div>
+                      <p className="text-xs break-all" style={{ color: "var(--text-2)" }}>{inviteLink}</p>
+                      <p className="text-xs mt-1" style={{ color: "var(--text-3)" }}>
+                        Expira: {inviteExpiresAt ? new Date(inviteExpiresAt).toLocaleDateString("pt-PT") : "7 dias"}
+                      </p>
+                      <button
+                        onClick={() => copyToClipboard(inviteLink)}
+                        className="btn btn-ghost btn-sm text-xs mt-2"
+                        style={{ color: "var(--text-3)" }}
+                      >
+                        <Copy className="w-3 h-3" /> Copiar link
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div>
+                        <label className="label">Email do cliente</label>
+                        <input
+                          type="email"
+                          value={inviteEmail}
+                          onChange={(e) => setInviteEmail(e.target.value)}
+                          placeholder="email@cliente.com"
+                          className="input w-full"
+                        />
+                      </div>
+                      <div>
+                        <label className="label">Função</label>
+                        <select
+                          value={inviteRole}
+                          onChange={(e) => setInviteRole(e.target.value as "client_viewer" | "client_approver")}
+                          className="input w-full"
+                        >
+                          <option value="client_viewer">Visualizador</option>
+                          <option value="client_approver">Aprovador</option>
+                        </select>
+                      </div>
+                      <p className="text-xs" style={{ color: "var(--text-3)" }}>
+                        O convite expira em 7 dias e é single-use.
+                      </p>
+                      <div className="flex gap-2">
+                        <button onClick={() => setModal(null)} className="btn btn-secondary flex-1">
+                          Cancelar
+                        </button>
+                        <button
+                          onClick={createClientInvite}
+                          disabled={saving || !inviteEmail.trim()}
+                          className="btn btn-primary flex-1"
+                        >
+                          {saving ? "A criar…" : "Gerar link"}
                         </button>
                       </div>
                     </>

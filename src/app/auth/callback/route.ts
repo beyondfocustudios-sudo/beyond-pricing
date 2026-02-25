@@ -25,6 +25,7 @@ export async function GET(request: NextRequest) {
 
   // TTL forwarded from OAuth redirectTo param (e.g. "30d" | "24h")
   const ttl = searchParams.get("ttl") ?? "24h";
+  const audience = searchParams.get("audience");
 
   const origin = request.headers.get("x-forwarded-host")
     ? `${request.headers.get("x-forwarded-proto") || "https"}://${request.headers.get("x-forwarded-host")}`
@@ -58,6 +59,9 @@ export async function GET(request: NextRequest) {
   const setSessionUrl = new URL(`${origin}/auth/set-session`);
   setSessionUrl.searchParams.set("ttl", ttl);
   setSessionUrl.searchParams.set("next", next);
+  if (audience) {
+    setSessionUrl.searchParams.set("audience", audience);
+  }
 
   return NextResponse.redirect(setSessionUrl.toString());
 }

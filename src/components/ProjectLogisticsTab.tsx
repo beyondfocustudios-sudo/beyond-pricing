@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { MapPin, Clock, Truck, AlertCircle, Loader2 } from "lucide-react";
 import { useToast } from "./Toast";
 
@@ -30,16 +30,18 @@ interface WeatherDay {
   temp_min: number;
   precipitation_sum: number;
   weather_code: number;
+  weather_label?: string;
 }
 
-interface OpenMeteoResponse {
-  daily?: {
-    date: string[];
-    temperature_2m_max: number[];
-    temperature_2m_min: number[];
-    precipitation_sum: number[];
-    weather_code: number[];
-  };
+interface WeatherPluginResponse {
+  days?: Array<{
+    date: string;
+    temp_max: number;
+    temp_min: number;
+    precipitation_sum: number;
+    weather_code: number;
+    weather_label?: string;
+  }>;
 }
 
 const WMO_CONDITIONS: Record<number, { emoji: string; label: string }> = {
@@ -54,45 +56,77 @@ const WMO_CONDITIONS: Record<number, { emoji: string; label: string }> = {
   80: { emoji: "🌦️", label: "Aguaceiros" },
 };
 
+const BEYOND_BASE = { lat: 38.5243, lng: -8.8926 };
+const DEFAULT_CONSUMPTION_PER_100KM = 7.5;
+
 export function ProjectLogisticsTab(props: LogisticsTabProps) {
   const toast = useToast();
   const [locationInput, setLocationInput] = useState(props.locationText || "");
   const [searching, setSearching] = useState(false);
   const [weatherData, setWeatherData] = useState<WeatherDay[]>([]);
   const [loadingWeather, setLoadingWeather] = useState(false);
+  const [weatherError, setWeatherError] = useState<string | null>(null);
+  const [fuelPrice, setFuelPrice] = useState<number | null>(null);
+  const [fuelSource, setFuelSource] = useState<string | null>(null);
+  const [fuelLoading, setFuelLoading] = useState(false);
 
-  // Fetch weather when location is set
-  useEffect(() => {
+  const fetchWeather = useCallback(async () => {
     if (!props.locationLat || !props.locationLng) return;
 
-    const fetchWeather = async () => {
-      setLoadingWeather(true);
-      try {
-        const res = await fetch(
-          `/api/weather/forecast?lat=${props.locationLat}&lng=${props.locationLng}`
-        );
-        if (!res.ok) throw new Error("Failed to fetch weather");
+    setLoadingWeather(true);
+    setWeatherError(null);
+    try {
+      const res = await fetch(`/api/plugins/weather?lat=${props.locationLat}&lng=${props.locationLng}`);
+      const data = (await res.json()) as WeatherPluginResponse & { error?: string; warning?: string };
+      if (!res.ok) throw new Error(data.error || "Falha a carregar weather");
 
-        const data = (await res.json()) as OpenMeteoResponse;
-        if (data.daily) {
-          const days: WeatherDay[] = data.daily.date.map((date, i) => ({
-            date,
-            temp_max: data.daily!.temperature_2m_max[i],
-            temp_min: data.daily!.temperature_2m_min[i],
-            precipitation_sum: data.daily!.precipitation_sum[i],
-            weather_code: data.daily!.weather_code[i],
-          }));
-          setWeatherData(days.slice(0, 7)); // Show next 7 days
+      const days = (data.days ?? []).map((day) => ({
+        date: day.date,
+        temp_max: day.temp_max,
+        temp_min: day.temp_min,
+        precipitation_sum: day.precipitation_sum,
+        weather_code: day.weather_code,
+        weather_label: day.weather_label,
+      }));
+      setWeatherData(days.slice(0, 7));
+
+      if ((data as { warning?: string }).warning) {
+        setWeatherError((data as { warning?: string }).warning ?? null);
+      }
+    } catch (err) {
+      setWeatherError(err instanceof Error ? err.message : "Não foi possível carregar previsão");
+    } finally {
+      setLoadingWeather(false);
+    }
+  }, [props.locationLat, props.locationLng]);
+
+  useEffect(() => {
+    void fetchWeather();
+  }, [fetchWeather]);
+
+  useEffect(() => {
+    if (!props.travelKm) return;
+
+    const fetchFuel = async () => {
+      setFuelLoading(true);
+      try {
+        const res = await fetch("/api/plugins/fuel?country=PT&type=diesel");
+        const data = await res.json() as { price_per_liter?: number; source?: string; error?: string };
+        if (!res.ok || typeof data.price_per_liter !== "number") {
+          throw new Error(data.error || "Sem preço de combustível");
         }
-      } catch (err) {
-        console.error("Weather fetch failed:", err);
+        setFuelPrice(data.price_per_liter);
+        setFuelSource(data.source ?? "fallback");
+      } catch {
+        setFuelPrice(null);
+        setFuelSource(null);
       } finally {
-        setLoadingWeather(false);
+        setFuelLoading(false);
       }
     };
 
-    fetchWeather();
-  }, [props.locationLat, props.locationLng]);
+    void fetchFuel();
+  }, [props.travelKm]);
 
   const handleGeocode = async () => {
     if (!locationInput.trim()) {
@@ -119,7 +153,7 @@ export function ProjectLogisticsTab(props: LogisticsTabProps) {
 
       // Fetch route from base location
       const routeRes = await fetch(
-        `/api/geo/route?lat=${lat}&lng=${lng}`
+        `/api/plugins/route?from=Setubal&fromLat=${BEYOND_BASE.lat}&fromLng=${BEYOND_BASE.lng}&to=${encodeURIComponent(name)}&toLat=${lat}&toLng=${lng}`
       );
       let travelKm = 0;
       let travelMin = 0;
@@ -143,6 +177,7 @@ export function ProjectLogisticsTab(props: LogisticsTabProps) {
       });
 
       toast.success(`Local: ${name} (${travelKm}km, ${travelMin}min)`);
+      void fetchWeather();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao geocodificar");
     } finally {
@@ -241,17 +276,22 @@ export function ProjectLogisticsTab(props: LogisticsTabProps) {
       {/* Weather Forecast */}
       {props.locationLat && props.locationLng && (
         <div className="card space-y-3">
-          <div className="flex items-center justify-between">
-            <label className="section-title">Previsão Meteorológica</label>
-            {loadingWeather && <Loader2 className="w-4 h-4 animate-spin" style={{ color: "var(--text-3)" }} />}
-          </div>
+            <div className="flex items-center justify-between">
+              <label className="section-title">Previsão Meteorológica</label>
+              <div className="flex items-center gap-2">
+                {loadingWeather ? <Loader2 className="w-4 h-4 animate-spin" style={{ color: "var(--text-3)" }} /> : null}
+                <button onClick={() => void fetchWeather()} className="btn btn-ghost btn-sm text-xs" disabled={loadingWeather}>
+                  Atualizar agora
+                </button>
+              </div>
+            </div>
 
           {weatherData.length > 0 ? (
             <div className="grid grid-cols-2 md:grid-cols-7 gap-2">
               {weatherData.map((day) => {
                 const condition = WMO_CONDITIONS[day.weather_code] || {
                   emoji: "❓",
-                  label: `Código ${day.weather_code}`,
+                  label: day.weather_label || `Código ${day.weather_code}`,
                 };
 
                 return (
@@ -307,7 +347,7 @@ export function ProjectLogisticsTab(props: LogisticsTabProps) {
             >
               <AlertCircle className="w-4 h-4 shrink-0" style={{ color: "var(--warning)" }} />
               <p className="text-sm" style={{ color: "var(--warning)" }}>
-                Não foi possível carregar previsão
+                {weatherError ?? "Não foi possível carregar previsão"}
               </p>
             </div>
           )}
@@ -331,8 +371,24 @@ export function ProjectLogisticsTab(props: LogisticsTabProps) {
                 {(props.travelKm * 2).toFixed(1)} km
               </span>
             </p>
+            {fuelLoading ? (
+              <p className="text-xs" style={{ color: "var(--text-3)" }}>
+                A carregar preço de combustível...
+              </p>
+            ) : null}
+            {fuelPrice ? (
+              <p className="text-sm">
+                <span style={{ color: "var(--text-3)" }}>Combustível estimado:</span>
+                <span className="ml-2 font-medium">
+                  {(((props.travelKm * 2) * DEFAULT_CONSUMPTION_PER_100KM) / 100 * fuelPrice).toFixed(2)} €
+                </span>
+                <span className="ml-2 text-xs" style={{ color: "var(--text-3)" }}>
+                  ({fuelPrice.toFixed(3)} €/L · {fuelSource ?? "fallback"})
+                </span>
+              </p>
+            ) : null}
             <p className="text-xs" style={{ color: "var(--text-3)" }}>
-              (Usar valores padrão da org ou adicionar combustível como item)
+              (Cache 24h + fallback automático)
             </p>
           </div>
         </div>

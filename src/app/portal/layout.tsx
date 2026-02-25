@@ -4,8 +4,66 @@ import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import Link from "next/link";
-import { LogOut } from "lucide-react";
-import { ThemeProvider } from "@/components/ThemeProvider";
+import { LogOut, Moon, Sun, Zap } from "lucide-react";
+import { ThemeProvider, useTheme } from "@/components/ThemeProvider";
+import { TopScheduleBar } from "@/components/ui-kit";
+import { SuperShell } from "@/components/dashboard/super-dashboard";
+
+function PortalShell({
+  children,
+  email,
+  onLogout,
+}: {
+  children: React.ReactNode;
+  email: string | null;
+  onLogout: () => Promise<void>;
+}) {
+  const { theme, toggleTheme } = useTheme();
+
+  return (
+    <div className="super-theme super-shell-bg min-h-dvh p-2 md:p-5">
+      <SuperShell className="mx-auto max-w-5xl overflow-hidden">
+        <header className="super-topbar">
+          <Link href="/portal" className="inline-flex items-center gap-2.5">
+            <span
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full"
+              style={{ background: "var(--accent-primary)", color: "#fff" }}
+            >
+              <Zap className="h-4 w-4" />
+            </span>
+            <span className="text-sm font-semibold tracking-tight" style={{ color: "var(--text)" }}>
+              Beyond Portal
+            </span>
+          </Link>
+
+          <div className="flex items-center gap-1.5">
+            {email ? (
+              <span className="hidden rounded-full border px-3 py-1 text-xs md:inline-flex" style={{ borderColor: "var(--border-soft)", color: "var(--text-2)" }}>
+                {email}
+              </span>
+            ) : null}
+            <button
+              onClick={toggleTheme}
+              className="icon-btn"
+              title={theme === "dark" ? "Modo claro" : "Modo escuro"}
+              aria-label={theme === "dark" ? "Modo claro" : "Modo escuro"}
+            >
+              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </button>
+            <button onClick={() => void onLogout()} className="icon-btn" title="Sair" aria-label="Sair">
+              <LogOut className="h-4 w-4" />
+            </button>
+          </div>
+        </header>
+
+        <main className="px-3 pb-6 pt-3 md:px-4 md:pt-4">
+          <TopScheduleBar className="mb-4" avatars={email ? [email] : []} />
+          <div className="surface p-4 sm:p-5">{children}</div>
+        </main>
+      </SuperShell>
+    </div>
+  );
+}
 
 export default function PortalLayout({
   children,
@@ -15,15 +73,28 @@ export default function PortalLayout({
   const router = useRouter();
   const pathname = usePathname();
   const [email, setEmail] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const sb = createClient();
-    sb.auth.getUser().then(({ data }) => {
+    sb.auth.getUser().then(async ({ data }) => {
       if (!data.user) {
         router.replace("/portal/login");
         return;
       }
+
+      const [clientRes, collaboratorRes] = await Promise.all([
+        fetch("/api/auth/validate-audience?audience=client", { cache: "no-store" }),
+        fetch("/api/auth/validate-audience?audience=collaborator", { cache: "no-store" }),
+      ]);
+      if (!clientRes.ok && !collaboratorRes.ok) {
+        await sb.auth.signOut();
+        router.replace("/portal/login?mismatch=1");
+        return;
+      }
+
+      setUserId(data.user.id);
       setEmail(data.user.email ?? null);
       setLoading(false);
     });
@@ -35,8 +106,7 @@ export default function PortalLayout({
     router.push("/portal/login");
   };
 
-  // Don't render layout on login page
-  if (pathname === "/portal/login") {
+  if (pathname === "/portal/login" || pathname === "/portal/invite") {
     return <ThemeProvider>{children}</ThemeProvider>;
   }
 
@@ -51,45 +121,10 @@ export default function PortalLayout({
   }
 
   return (
-    <ThemeProvider>
-      <div className="min-h-screen" style={{ background: "var(--bg)" }}>
-        {/* Top bar */}
-        <header style={{
-          background: "var(--glass-bg)",
-          backdropFilter: "var(--glass-blur)",
-          WebkitBackdropFilter: "var(--glass-blur)",
-          borderBottom: "1px solid var(--border)",
-          position: "sticky",
-          top: 0,
-          zIndex: 40,
-        }}>
-          <div className="mx-auto max-w-5xl px-4 sm:px-6 h-14 flex items-center justify-between">
-            <Link href="/portal" className="flex items-center gap-2">
-              <div className="h-7 w-7 rounded-lg flex items-center justify-center" style={{ background: "var(--accent)" }}>
-                <span className="text-xs font-bold text-white">B</span>
-              </div>
-              <span className="text-sm font-semibold" style={{ color: "var(--text)" }}>Beyond Portal</span>
-            </Link>
-
-            <div className="flex items-center gap-3">
-              <span className="text-xs hidden sm:block" style={{ color: "var(--text-3)" }}>{email}</span>
-              <button
-                onClick={handleLogout}
-                className="btn btn-ghost btn-sm"
-                style={{ color: "var(--text-3)" }}
-              >
-                <LogOut className="h-3.5 w-3.5" />
-                Sair
-              </button>
-            </div>
-          </div>
-        </header>
-
-        {/* Main */}
-        <main className="mx-auto max-w-5xl px-4 sm:px-6 py-8">
-          {children}
-        </main>
-      </div>
+    <ThemeProvider userId={userId ?? undefined}>
+      <PortalShell email={email} onLogout={handleLogout}>
+        {children}
+      </PortalShell>
     </ThemeProvider>
   );
 }

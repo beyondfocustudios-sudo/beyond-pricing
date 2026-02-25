@@ -6,6 +6,7 @@ import {
   Flag, Calendar, GripVertical,
 } from "lucide-react";
 import { VoiceButton } from "@/components/VoiceButton";
+import { useToast } from "@/components/Toast";
 
 interface Task {
   id: string;
@@ -41,6 +42,7 @@ const PRIORITY_LABELS: Record<Task["priority"], string> = {
 };
 
 export default function TasksPage() {
+  const toast = useToast();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -57,13 +59,17 @@ export default function TasksPage() {
 
   const loadTasks = useCallback(async () => {
     setLoadError(null);
-    const res = await fetch("/api/tasks?limit=200");
-    if (res.ok) {
-      const data = await res.json() as { tasks?: Task[] };
-      setTasks(data.tasks ?? []);
-    } else {
-      const err = await res.json().catch(() => ({})) as { error?: string };
-      setLoadError(err.error ?? "Erro ao carregar tarefas");
+    try {
+      const res = await fetch("/api/tasks?limit=200");
+      if (res.ok) {
+        const data = await res.json() as { tasks?: Task[] };
+        setTasks(data.tasks ?? []);
+      } else {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        setLoadError(err.error ?? "Erro ao carregar tarefas");
+      }
+    } catch {
+      setLoadError("Sem ligação — não foi possível carregar tarefas");
     }
     setLoading(false);
   }, []);
@@ -74,7 +80,7 @@ export default function TasksPage() {
     if (!newTask.title.trim() || saving) return;
     setSaving(true);
     const colTasks = tasks.filter(t => t.status === (showAdd ?? "todo"));
-    await fetch("/api/tasks", {
+    const res = await fetch("/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -86,24 +92,47 @@ export default function TasksPage() {
         position: colTasks.length,
       }),
     });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({})) as { error?: string };
+      toast.error(err.error ?? "Erro ao criar tarefa");
+      setSaving(false);
+      return;
+    }
     setNewTask({ title: "", description: "", priority: "medium", due_date: "" });
     setShowAdd(null);
     setSaving(false);
-    loadTasks();
+    await loadTasks();
+    toast.success("Tarefa criada");
   };
 
   const moveTask = async (taskId: string, newStatus: Task["status"]) => {
+    const previous = tasks;
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
-    await fetch("/api/tasks", {
+    const res = await fetch("/api/tasks", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: taskId, status: newStatus }),
     });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({})) as { error?: string };
+      setTasks(previous);
+      toast.error(err.error ?? "Erro ao mover tarefa");
+      return;
+    }
+    toast.success("Estado da tarefa atualizado");
   };
 
   const deleteTask = async (taskId: string) => {
+    const previous = tasks;
     setTasks(prev => prev.filter(t => t.id !== taskId));
-    await fetch(`/api/tasks?id=${taskId}`, { method: "DELETE" });
+    const res = await fetch(`/api/tasks?id=${taskId}`, { method: "DELETE" });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({})) as { error?: string };
+      setTasks(previous);
+      toast.error(err.error ?? "Erro ao apagar tarefa");
+      return;
+    }
+    toast.success("Tarefa removida");
   };
 
   const parseFromText = async () => {
@@ -117,15 +146,24 @@ export default function TasksPage() {
     if (res.ok) {
       const { tasks: newTasks } = await res.json() as { tasks: Array<{ title: string; priority?: string }> };
       for (const t of newTasks) {
-        await fetch("/api/tasks", {
+        const createRes = await fetch("/api/tasks", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ title: t.title, status: "todo", priority: t.priority ?? "medium", position: 0 }),
         });
+        if (!createRes.ok) {
+          const err = await createRes.json().catch(() => ({})) as { error?: string };
+          toast.error(err.error ?? "Erro ao criar tarefa por voz");
+          break;
+        }
       }
       setParseText("");
       setVoiceOpen(false);
-      loadTasks();
+      await loadTasks();
+      toast.success("Tarefas criadas a partir do texto");
+    } else {
+      const err = await res.json().catch(() => ({})) as { error?: string };
+      toast.error(err.error ?? "Erro ao processar texto");
     }
     setParsing(false);
   };

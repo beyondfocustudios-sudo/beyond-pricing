@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase-server";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
+function isMissingDeletedAt(error: { code?: string } | null) {
+  return error?.code === "42703";
+}
+
 // GET /api/tasks?projectId=xxx&status=todo
 export async function GET(req: NextRequest) {
   const sb = await createClient();
@@ -11,13 +15,20 @@ export async function GET(req: NextRequest) {
   const projectId = req.nextUrl.searchParams.get("projectId");
   const status = req.nextUrl.searchParams.get("status");
 
-  let q = sb.from("tasks").select("*").eq("user_id", user.id).order("position").order("created_at");
+  let q = sb.from("tasks").select("*").eq("user_id", user.id).is("deleted_at", null).order("position").order("created_at");
   if (projectId) q = q.eq("project_id", projectId);
   if (status) q = q.eq("status", status);
 
-  const { data, error } = await q;
+  let { data, error } = await q;
+  if (isMissingDeletedAt(error)) {
+    let fallback = sb.from("tasks").select("*").eq("user_id", user.id).order("position").order("created_at");
+    if (projectId) fallback = fallback.eq("project_id", projectId);
+    if (status) fallback = fallback.eq("status", status);
+    ({ data, error } = await fallback);
+  }
+
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ tasks: data });
+  return NextResponse.json({ tasks: data ?? [] });
 }
 
 // POST /api/tasks
@@ -74,7 +85,16 @@ export async function DELETE(req: NextRequest) {
   const id = req.nextUrl.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id obrigatório" }, { status: 400 });
 
-  const { error } = await sb.from("tasks").delete().eq("id", id).eq("user_id", user.id);
+  let { error } = await sb
+    .from("tasks")
+    .update({ deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("user_id", user.id);
+
+  if (isMissingDeletedAt(error)) {
+    ({ error } = await sb.from("tasks").delete().eq("id", id).eq("user_id", user.id));
+  }
+
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

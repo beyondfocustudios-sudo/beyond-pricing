@@ -1,394 +1,340 @@
 "use client";
 
-import { Suspense, useState, useEffect, useRef } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { AnimatePresence, motion } from "framer-motion";
+import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, Mail, RefreshCw, ShieldCheck, Zap } from "lucide-react";
 import { createClient } from "@/lib/supabase";
-import { motion, AnimatePresence } from "framer-motion";
-import { Mail, AlertCircle, CheckCircle, ArrowLeft, RefreshCw } from "lucide-react";
-import { setSessionCookieClient, SESSION_TTL } from "@/lib/session";
+import { SESSION_TTL, setSessionCookieClient } from "@/lib/session";
+import { buttonMotionProps, transitions, useMotionEnabled, variants } from "@/lib/motion";
+import { OtpCodeInput } from "@/components/auth/OtpCodeInput";
+import { audienceLabel, audienceLoginPath, parseAudience } from "@/lib/login-audience";
 
-// ── Spinner ──────────────────────────────────────────────────────────────────
+const OTP_COOLDOWN = 30;
+
 function Spinner() {
   return (
-    <svg
-      className="animate-spin h-4 w-4 text-white inline-block"
-      xmlns="http://www.w3.org/2000/svg"
-      fill="none"
-      viewBox="0 0 24 24"
-    >
+    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden>
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8V0C5.37 0 0 5.37 0 12h4z" />
     </svg>
   );
 }
 
-const RESEND_COOLDOWN = 30; // seconds
-
-function PortalLoginPageInner() {
+function PortalLoginInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const isExpired = searchParams.get("expired") === "1";
+  const motionEnabled = useMotionEnabled();
+  const expired = searchParams.get("expired") === "1";
+  const mode = parseAudience(searchParams.get("mode") ?? searchParams.get("role")) ?? "client";
+  const mismatch = searchParams.get("mismatch") === "1";
 
-  // ── step: "email" | "otp" ─────────────────────────────────────────────────
   const [step, setStep] = useState<"email" | "otp">("email");
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [countdown, setCountdown] = useState(0);
+  const [gatewayError, setGatewayError] = useState<string | null>(null);
+  const [cooldown, setCooldown] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // cleanup timer on unmount
-  useEffect(() => () => { if (timerRef.current) clearInterval(timerRef.current); }, []);
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
 
-  function startCooldown() {
-    setCountdown(RESEND_COOLDOWN);
+  useEffect(() => {
+    if (mode === "team") {
+      router.replace(audienceLoginPath("team"));
+    }
+  }, [mode, router]);
+
+  const startCooldown = () => {
+    setCooldown(OTP_COOLDOWN);
     timerRef.current = setInterval(() => {
-      setCountdown((c) => {
-        if (c <= 1) {
-          clearInterval(timerRef.current!);
+      setCooldown((current) => {
+        if (current <= 1) {
+          if (timerRef.current) clearInterval(timerRef.current);
           return 0;
         }
-        return c - 1;
+        return current - 1;
       });
     }, 1000);
-  }
+  };
 
-  // ── Step 1: send OTP ──────────────────────────────────────────────────────
-  const handleSendOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const sendOtp = async (event: React.FormEvent) => {
+    event.preventDefault();
     if (loading) return;
     setError(null);
+    setGatewayError(null);
     setLoading(true);
 
-    const sb = createClient();
-    const { error: otpErr } = await sb.auth.signInWithOtp({
-      email,
-      options: {
-        shouldCreateUser: false, // portal clients must already exist
-      },
-    });
+    try {
+      const sb = createClient();
+      const { error: otpError } = await sb.auth.signInWithOtp({
+        email,
+        options: { shouldCreateUser: false },
+      });
 
-    if (otpErr) {
-      // "Email not confirmed" or similar → user not found
-      const msg =
-        otpErr.message.toLowerCase().includes("not found") ||
-        otpErr.message.toLowerCase().includes("email")
-          ? "Não encontrámos este email. Contacta o teu gestor de projeto."
-          : "Erro ao enviar código. Tenta novamente.";
-      setError(msg);
+      if (otpError) {
+        setError("Não foi possível enviar o código. Confirma o email com a equipa.");
+        return;
+      }
+
+      setStep("otp");
+      setOtp("");
+      startCooldown();
+    } finally {
       setLoading(false);
-      return;
     }
-
-    setLoading(false);
-    setStep("otp");
-    startCooldown();
   };
 
-  // ── Step 2: verify OTP ────────────────────────────────────────────────────
-  const handleVerifyOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (loading) return;
-    const code = otp.trim();
-    if (code.length !== 6) {
-      setError("O código deve ter 6 dígitos.");
-      return;
-    }
+  const verifyOtp = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (loading || otp.length !== 6) return;
     setError(null);
+    setGatewayError(null);
     setLoading(true);
 
-    const sb = createClient();
-    const { error: verifyErr } = await sb.auth.verifyOtp({
-      email,
-      token: code,
-      type: "email",
-    });
+    try {
+      const sb = createClient();
+      const { error: verifyError } = await sb.auth.verifyOtp({
+        email,
+        token: otp.trim(),
+        type: "email",
+      });
 
-    if (verifyErr) {
-      setError("Código inválido ou expirado. Solicita um novo código.");
+      if (verifyError) {
+        setError("Código inválido ou expirado.");
+        return;
+      }
+
+      const audienceRes = await fetch(`/api/auth/validate-audience?audience=${mode}`, { cache: "no-store" });
+      if (!audienceRes.ok) {
+        const payload = await audienceRes.json().catch(() => ({} as { message?: string; suggestedPath?: string }));
+        await sb.auth.signOut();
+        const suggestedPath = typeof payload.suggestedPath === "string"
+          ? payload.suggestedPath
+          : audienceLoginPath(mode);
+        setGatewayError(payload.message ?? `Esta conta não pertence a ${audienceLabel(mode)}.`);
+        router.replace(suggestedPath.includes("?") ? `${suggestedPath}&mismatch=1` : `${suggestedPath}?mismatch=1`);
+        return;
+      }
+
+      setSessionCookieClient(SESSION_TTL.SHORT);
+      router.push("/portal");
+      router.refresh();
+    } finally {
       setLoading(false);
-      return;
     }
-
-    // Portal always uses SHORT TTL (1 hour) — no remember me option
-    setSessionCookieClient(SESSION_TTL.SHORT);
-    router.push("/portal");
   };
 
-  // ── Resend OTP ────────────────────────────────────────────────────────────
-  const handleResend = async () => {
-    if (countdown > 0 || loading) return;
+  const resendOtp = async () => {
+    if (loading || cooldown > 0) return;
     setError(null);
-    setOtp("");
+    setGatewayError(null);
     setLoading(true);
-
-    const sb = createClient();
-    await sb.auth.signInWithOtp({
-      email,
-      options: { shouldCreateUser: false },
-    });
-
-    setLoading(false);
-    startCooldown();
+    try {
+      const sb = createClient();
+      const { error: resendError } = await sb.auth.signInWithOtp({
+        email,
+        options: { shouldCreateUser: false },
+      });
+      if (resendError) {
+        setError("Falha ao reenviar código.");
+        return;
+      }
+      setOtp("");
+      startCooldown();
+    } finally {
+      setLoading(false);
+    }
   };
-
-  // ── Shared card styles ────────────────────────────────────────────────────
-  const cardStyle: React.CSSProperties = {
-    background: "rgba(255,255,255,0.85)",
-    backdropFilter: "blur(40px)",
-    WebkitBackdropFilter: "blur(40px)",
-    boxShadow: "0 4px 40px rgba(0,0,0,0.08), 0 1px 0 rgba(255,255,255,0.6) inset",
-    border: "1px solid rgba(255,255,255,0.6)",
-  };
-
-  const inputStyle: React.CSSProperties = {
-    background: "rgba(0,0,0,0.04)",
-    border: "1px solid rgba(0,0,0,0.1)",
-    color: "#1d1d1f",
-  };
-
-  const btnStyle = (disabled: boolean): React.CSSProperties => ({
-    background: disabled ? "#86868b" : "linear-gradient(135deg, #1a8fa3, #0d6b7e)",
-    boxShadow: disabled ? "none" : "0 2px 12px rgba(26,143,163,0.35)",
-  });
 
   return (
-    <div
-      className="min-h-screen flex items-center justify-center p-4"
-      style={{
-        background: "linear-gradient(135deg, #e8f4f6 0%, #f5f5f7 50%, #e8f0f6 100%)",
-        fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif",
-      }}
-    >
+    <div className="super-theme super-shell-bg h-dvh overflow-y-auto px-4 py-5 md:p-8">
       <motion.div
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
-        className="w-full max-w-sm"
+        initial={motionEnabled ? "initial" : false}
+        animate={motionEnabled ? "animate" : undefined}
+        variants={variants.page}
+        transition={transitions.page}
+        className="mx-auto w-full max-w-[980px]"
       >
-        {/* Logo */}
-        <div className="flex flex-col items-center mb-8">
-          <div
-            className="h-14 w-14 rounded-2xl flex items-center justify-center mb-4 shadow-lg"
-            style={{ background: "linear-gradient(135deg, #1a8fa3, #0d6b7e)" }}
-          >
-            <span className="text-2xl font-bold text-white">B</span>
-          </div>
-          <h1 className="text-xl font-semibold" style={{ color: "#1d1d1f" }}>
-            Portal do Cliente
-          </h1>
-          <p className="text-sm mt-1" style={{ color: "#86868b" }}>
-            Beyond Focus Studios
-          </p>
-        </div>
-
-        {/* Expired session banner */}
-        <AnimatePresence>
-          {isExpired && (
-            <motion.div
-              initial={{ opacity: 0, y: -8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              className="flex items-center gap-2 rounded-xl px-4 py-3 text-xs mb-4"
-              style={{ background: "#fef3c7", color: "#92400e", border: "1px solid #fde68a" }}
-            >
-              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-              A tua sessão expirou. Por favor autentica-te novamente.
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Card */}
-        <div className="rounded-2xl p-6" style={cardStyle}>
-          <AnimatePresence mode="wait">
-            {/* ── Step 1: Email ─────────────────────────────────────────── */}
-            {step === "email" && (
-              <motion.form
-                key="email-step"
-                initial={{ opacity: 0, x: -16 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 16 }}
-                transition={{ duration: 0.25 }}
-                onSubmit={handleSendOtp}
-                className="space-y-4"
-              >
-                <div className="space-y-1">
-                  <p className="text-sm font-semibold" style={{ color: "#1d1d1f" }}>
-                    Acesso seguro por código
-                  </p>
-                  <p className="text-xs" style={{ color: "#86868b" }}>
-                    Introduz o teu email e enviamos um código de 6 dígitos.
-                  </p>
+        <section className="card-glass overflow-hidden rounded-[32px] border" style={{ borderColor: "var(--border-soft)" }}>
+          <div className="grid min-h-[620px] md:grid-cols-[1fr_1fr]">
+            <aside className="relative hidden border-r p-9 md:block" style={{ borderColor: "var(--border)" }}>
+              <div
+                className="absolute inset-0 pointer-events-none"
+                style={{
+                  background:
+                    "radial-gradient(48rem 30rem at 20% 12%, rgba(26,143,163,0.24), transparent 58%), radial-gradient(42rem 24rem at 82% 86%, rgba(244,223,125,0.2), transparent 55%)",
+                }}
+              />
+              <div className="relative z-10">
+                <div className="inline-flex h-10 w-10 items-center justify-center rounded-2xl" style={{ background: "var(--accent-primary)", color: "#fff" }}>
+                  <Zap className="h-4 w-4" />
                 </div>
-
-                {/* Email input */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium" style={{ color: "#1d1d1f" }}>
-                    Email
-                  </label>
-                  <div className="relative">
-                    <Mail
-                      className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4"
-                      style={{ color: "#86868b" }}
-                    />
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      required
-                      autoFocus
-                      placeholder="o.teu@email.com"
-                      className="w-full pl-9 pr-4 py-2.5 rounded-xl text-sm outline-none transition-all"
-                      style={inputStyle}
-                    />
-                  </div>
+                <h1 className="mt-5 text-[2rem] font-[560] tracking-[-0.03em]" style={{ color: "var(--text)" }}>
+                  Portal Cliente
+                </h1>
+                <p className="mt-3 text-sm" style={{ color: "var(--text-2)" }}>
+                  Acesso OTP-only para acompanhar entregas, mensagens e aprovações.
+                </p>
+                <div className="mt-7 pill inline-flex items-center gap-2">
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  Sessão curta e segura (1h)
                 </div>
+              </div>
+            </aside>
 
-                {/* Error */}
-                <AnimatePresence>
-                  {error && (
-                    <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: "auto" }}
-                      exit={{ opacity: 0, height: 0 }}
-                      className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-xs overflow-hidden"
-                      style={{ background: "#fef2f2", color: "#dc2626" }}
-                    >
-                      <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                      {error}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+            <div className="p-6 sm:p-8 md:p-9">
+              <p className="text-xs uppercase tracking-[0.11em]" style={{ color: "var(--text-3)" }}>
+                {audienceLabel(mode)}
+              </p>
+              <h2 className="mt-1.5 text-[1.75rem] font-[560] tracking-[-0.03em]" style={{ color: "var(--text)" }}>
+                Entrar com código
+              </h2>
 
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full py-2.5 rounded-xl text-sm font-semibold text-white transition-all flex items-center justify-center gap-2"
-                  style={btnStyle(loading)}
-                >
-                  {loading ? <><Spinner /> A enviar…</> : "Enviar código"}
-                </button>
-              </motion.form>
-            )}
+              {expired ? (
+                <div className="alert alert-error mt-4">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span className="text-sm">Sessão expirada. Faz login novamente.</span>
+                </div>
+              ) : null}
 
-            {/* ── Step 2: OTP code ──────────────────────────────────────── */}
-            {step === "otp" && (
-              <motion.form
-                key="otp-step"
-                initial={{ opacity: 0, x: 16 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -16 }}
-                transition={{ duration: 0.25 }}
-                onSubmit={handleVerifyOtp}
-                className="space-y-4"
-              >
-                {/* Back button + heading */}
-                <div className="flex items-start gap-3">
-                  <button
-                    type="button"
-                    onClick={() => { setStep("email"); setError(null); setOtp(""); }}
-                    className="mt-0.5 p-1 rounded-lg transition-all"
-                    style={{ color: "#86868b" }}
-                    aria-label="Voltar"
+              {mismatch ? (
+                <div className="alert alert-error mt-4">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span className="text-sm">Conta sem permissão para este acesso.</span>
+                </div>
+              ) : null}
+
+              {gatewayError ? (
+                <div className="alert alert-error mt-4">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span className="text-sm">{gatewayError}</span>
+                </div>
+              ) : null}
+
+              <AnimatePresence mode="wait">
+                {step === "email" ? (
+                  <motion.form
+                    key="portal-email"
+                    className="mt-6 space-y-4"
+                    onSubmit={sendOtp}
+                    initial={motionEnabled ? "initial" : false}
+                    animate={motionEnabled ? "animate" : undefined}
+                    exit={motionEnabled ? "exit" : undefined}
+                    variants={variants.tab}
+                    transition={transitions.page}
                   >
-                    <ArrowLeft className="h-4 w-4" />
-                  </button>
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle className="h-4 w-4" style={{ color: "#34d399" }} />
-                      <p className="text-sm font-semibold" style={{ color: "#1d1d1f" }}>
-                        Código enviado!
-                      </p>
+                    <div className="space-y-1.5">
+                      <label className="label">Email</label>
+                      <div className="relative">
+                        <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" style={{ color: "var(--text-3)" }} />
+                        <input
+                          type="email"
+                          required
+                          autoFocus
+                          className="input w-full pl-9"
+                          placeholder="o.teu@email.com"
+                          value={email}
+                          onChange={(event) => setEmail(event.target.value)}
+                        />
+                      </div>
                     </div>
-                    <p className="text-xs" style={{ color: "#86868b" }}>
-                      Introduz o código de 6 dígitos enviado para{" "}
-                      <span className="font-medium" style={{ color: "#1d1d1f" }}>{email}</span>
-                    </p>
-                  </div>
-                </div>
 
-                {/* OTP input */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium" style={{ color: "#1d1d1f" }}>
-                    Código de verificação
-                  </label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    maxLength={6}
-                    value={otp}
-                    onChange={(e) => {
-                      const v = e.target.value.replace(/\D/g, "").slice(0, 6);
-                      setOtp(v);
-                      if (error) setError(null);
-                    }}
-                    required
-                    autoFocus
-                    placeholder="123456"
-                    className="w-full py-3 rounded-xl text-center text-2xl font-bold tracking-[0.5em] outline-none transition-all"
-                    style={{
-                      ...inputStyle,
-                      letterSpacing: "0.5em",
-                      fontVariantNumeric: "tabular-nums",
-                    }}
-                  />
-                </div>
+                    {error ? (
+                      <div className="alert alert-error">
+                        <AlertCircle className="h-4 w-4 shrink-0" />
+                        <span className="text-sm">{error}</span>
+                      </div>
+                    ) : null}
 
-                {/* Error */}
-                <AnimatePresence>
-                  {error && (
-                    <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: "auto" }}
-                      exit={{ opacity: 0, height: 0 }}
-                      className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-xs overflow-hidden"
-                      style={{ background: "#fef2f2", color: "#dc2626" }}
+                    <motion.button
+                      type="submit"
+                      disabled={loading || !email}
+                      className="btn btn-primary btn-lg w-full"
+                      {...buttonMotionProps({ enabled: motionEnabled })}
                     >
-                      <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                      {error}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                      {loading ? <><Spinner /> A enviar…</> : <>Enviar código <ArrowRight className="h-4 w-4" /></>}
+                    </motion.button>
+                  </motion.form>
+                ) : null}
 
-                <button
-                  type="submit"
-                  disabled={loading || otp.length !== 6}
-                  className="w-full py-2.5 rounded-xl text-sm font-semibold text-white transition-all flex items-center justify-center gap-2"
-                  style={btnStyle(loading || otp.length !== 6)}
-                >
-                  {loading ? <><Spinner /> A verificar…</> : "Verificar código"}
-                </button>
-
-                {/* Resend */}
-                <div className="flex items-center justify-center gap-1.5 text-xs">
-                  <button
-                    type="button"
-                    onClick={handleResend}
-                    disabled={countdown > 0 || loading}
-                    className="flex items-center gap-1 font-medium transition-all"
-                    style={{
-                      color: countdown > 0 || loading ? "#86868b" : "#1a8fa3",
-                      cursor: countdown > 0 || loading ? "not-allowed" : "pointer",
-                    }}
+                {step === "otp" ? (
+                  <motion.form
+                    key="portal-otp"
+                    className="mt-6 space-y-4"
+                    onSubmit={verifyOtp}
+                    initial={motionEnabled ? "initial" : false}
+                    animate={motionEnabled ? "animate" : undefined}
+                    exit={motionEnabled ? "exit" : undefined}
+                    variants={variants.tab}
+                    transition={transitions.page}
                   >
-                    <RefreshCw className="h-3 w-3" />
-                    {countdown > 0 ? `Reenviar em ${countdown}s` : "Reenviar código"}
-                  </button>
-                </div>
-              </motion.form>
-            )}
-          </AnimatePresence>
-        </div>
+                    <div className="flex items-start gap-3">
+                      <button
+                        type="button"
+                        className="mt-0.5 text-[var(--text-3)]"
+                        onClick={() => {
+                          setStep("email");
+                          setOtp("");
+                          setError(null);
+                        }}
+                      >
+                        <ArrowLeft className="h-4 w-4" />
+                      </button>
+                      <div>
+                        <p className="text-sm font-medium" style={{ color: "var(--text)" }}>
+                          Código enviado para {email}
+                        </p>
+                        <p className="text-xs" style={{ color: "var(--text-3)" }}>
+                          Introduz os 6 dígitos para continuar.
+                        </p>
+                      </div>
+                    </div>
 
-        {/* Footer note about session duration */}
-        <p className="text-center text-xs mt-4" style={{ color: "#86868b" }}>
-          Sessão válida por 1 hora após autenticação
-        </p>
-        <p className="text-center text-xs mt-2" style={{ color: "#86868b" }}>
-          © {new Date().getFullYear()} Beyond Focus Studios
-        </p>
+                    <OtpCodeInput
+                      value={otp}
+                      onChange={(next) => setOtp(next.replace(/\D/g, "").slice(0, 6))}
+                      autoFocus
+                      disabled={loading}
+                    />
+
+                    {error ? (
+                      <div className="alert alert-error">
+                        <AlertCircle className="h-4 w-4 shrink-0" />
+                        <span className="text-sm">{error}</span>
+                      </div>
+                    ) : null}
+
+                    <motion.button
+                      type="submit"
+                      disabled={loading || otp.length !== 6}
+                      className="btn btn-primary btn-lg w-full"
+                      {...buttonMotionProps({ enabled: motionEnabled })}
+                    >
+                      {loading ? <><Spinner /> A validar…</> : <>Entrar <CheckCircle2 className="h-4 w-4" /></>}
+                    </motion.button>
+
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 text-xs"
+                      onClick={resendOtp}
+                      disabled={loading || cooldown > 0}
+                      style={{ color: cooldown > 0 ? "var(--text-3)" : "var(--accent-2)" }}
+                    >
+                      <RefreshCw className="h-3 w-3" />
+                      {cooldown > 0 ? `Reenviar (${cooldown}s)` : "Reenviar código"}
+                    </button>
+                  </motion.form>
+                ) : null}
+              </AnimatePresence>
+            </div>
+          </div>
+        </section>
       </motion.div>
     </div>
   );
@@ -397,7 +343,7 @@ function PortalLoginPageInner() {
 export default function PortalLoginPage() {
   return (
     <Suspense>
-      <PortalLoginPageInner />
+      <PortalLoginInner />
     </Suspense>
   );
 }

@@ -88,6 +88,10 @@ export default function DiagnosticsPage() {
       "catalog_items",
       "call_sheets",
       "notifications",
+      "fuel_cache",
+      "route_cache",
+      "plugin_status",
+      "plugin_runs",
     ];
 
     for (const table of TABLES) {
@@ -144,6 +148,37 @@ export default function DiagnosticsPage() {
       });
     }
 
+    // 6. Plugins endpoints
+    try {
+      const [weatherRes, fuelRes, routeRes] = await Promise.all([
+        fetch("/api/plugins/weather?location=Setubal"),
+        fetch("/api/plugins/fuel?country=PT&type=diesel"),
+        fetch("/api/plugins/route?from=Setubal&to=Lisboa"),
+      ]);
+
+      results.push({
+        label: "Plugin Weather",
+        status: weatherRes.ok ? "ok" : "warn",
+        detail: weatherRes.ok ? "API + cache operacional" : `HTTP ${weatherRes.status}`,
+      });
+      results.push({
+        label: "Plugin Fuel",
+        status: fuelRes.ok ? "ok" : "warn",
+        detail: fuelRes.ok ? "API + cache operacional" : `HTTP ${fuelRes.status}`,
+      });
+      results.push({
+        label: "Plugin Route",
+        status: routeRes.ok ? "ok" : "warn",
+        detail: routeRes.ok ? "API + cache operacional" : `HTTP ${routeRes.status}`,
+      });
+    } catch {
+      results.push({
+        label: "Plugins",
+        status: "warn",
+        detail: "Falha no ping aos plugins",
+      });
+    }
+
     setChecks([...results]);
     setRunning(false);
   };
@@ -171,6 +206,7 @@ export default function DiagnosticsPage() {
     { label: "Autenticação", icon: Shield, items: checks.filter((c) => c.label.includes("Autenticação")) },
     { label: "Base de Dados", icon: Database, items: checks.filter((c) => c.label.startsWith("Tabela:")) },
     { label: "RBAC & Admin", icon: User, items: checks.filter((c) => c.label.includes("Org Role") || c.label.includes("Bootstrap")) },
+    { label: "Plugins & Cache", icon: Zap, items: checks.filter((c) => c.label.startsWith("Plugin") || c.label === "Plugins") },
   ];
 
   return (

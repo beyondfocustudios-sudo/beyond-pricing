@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import {
@@ -80,7 +80,7 @@ const PRIORITY_COLORS: Record<string, string> = {
 export default function PortalProjectPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const [tab, setTab] = useState<Tab>("overview");
   const [project, setProject] = useState<{ id: string; name: string; status?: string; client_id?: string } | null>(null);
@@ -381,6 +381,12 @@ export default function PortalProjectPage() {
                         {d.status}
                       </span>
                     )}
+                    <button
+                      onClick={() => router.push(`/portal/review/${d.id}`)}
+                      className="shrink-0 text-xs px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/15 transition-colors"
+                    >
+                      Abrir review
+                    </button>
                   </div>
                 );
               })

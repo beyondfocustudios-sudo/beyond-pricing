@@ -3,165 +3,105 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import {
   LayoutDashboard,
   Calculator,
+  Building2,
+  CalendarDays,
+  MessageSquare,
+  TrendingUp,
+  Settings,
   CheckSquare,
   FileText,
-  Settings,
-  LogOut,
-  ChevronRight,
-  Zap,
-  TrendingUp,
-  Building2,
-  MessageSquare,
   BookOpen,
   ListTodo,
   Users2,
   ClipboardList,
-  Briefcase,
-  User,
-  Sun,
-  Moon,
   Activity,
+  LogOut,
+  Moon,
+  Sun,
+  Zap,
 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import NotificationBell from "@/components/NotificationBell";
 import { useTheme } from "@/components/ThemeProvider";
+import { PillTabs, SuperShell } from "@/components/dashboard/super-dashboard";
+import { buttonMotionProps, transitions, variants } from "@/lib/motion";
 
-type ViewMode = "company" | "ceo";
+type NavItem = {
+  href: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+};
 
-// CEO mode: high-level items only
-const CEO_HREFS = new Set(["/app", "/app/inbox", "/app/journal", "/app/crm", "/app/insights"]);
-
-const NAV_ITEMS = [
-  {
-    href: "/app",
-    label: "Dashboard",
-    icon: LayoutDashboard,
-    exact: true,
-    description: "Visão geral",
-  },
-  {
-    href: "/app/projects",
-    label: "Projetos",
-    icon: Calculator,
-    exact: false,
-    description: "Orçamentos",
-  },
-  {
-    href: "/app/checklists",
-    label: "Checklists",
-    icon: CheckSquare,
-    exact: false,
-    description: "Produção",
-  },
-  {
-    href: "/app/templates",
-    label: "Templates",
-    icon: FileText,
-    exact: false,
-    description: "Reutilizar",
-  },
-  {
-    href: "/app/insights",
-    label: "Insights",
-    icon: TrendingUp,
-    exact: false,
-    description: "Análise",
-  },
-  {
-    href: "/app/clients",
-    label: "Clientes",
-    icon: Building2,
-    exact: false,
-    description: "Portal",
-  },
-  {
-    href: "/app/inbox",
-    label: "Inbox",
-    icon: MessageSquare,
-    exact: false,
-    description: "Mensagens",
-  },
-  {
-    href: "/app/journal",
-    label: "Journal",
-    icon: BookOpen,
-    exact: false,
-    description: "Notas",
-  },
-  {
-    href: "/app/tasks",
-    label: "Tarefas",
-    icon: ListTodo,
-    exact: false,
-    description: "Kanban",
-  },
-  {
-    href: "/app/crm",
-    label: "CRM",
-    icon: Users2,
-    exact: false,
-    description: "Contactos",
-  },
-  {
-    href: "/app/callsheets",
-    label: "Call Sheets",
-    icon: ClipboardList,
-    exact: false,
-    description: "Fichas de rodagem",
-  },
-  {
-    href: "/app/preferences",
-    label: "Preferências",
-    icon: Settings,
-    exact: false,
-    description: "Configurar",
-  },
-  {
-    href: "/app/diagnostics",
-    label: "Diagnósticos",
-    icon: Activity,
-    exact: false,
-    description: "Sistema",
-  },
+const PRIMARY_NAV: NavItem[] = [
+  { href: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/app/projects", label: "Projects", icon: Calculator },
+  { href: "/app/clients", label: "Clients", icon: Building2 },
+  { href: "/app/inbox", label: "Inbox", icon: MessageSquare },
+  { href: "/app/insights", label: "Insights", icon: TrendingUp },
+  { href: "/app/settings", label: "Settings", icon: Settings },
 ];
 
-function isActive(href: string, pathname: string, exact: boolean) {
-  if (exact) return pathname === href;
-  return pathname.startsWith(href);
+const SECONDARY_NAV: NavItem[] = [
+  { href: "/app/checklists", label: "Checklists", icon: CheckSquare },
+  { href: "/app/templates", label: "Templates", icon: FileText },
+  { href: "/app/journal", label: "Journal", icon: BookOpen },
+  { href: "/app/tasks", label: "Tasks", icon: ListTodo },
+  { href: "/app/crm", label: "CRM", icon: Users2 },
+  { href: "/app/callsheets", label: "Call Sheets", icon: ClipboardList },
+  { href: "/app/diagnostics", label: "Diagnostics", icon: Activity },
+];
+
+const CEO_RAIL: NavItem[] = [
+  { href: "/app/tasks", label: "My Tasks", icon: ListTodo },
+  { href: "/app/callsheets", label: "Calendar", icon: CalendarDays },
+  { href: "/app/inbox", label: "Inbox", icon: MessageSquare },
+];
+
+const MOBILE_NAV: NavItem[] = [
+  { href: "/app/dashboard", label: "Dash", icon: LayoutDashboard },
+  { href: "/app/projects", label: "Projects", icon: Calculator },
+  { href: "/app/clients", label: "Clients", icon: Building2 },
+  { href: "/app/inbox", label: "Inbox", icon: MessageSquare },
+  { href: "/app/settings", label: "Settings", icon: Settings },
+];
+
+function navIsActive(pathname: string, href: string) {
+  if (pathname === "/app/preferences") {
+    pathname = "/app/settings";
+  }
+  if (href === "/app/dashboard") return pathname === "/app" || pathname === "/app/dashboard";
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+function resolvePrimaryActive(pathname: string) {
+  const found = PRIMARY_NAV.find((tab) => navIsActive(pathname, tab.href));
+  return found?.href ?? "/app/dashboard";
+}
+
+function railIsActive(pathname: string, href: string) {
+  if (href === "/app/dashboard") return pathname === "/app" || pathname === "/app/dashboard";
+  return pathname === href || pathname.startsWith(`${href}/`);
 }
 
 export function AppShell({
   children,
   userEmail,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
   userEmail: string;
 }) {
   const pathname = usePathname();
   const router = useRouter();
   const [signingOut, setSigningOut] = useState(false);
-  const [viewMode, setViewMode] = useState<ViewMode>("company");
-  const [sidebarExpanded, setSidebarExpanded] = useState(false);
-  const { theme, toggleTheme } = useTheme();
-
-  useEffect(() => {
-    const saved = (typeof localStorage !== "undefined" ? localStorage.getItem("bp_view_mode") : null) as ViewMode | null;
-    if (saved === "ceo" || saved === "company") setViewMode(saved);
-  }, []);
-
-  const toggleMode = () => {
-    const next: ViewMode = viewMode === "company" ? "ceo" : "company";
-    setViewMode(next);
-    if (typeof localStorage !== "undefined") localStorage.setItem("bp_view_mode", next);
-  };
-
-  const visibleNavItems = viewMode === "ceo"
-    ? NAV_ITEMS.filter((i) => CEO_HREFS.has(i.href))
-    : NAV_ITEMS;
+  const { theme, toggleTheme, dashboardMode } = useTheme();
+  const reduceMotion = useReducedMotion();
+  const activePrimary = useMemo(() => resolvePrimaryActive(pathname), [pathname]);
+  const isCeoMode = dashboardMode === "ceo";
+  const railItems = isCeoMode ? CEO_RAIL : SECONDARY_NAV;
 
   const handleLogout = async () => {
     setSigningOut(true);
@@ -171,275 +111,148 @@ export function AppShell({
     router.refresh();
   };
 
-  const userInitial = userEmail?.[0]?.toUpperCase() ?? "U";
+  const userInitial = (userEmail?.[0] ?? "U").toUpperCase();
 
   return (
-    <div className="flex min-h-dvh" style={{ background: "var(--bg)" }}>
-      {/* ── Desktop Sidebar ─────────────────────────── */}
-      <aside
-        className="hidden md:flex flex-col transition-all duration-200"
-        style={{
-          background: "var(--surface)",
-          borderRight: "1px solid var(--border)",
-          position: "sticky",
-          top: 0,
-          height: "100dvh",
-          width: sidebarExpanded ? "16rem" : "4rem",
-          zIndex: 30,
-          overflow: "hidden",
-        }}
-        onMouseEnter={() => setSidebarExpanded(true)}
-        onMouseLeave={() => setSidebarExpanded(false)}
-      >
-        {/* Logo */}
-        <div
-          className="flex items-center gap-3 px-3 py-5 shrink-0"
-          style={{ borderBottom: "1px solid var(--border)", minHeight: "4.5rem" }}
-        >
-          <div
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
-            style={{
-              background: "var(--accent)",
-              boxShadow: "0 0 16px var(--accent-glow)",
-            }}
-          >
-            <Zap className="h-4 w-4 text-white" />
-          </div>
-          <div
-            className="overflow-hidden whitespace-nowrap transition-all duration-200"
-            style={{ opacity: sidebarExpanded ? 1 : 0, width: sidebarExpanded ? "auto" : 0 }}
-          >
-            <p className="text-sm font-bold" style={{ color: "var(--text)", letterSpacing: "-0.02em" }}>
+    <div
+      className="super-theme super-shell-bg h-dvh min-h-dvh overflow-x-clip"
+      style={{ padding: "clamp(16px, 2.5vw, 40px)" }}
+    >
+      <SuperShell className="mx-auto flex h-full min-h-full w-full max-w-[1440px] flex-col overflow-x-clip">
+        <header className="super-topbar">
+          <Link href="/app/dashboard" className="inline-flex items-center gap-2.5">
+            <span
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full"
+              style={{ background: "var(--accent-blue)", color: "#fff" }}
+            >
+              <Zap className="h-4 w-4" />
+            </span>
+            <span className="text-sm font-semibold tracking-tight" style={{ color: "var(--text)" }}>
               Beyond Pricing
-            </p>
-            <p className="text-xs" style={{ color: "var(--text-3)" }}>
-              Production Studio
-            </p>
+            </span>
+          </Link>
+
+          <div className="hidden min-w-0 flex-1 justify-center px-5 md:flex">
+            <PillTabs tabs={PRIMARY_NAV.map((tab) => ({ href: tab.href, label: tab.label }))} active={activePrimary} />
           </div>
+
+          <div className="flex items-center gap-1.5">
+            <NotificationBell />
+
+            <motion.button
+              onClick={toggleTheme}
+              className="icon-btn"
+              title={theme === "dark" ? "Modo claro" : "Modo escuro"}
+              aria-label={theme === "dark" ? "Modo claro" : "Modo escuro"}
+              {...buttonMotionProps({ enabled: !reduceMotion })}
+            >
+              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </motion.button>
+
+            <motion.button
+              onClick={handleLogout}
+              disabled={signingOut}
+              className="icon-btn"
+              title="Terminar sessão"
+              aria-label="Terminar sessão"
+              {...buttonMotionProps({ enabled: !reduceMotion })}
+            >
+              <LogOut className="h-4 w-4" />
+            </motion.button>
+
+            <span
+              className="hidden h-8 w-8 items-center justify-center rounded-full text-xs font-semibold md:inline-flex"
+              style={{
+                background: "rgba(26, 143, 163, 0.14)",
+                border: "1px solid rgba(26, 143, 163, 0.32)",
+                color: "var(--accent-blue)",
+              }}
+              title={userEmail}
+            >
+              {userInitial}
+            </span>
+          </div>
+        </header>
+
+        <div className="border-b px-3 py-2 md:hidden" style={{ borderColor: "var(--border)" }}>
+          <PillTabs tabs={PRIMARY_NAV.map((tab) => ({ href: tab.href, label: tab.label }))} active={activePrimary} />
         </div>
 
-        {/* Nav */}
-        <nav className="flex-1 px-2 py-4 space-y-0.5 overflow-y-auto overflow-x-hidden">
-          {visibleNavItems.map((item) => {
-            const active = isActive(item.href, pathname, item.exact);
+        <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-24 pt-5 md:px-7 md:pb-7 md:pt-6">
+          <motion.div
+            initial={reduceMotion ? false : "initial"}
+            animate={reduceMotion ? undefined : "animate"}
+            variants={variants.page}
+            transition={transitions.page}
+            className="mx-auto w-full app-main-grid"
+          >
+            <aside className="quick-rail hidden xl:flex">
+              {railItems.map((item) => {
+                const active = railIsActive(pathname, item.href);
+                return (
+                  <Link key={item.href} href={item.href} className={`quick-rail__link ${active ? "quick-rail__link--active" : ""}`}>
+                    <item.icon className="h-4 w-4" />
+                    <span>{item.label}</span>
+                  </Link>
+                );
+              })}
+            </aside>
+            <section className="min-w-0">
+              {children}
+            </section>
+          </motion.div>
+        </main>
+      </SuperShell>
+
+      <nav
+        className="fixed bottom-0 left-0 right-0 z-40 border-t backdrop-blur-md md:hidden"
+        style={{
+          borderColor: "var(--border)",
+          background: "color-mix(in srgb, var(--surface) 88%, transparent)",
+          paddingBottom: "env(safe-area-inset-bottom)",
+        }}
+      >
+        <div className="mx-auto flex max-w-[1380px] items-stretch justify-around px-1 py-1.5">
+          {MOBILE_NAV.map((item) => {
+            const active = navIsActive(pathname, item.href);
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                className={`nav-item ${active ? "active" : ""}`}
-                title={!sidebarExpanded ? item.label : undefined}
-                style={{ justifyContent: sidebarExpanded ? undefined : "center", gap: sidebarExpanded ? undefined : 0, paddingLeft: sidebarExpanded ? undefined : "0.625rem", paddingRight: sidebarExpanded ? undefined : "0.625rem" }}
+                className="relative flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl py-1"
+                style={{ color: active ? "#1a8fa3" : "#7d889d" }}
               >
-                <item.icon className="h-4 w-4 shrink-0" />
-                <span
-                  className="overflow-hidden whitespace-nowrap transition-all duration-150 flex-1"
-                  style={{ opacity: sidebarExpanded ? 1 : 0, width: sidebarExpanded ? "auto" : 0, maxWidth: sidebarExpanded ? "10rem" : 0 }}
-                >
-                  {item.label}
-                </span>
-                {active && sidebarExpanded && (
-                  <ChevronRight
-                    className="h-3.5 w-3.5 shrink-0"
-                    style={{ color: "var(--accent)" }}
+                {active ? (
+                  <motion.span
+                    layoutId="mobile-nav-pill"
+                    className="absolute inset-0 rounded-2xl"
+                    style={{
+                      background: "rgba(26, 143, 163, 0.12)",
+                      border: "1px solid rgba(26, 143, 163, 0.26)",
+                    }}
+                    transition={{ type: "spring", stiffness: 420, damping: 34 }}
                   />
-                )}
+                ) : null}
+                <item.icon className="relative z-10 h-4 w-4" />
+                <span className="relative z-10 text-[0.63rem] font-semibold">{item.label}</span>
               </Link>
             );
           })}
-        </nav>
-
-        {/* User footer */}
-        <div
-          className="px-2 py-4 space-y-1 shrink-0"
-          style={{ borderTop: "1px solid var(--border)" }}
-        >
-          {sidebarExpanded && (
-            <div className="flex items-center gap-3 px-2 mb-2">
-              <div
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
-                style={{ background: "var(--accent)" }}
-              >
-                {userInitial}
-              </div>
-              <div className="min-w-0 flex-1 overflow-hidden">
-                <p className="truncate text-xs font-medium" style={{ color: "var(--text)" }}>
-                  {userEmail}
-                </p>
-                <div className="flex items-center gap-1.5 mt-0.5">
-                  <span className="glow-dot" />
-                  <span className="text-xs" style={{ color: "var(--text-3)" }}>Online</span>
-                </div>
-              </div>
-              <NotificationBell />
-            </div>
-          )}
-          {!sidebarExpanded && (
-            <div className="flex justify-center py-1 mb-1">
-              <NotificationBell />
-            </div>
-          )}
-          <button
-            onClick={toggleTheme}
-            className="btn btn-ghost btn-sm w-full"
-            style={{ color: "var(--text-3)", justifyContent: sidebarExpanded ? "flex-start" : "center", paddingLeft: sidebarExpanded ? undefined : "0.625rem", paddingRight: sidebarExpanded ? undefined : "0.625rem" }}
-            title={theme === "dark" ? "Modo claro" : "Modo escuro"}
-          >
-            {theme === "dark" ? <Sun className="h-3.5 w-3.5 shrink-0" /> : <Moon className="h-3.5 w-3.5 shrink-0" />}
-            {sidebarExpanded && (
-              <span className="overflow-hidden whitespace-nowrap">
-                {theme === "dark" ? "Modo claro" : "Modo escuro"}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={toggleMode}
-            className="btn btn-ghost btn-sm w-full"
-            style={{ color: "var(--text-3)", justifyContent: sidebarExpanded ? "flex-start" : "center", paddingLeft: sidebarExpanded ? undefined : "0.625rem", paddingRight: sidebarExpanded ? undefined : "0.625rem" }}
-            title={viewMode === "company" ? "Modo CEO" : "Modo Empresa"}
-          >
-            {viewMode === "company" ? <User className="h-3.5 w-3.5 shrink-0" /> : <Briefcase className="h-3.5 w-3.5 shrink-0" />}
-            {sidebarExpanded && (
-              <span className="overflow-hidden whitespace-nowrap">
-                {viewMode === "company" ? "Modo CEO" : "Modo Empresa"}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={handleLogout}
-            disabled={signingOut}
-            className="btn btn-ghost btn-sm w-full"
-            style={{ color: "var(--text-3)", justifyContent: sidebarExpanded ? "flex-start" : "center", paddingLeft: sidebarExpanded ? undefined : "0.625rem", paddingRight: sidebarExpanded ? undefined : "0.625rem" }}
-            title="Terminar sessão"
-          >
-            <LogOut className="h-3.5 w-3.5 shrink-0" />
-            {sidebarExpanded && (
-              <span className="overflow-hidden whitespace-nowrap">
-                {signingOut ? "A sair…" : "Terminar sessão"}
-              </span>
-            )}
-          </button>
         </div>
-      </aside>
-
-      {/* ── Mobile Layout ───────────────────────────── */}
-      <div className="flex flex-1 flex-col md:hidden min-w-0">
-        {/* Mobile top bar */}
-        <header
-          className="flex h-14 items-center justify-between px-4"
-          style={{
-            background: "var(--surface)",
-            borderBottom: "1px solid var(--border)",
-            position: "sticky",
-            top: 0,
-            zIndex: 40,
-          }}
-        >
-          <div className="flex items-center gap-2.5">
-            <div
-              className="flex h-7 w-7 items-center justify-center rounded-lg"
-              style={{ background: "var(--accent)", boxShadow: "0 0 12px var(--accent-glow)" }}
-            >
-              <Zap className="h-3.5 w-3.5 text-white" />
-            </div>
-            <span
-              className="text-sm font-bold"
-              style={{ color: "var(--text)", letterSpacing: "-0.02em" }}
-            >
-              Beyond Pricing
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <NotificationBell />
-            <button onClick={toggleTheme} className="btn btn-ghost btn-icon-sm" title={theme === "dark" ? "Modo claro" : "Modo escuro"}>
-              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            </button>
-            <button
-              onClick={handleLogout}
-              disabled={signingOut}
-              className="btn btn-ghost btn-icon-sm"
-            >
-              <LogOut className="h-4 w-4" />
-            </button>
-          </div>
-        </header>
-
-        {/* Main content — padded so content doesn't hide under bottom nav */}
-        <main className="flex-1 overflow-auto" style={{ paddingBottom: "calc(4.5rem + env(safe-area-inset-bottom))" }}>
-          <div className="px-4 py-5">{children}</div>
-        </main>
-
-        {/* Mobile bottom nav — horizontally scrollable so all items are accessible on tablet too */}
-        <nav
-          className="fixed bottom-0 left-0 right-0"
-          style={{
-            background: "var(--glass-bg)",
-            backdropFilter: "var(--glass-blur)",
-            WebkitBackdropFilter: "var(--glass-blur)",
-            borderTop: "1px solid var(--border-2)",
-            paddingBottom: "env(safe-area-inset-bottom)",
-            zIndex: 40,
-          }}
-        >
-          {/* Scrollable inner row */}
-          <div
-            className="flex items-stretch overflow-x-auto"
-            style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}
-          >
-            {visibleNavItems.map((item) => {
-              const active = isActive(item.href, pathname, item.exact);
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className="relative flex shrink-0 flex-col items-center justify-center gap-0.5 transition-all"
-                  style={{
-                    color: active ? "var(--accent-2)" : "var(--text-3)",
-                    WebkitTapHighlightColor: "transparent",
-                    /* On small phones: equal-width up to 6 items; on wider screens: auto */
-                    minWidth: "3.5rem",
-                    flex: "1 0 auto",
-                    maxWidth: "5rem",
-                    paddingTop: "0.5rem",
-                    paddingBottom: "0.5rem",
-                  }}
-                >
-                  {active && (
-                    <motion.div
-                      layoutId="mobile-nav-indicator"
-                      className="absolute left-2 right-2 top-0 h-0.5 rounded-full"
-                      style={{ background: "var(--accent)" }}
-                      transition={{ type: "spring", stiffness: 400, damping: 30 }}
-                    />
-                  )}
-                  <item.icon className="h-5 w-5" />
-                  <span className="font-medium" style={{ fontSize: "0.6rem", lineHeight: 1.3 }}>
-                    {item.label}
-                  </span>
-                </Link>
-              );
-            })}
-          </div>
-        </nav>
-      </div>
-
-      {/* ── Desktop main content ─────────────────────── */}
-      <main className="hidden md:flex flex-1 flex-col min-w-0 overflow-auto">
-        <div className="flex-1 px-6 py-6 lg:px-8 lg:py-8">{children}</div>
-      </main>
+      </nav>
     </div>
   );
 }
 
-/* Animated page wrapper para usar dentro das páginas */
-export function PageTransition({ children }: { children: React.ReactNode }) {
+export function PageTransition({ children }: { children: ReactNode }) {
   return (
     <AnimatePresence mode="wait">
       <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -8 }}
-        transition={{ duration: 0.2, ease: "easeOut" }}
+        initial="initial"
+        animate="animate"
+        exit="exit"
+        variants={variants.page}
+        transition={transitions.smooth}
       >
         {children}
       </motion.div>

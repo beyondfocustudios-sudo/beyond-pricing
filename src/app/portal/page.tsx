@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import { Loader2, FolderOpen, ChevronRight, Circle } from "lucide-react";
+import { EmptyState } from "@/components/ui-kit";
 
 interface Project {
   id: string;
@@ -30,23 +31,36 @@ const STATUS_DOT: Record<string, string> = {
 
 export default function PortalHomePage() {
   const router = useRouter();
-  const supabase = createClient();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
-  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [isClientView, setIsClientView] = useState(true);
 
   useEffect(() => {
     const load = async () => {
+      const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
-      setUserEmail(user?.email ?? null);
 
-      // Get projects via project_members (client roles only)
-      const { data } = await supabase
+      const [clientRoleRes, collaboratorRoleRes] = await Promise.all([
+        fetch("/api/auth/validate-audience?audience=client", { cache: "no-store" }),
+        fetch("/api/auth/validate-audience?audience=collaborator", { cache: "no-store" }),
+      ]);
+      const clientMode = clientRoleRes.ok;
+      const collaboratorMode = collaboratorRoleRes.ok;
+      setIsClientView(clientMode);
+
+      let query = supabase
         .from("project_members")
-        .select("project_id, projects:project_id(id, name, status, updated_at)")
-        .in("role", ["client_viewer", "client_approver"])
+        .select("project_id, role, projects:project_id(id, name, status, updated_at)")
         .eq("user_id", user?.id ?? "")
         .not("projects", "is", null);
+
+      if (clientMode) {
+        query = query.in("role", ["client_viewer", "client_approver"]);
+      } else if (collaboratorMode) {
+        query = query.in("role", ["owner", "admin", "editor"]);
+      }
+
+      const { data } = await query;
 
       const projs = (data ?? [])
         .map((row: { projects: Project | Project[] | null }) => {
@@ -58,82 +72,55 @@ export default function PortalHomePage() {
       setProjects(projs.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()));
       setLoading(false);
     };
-    load();
-  }, [supabase]);
-
-  const logout = async () => {
-    await supabase.auth.signOut();
-    router.replace("/portal/login");
-  };
+    void load();
+  }, []);
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg)" }}>
+      <div className="min-h-[36vh] flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin" style={{ color: "var(--text-3)" }} />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen" style={{ background: "var(--bg)", color: "var(--text)" }}>
-      <header
-        style={{
-          background: "var(--glass-bg)",
-          backdropFilter: "var(--glass-blur)",
-          WebkitBackdropFilter: "var(--glass-blur)",
-          borderBottom: "1px solid var(--border)",
-          position: "sticky",
-          top: 0,
-          zIndex: 30,
-        }}
-      >
-        <div className="max-w-3xl mx-auto px-4 h-14 flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold" style={{ color: "var(--text)" }}>Beyond Focus</h1>
-            <p className="text-xs" style={{ color: "var(--text-3)" }}>{userEmail}</p>
-          </div>
-          <button
-            onClick={logout}
-            className="btn btn-ghost btn-sm"
-            style={{ color: "var(--text-3)" }}
-          >
-            Sair
-          </button>
-        </div>
-      </header>
+    <div className="space-y-4">
+      <div>
+        <p className="text-xs uppercase tracking-[0.1em]" style={{ color: "var(--muted)" }}>
+          {isClientView ? "Client Area" : "Portal Colaborador"}
+        </p>
+        <h1 className="mt-1 page-title">Projetos</h1>
+      </div>
 
-      <main className="max-w-3xl mx-auto px-4 py-6">
-        <p className="section-title mb-4">Os meus projetos</p>
-        {projects.length === 0 ? (
-          <div className="empty-state">
-            <FolderOpen className="empty-icon" />
-            <p className="empty-title">Nenhum projeto associado.</p>
-            <p className="empty-desc">Contacta a Beyond Focus para obter acesso.</p>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {projects.map(p => (
-              <button
-                key={p.id}
-                onClick={() => router.push(`/portal/projects/${p.id}`)}
-                className="w-full flex items-center gap-4 px-5 py-4 text-left group card card-hover"
-                style={{ padding: "1rem 1.25rem" }}
-              >
-                <div className="shrink-0" style={{ color: STATUS_DOT[p.status ?? "enviado"] ?? "var(--text-3)" }}>
-                  <Circle className="w-2 h-2 fill-current" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-sm" style={{ color: "var(--text)" }}>{p.name}</p>
-                  <p className="text-xs mt-0.5" style={{ color: "var(--text-3)" }}>
-                    {STATUS_LABELS[p.status ?? "enviado"] ?? p.status} · {new Date(p.updated_at).toLocaleDateString("pt-PT", { day: "2-digit", month: "short", year: "numeric" })}
-                  </p>
-                </div>
-                <ChevronRight className="w-4 h-4 shrink-0" style={{ color: "var(--text-3)" }} />
-              </button>
-            ))}
-          </div>
-        )}
-      </main>
+      {projects.length === 0 ? (
+        <EmptyState
+          title="Nenhum projeto associado"
+          description="Contacta a Beyond Focus para obter acesso ao teu projeto."
+          action={<FolderOpen className="empty-icon" />}
+        />
+      ) : (
+        <div className="space-y-2">
+          {projects.map((project) => (
+            <button
+              key={project.id}
+              onClick={() => router.push(`/portal/projects/${project.id}`)}
+              className="w-full flex items-center gap-4 px-5 py-4 text-left group card card-hover"
+              style={{ padding: "1rem 1.25rem" }}
+            >
+              <div className="shrink-0" style={{ color: STATUS_DOT[project.status ?? "enviado"] ?? "var(--text-3)" }}>
+                <Circle className="w-2 h-2 fill-current" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-sm" style={{ color: "var(--text)" }}>{project.name}</p>
+                <p className="text-xs mt-0.5" style={{ color: "var(--text-3)" }}>
+                  {STATUS_LABELS[project.status ?? "enviado"] ?? project.status} · {new Date(project.updated_at).toLocaleDateString("pt-PT", { day: "2-digit", month: "short", year: "numeric" })}
+                </p>
+              </div>
+              <ChevronRight className="w-4 h-4 shrink-0" style={{ color: "var(--text-3)" }} />
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

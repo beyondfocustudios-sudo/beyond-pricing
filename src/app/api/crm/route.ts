@@ -12,7 +12,13 @@ export async function GET(req: NextRequest) {
   const tag = req.nextUrl.searchParams.get("tag");
   const limit = Math.min(parseInt(req.nextUrl.searchParams.get("limit") ?? "50"), 200);
 
-  let q = sb.from("crm_contacts").select("*").eq("owner_user_id", user.id).order("name").limit(limit);
+  let q = sb
+    .from("crm_contacts")
+    .select("*")
+    .eq("owner_user_id", user.id)
+    .is("deleted_at", null)
+    .order("name")
+    .limit(limit);
   if (search) q = q.or(`name.ilike.%${search}%,email.ilike.%${search}%,company.ilike.%${search}%`);
   if (tag) q = q.contains("tags", [tag]);
 
@@ -60,7 +66,14 @@ export async function PUT(req: NextRequest) {
   if (!id) return NextResponse.json({ error: "id obrigatório" }, { status: 400 });
 
   const body = await req.json() as Record<string, unknown>;
-  const { data, error } = await sb.from("crm_contacts").update(body).eq("id", id).eq("owner_user_id", user.id).select().single();
+  const { data, error } = await sb
+    .from("crm_contacts")
+    .update({ ...body, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("owner_user_id", user.id)
+    .is("deleted_at", null)
+    .select()
+    .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ contact: data });
@@ -75,7 +88,12 @@ export async function DELETE(req: NextRequest) {
   const id = req.nextUrl.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id obrigatório" }, { status: 400 });
 
-  const { error } = await sb.from("crm_contacts").delete().eq("id", id).eq("owner_user_id", user.id);
+  const { error } = await sb
+    .from("crm_contacts")
+    .update({ deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("owner_user_id", user.id)
+    .is("deleted_at", null);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

@@ -219,9 +219,10 @@ export default function ProjectPage() {
   const [inputs, setInputs] = useState<ProjectInputs>(DEFAULT_INPUTS);
   const [calc, setCalc] = useState<ProjectCalc | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [activeTab, setActiveTab] = useState<"items" | "parametros" | "resumo" | "brief" | "entregas" | "logistica">("items");
+  const [activeTab, setActiveTab] = useState<"resumo" | "items" | "logistica" | "tempo" | "brief" | "entregas" | "aprovacoes">("items");
   const [expandedCat, setExpandedCat] = useState<string | null>("crew");
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [catalogCat, setCatalogCat] = useState<Categoria>("crew");
@@ -256,56 +257,64 @@ export default function ProjectPage() {
 
   // ── Load ──────────────────────────────────────────────────
   const loadProject = useCallback(async () => {
-    const sb = createClient();
-    const { data, error } = await sb
-      .from("projects")
-      .select("*")
-      .eq("id", projectId)
-      .single();
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const sb = createClient();
+      const { data, error } = await sb
+        .from("projects")
+        .select("*")
+        .eq("id", projectId)
+        .single();
 
-    if (error || !data) {
-      router.push("/app/projects");
-      return;
+      if (error || !data) {
+        setLoadError(error?.message ?? "Projeto não encontrado ou sem acesso.");
+        return;
+      }
+
+      setProjectName(data.project_name ?? "");
+      setClientName(data.client_name ?? "");
+      setStatus(data.status ?? "rascunho");
+
+      const inp = data.inputs as ProjectInputs;
+      setInputs({
+        ...DEFAULT_INPUTS,
+        ...inp,
+        itens: inp?.itens ?? [],
+      });
+      setCalc(data.calc as ProjectCalc);
+
+      // Load logistics data
+      const d2 = data as Record<string, unknown>;
+      setLocationText((d2.location_text as string | null) ?? null);
+      setLocationLat(typeof d2.location_lat === "number" ? (d2.location_lat as number) : null);
+      setLocationLng(typeof d2.location_lng === "number" ? (d2.location_lng as number) : null);
+      setLocationAddress((d2.location_address as string | null) ?? null);
+      setTravelKm(typeof d2.travel_km === "number" ? (d2.travel_km as number) : null);
+      setTravelMinutes(typeof d2.travel_minutes === "number" ? (d2.travel_minutes as number) : null);
+      setLogisticsStartDate((d2.logistics_start_date as string | null) ?? null);
+      setLogisticsEndDate((d2.logistics_end_date as string | null) ?? null);
+
+      // Load Dropbox config + files
+      const sb2 = createClient();
+      const [pdRes, filesRes] = await Promise.all([
+        sb2.from("project_dropbox").select("root_path, last_sync_at").eq("project_id", projectId).single(),
+        sb2.from("deliverable_files").select("id, filename, ext, file_type, collection, shared_link, bytes, captured_at, created_at").eq("project_id", projectId).order("captured_at", { ascending: false }),
+      ]);
+      if (pdRes.data) {
+        setDropboxPath(pdRes.data.root_path ?? "");
+        setDropboxConfigured(true);
+        setLastSync(pdRes.data.last_sync_at ?? null);
+      } else {
+        setDropboxConfigured(false);
+      }
+      setDelivFiles((filesRes.data ?? []) as DelivFile[]);
+    } catch {
+      setLoadError("Sem ligação — não foi possível carregar o projeto.");
+    } finally {
+      setLoading(false);
     }
-
-    setProjectName(data.project_name ?? "");
-    setClientName(data.client_name ?? "");
-    setStatus(data.status ?? "rascunho");
-
-    const inp = data.inputs as ProjectInputs;
-    setInputs({
-      ...DEFAULT_INPUTS,
-      ...inp,
-      itens: inp?.itens ?? [],
-    });
-    setCalc(data.calc as ProjectCalc);
-
-    // Load logistics data
-    const d2 = data as Record<string, unknown>;
-    setLocationText((d2.location_text as string | null) ?? null);
-    setLocationLat(typeof d2.location_lat === "number" ? (d2.location_lat as number) : null);
-    setLocationLng(typeof d2.location_lng === "number" ? (d2.location_lng as number) : null);
-    setLocationAddress((d2.location_address as string | null) ?? null);
-    setTravelKm(typeof d2.travel_km === "number" ? (d2.travel_km as number) : null);
-    setTravelMinutes(typeof d2.travel_minutes === "number" ? (d2.travel_minutes as number) : null);
-    setLogisticsStartDate((d2.logistics_start_date as string | null) ?? null);
-    setLogisticsEndDate((d2.logistics_end_date as string | null) ?? null);
-
-    // Load Dropbox config + files
-    const sb2 = createClient();
-    const [pdRes, filesRes] = await Promise.all([
-      sb2.from("project_dropbox").select("root_path, last_sync_at").eq("project_id", projectId).single(),
-      sb2.from("deliverable_files").select("id, filename, ext, file_type, collection, shared_link, bytes, captured_at, created_at").eq("project_id", projectId).order("captured_at", { ascending: false }),
-    ]);
-    if (pdRes.data) {
-      setDropboxPath(pdRes.data.root_path ?? "");
-      setDropboxConfigured(true);
-      setLastSync(pdRes.data.last_sync_at ?? null);
-    }
-    setDelivFiles((filesRes.data ?? []) as DelivFile[]);
-
-    setLoading(false);
-  }, [projectId, router]);
+  }, [projectId]);
 
   useEffect(() => {
     loadProject();
@@ -475,7 +484,7 @@ export default function ProjectPage() {
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      alert("Erro ao gerar CSV");
+      toast.error("Erro ao gerar CSV");
     }
   };
 
@@ -524,6 +533,23 @@ export default function ProjectPage() {
             ))}
           </div>
           <div className="skeleton h-64 rounded-xl" />
+        </div>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="card text-center space-y-3">
+        <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>Erro ao carregar projeto</p>
+        <p className="text-sm" style={{ color: "var(--text-2)" }}>{loadError}</p>
+        <div className="flex items-center justify-center gap-2">
+          <button className="btn btn-secondary btn-sm" onClick={() => void loadProject()}>
+            Tentar novamente
+          </button>
+          <Link href="/app/projects" className="btn btn-ghost btn-sm">
+            Voltar
+          </Link>
         </div>
       </div>
     );
@@ -719,18 +745,19 @@ export default function ProjectPage() {
 
       {/* ── Tabs ── */}
       <div className="tabs-list">
-        {(["items", "parametros", "resumo", "logistica", "brief", "entregas"] as const).map((tab) => (
+        {(["resumo", "items", "logistica", "tempo", "brief", "entregas", "aprovacoes"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={`tab-trigger ${activeTab === tab ? "active" : ""}`}
           >
-            {tab === "items" && `Items (${totalItems})`}
-            {tab === "parametros" && "Parâmetros"}
             {tab === "resumo" && "Resumo"}
+            {tab === "items" && `Items (${totalItems})`}
             {tab === "logistica" && "Logística"}
+            {tab === "tempo" && "Tempo"}
             {tab === "brief" && "Brief"}
             {tab === "entregas" && "Entregas"}
+            {tab === "aprovacoes" && "Aprovações"}
           </button>
         ))}
       </div>
@@ -852,9 +879,9 @@ export default function ProjectPage() {
           </motion.div>
         )}
 
-        {activeTab === "parametros" && (
+        {activeTab === "tempo" && (
           <motion.div
-            key="parametros"
+            key="tempo"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
@@ -1508,6 +1535,29 @@ export default function ProjectPage() {
                 </div>
               );
             })()}
+          </motion.div>
+        )}
+
+        {activeTab === "aprovacoes" && (
+          <motion.div
+            key="aprovacoes"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="space-y-4"
+          >
+            <div className="card space-y-3">
+              <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                Aprovações
+              </p>
+              <p className="text-sm" style={{ color: "var(--text-2)" }}>
+                Esta secção concentra decisões de aprovação do cliente por ronda.
+              </p>
+              <p className="text-xs" style={{ color: "var(--text-3)" }}>
+                Próximo passo: ligar histórico de aprovações aos módulos de inbox e notificações.
+              </p>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { createClient } from "@/lib/supabase";
@@ -39,12 +39,12 @@ interface ChecklistData {
 
 export default function ChecklistDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const router = useRouter();
   const toast = useToast();
 
   const [checklist, setChecklist] = useState<ChecklistData | null>(null);
   const [items, setItems] = useState<ChecklistItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [activeFase, setActiveFase] = useState<ChecklistFase>("pre_producao");
   const [editingName, setEditingName] = useState(false);
   const [checklistName, setChecklistName] = useState("");
@@ -55,26 +55,41 @@ export default function ChecklistDetailPage() {
   const newItemRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
-    const sb = createClient();
-    const [{ data: cl }, { data: its }] = await Promise.all([
-      sb
-        .from("checklists")
-        .select("id, nome, project_id, projects(project_name)")
-        .eq("id", id)
-        .single(),
-      sb
-        .from("checklist_items")
-        .select("*")
-        .eq("checklist_id", id)
-        .order("ordem", { ascending: true }),
-    ]);
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const sb = createClient();
+      const [{ data: cl, error: clError }, { data: its, error: itemsError }] = await Promise.all([
+        sb
+          .from("checklists")
+          .select("id, nome, project_id, projects(project_name)")
+          .eq("id", id)
+          .single(),
+        sb
+          .from("checklist_items")
+          .select("*")
+          .eq("checklist_id", id)
+          .order("ordem", { ascending: true }),
+      ]);
 
-    if (!cl) { router.push("/app/checklists"); return; }
-    setChecklist(cl as unknown as ChecklistData);
-    setChecklistName(cl.nome);
-    setItems((its ?? []) as ChecklistItem[]);
-    setLoading(false);
-  }, [id, router]);
+      if (clError || !cl) {
+        setLoadError(clError?.message ?? "Checklist não encontrada ou sem acesso.");
+        return;
+      }
+      if (itemsError) {
+        setLoadError(itemsError.message);
+        return;
+      }
+
+      setChecklist(cl as unknown as ChecklistData);
+      setChecklistName(cl.nome);
+      setItems((its ?? []) as ChecklistItem[]);
+    } catch {
+      setLoadError("Sem ligação — não foi possível carregar a checklist.");
+    } finally {
+      setLoading(false);
+    }
+  }, [id]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -215,6 +230,21 @@ export default function ChecklistDetailPage() {
               <div className="skeleton h-4 w-full" />
             </div>
           ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="space-y-4">
+        <div className="card text-center space-y-3">
+          <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>Erro ao carregar checklist</p>
+          <p className="text-sm" style={{ color: "var(--text-2)" }}>{loadError}</p>
+          <div className="flex items-center justify-center gap-2">
+            <button className="btn btn-secondary btn-sm" onClick={() => void load()}>Tentar novamente</button>
+            <Link href="/app/checklists" className="btn btn-ghost btn-sm">Voltar</Link>
+          </div>
         </div>
       </div>
     );
