@@ -114,36 +114,47 @@ export default function NotificationBell() {
     <div className="relative" ref={panelRef}>
       <button
         onClick={() => setOpen(o => !o)}
-        className="relative p-2 rounded-xl hover:bg-white/10 transition-colors"
+        className="relative inline-flex h-9 w-9 items-center justify-center rounded-xl border transition-colors"
+        style={{
+          borderColor: "var(--border-soft)",
+          background: "color-mix(in srgb, var(--surface) 84%, transparent)",
+          color: "var(--text-2)",
+        }}
         aria-label="Notificações"
       >
-        <Bell className="w-5 h-5 text-white/70" />
+        <Bell className="h-4 w-4" />
         {unread > 0 && (
-          <span className="absolute top-1 right-1 min-w-[16px] h-4 px-0.5 bg-rose-500 rounded-full text-[10px] font-bold text-white flex items-center justify-center">
+          <span className="absolute right-0.5 top-0.5 min-w-[16px] h-4 rounded-full bg-rose-500 px-0.5 text-[10px] font-bold text-white flex items-center justify-center">
             {unread > 9 ? "9+" : unread}
           </span>
         )}
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-2 w-80 max-h-[480px] rounded-2xl bg-gray-900 border border-white/10 shadow-2xl overflow-hidden flex flex-col z-50">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-white/8">
-            <span className="text-sm font-semibold text-white">Notificações</span>
+        <div
+          className="absolute right-0 z-50 mt-2 flex max-h-[480px] w-80 flex-col overflow-hidden rounded-2xl border shadow-2xl backdrop-blur-md"
+          style={{
+            borderColor: "var(--border-soft)",
+            background: "color-mix(in srgb, var(--surface) 92%, transparent)",
+          }}
+        >
+          <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: "var(--border-soft)" }}>
+            <span className="text-sm font-semibold" style={{ color: "var(--text)" }}>Notificações</span>
             <div className="flex items-center gap-2">
               {unread > 0 && (
-                <button onClick={markAllRead} className="text-xs text-white/40 hover:text-white/70 transition-colors">
+                <button onClick={markAllRead} className="text-xs transition-colors" style={{ color: "var(--text-3)" }}>
                   Ler tudo
                 </button>
               )}
-              <button onClick={() => setOpen(false)} className="text-white/40 hover:text-white">
+              <button onClick={() => setOpen(false)} className="transition-colors" style={{ color: "var(--text-3)" }}>
                 <X className="w-4 h-4" />
               </button>
             </div>
           </div>
           <div className="overflow-y-auto flex-1">
             {notifications.length === 0 ? (
-              <div className="text-center py-10 text-white/30">
-                <Bell className="w-6 h-6 mx-auto mb-2 opacity-40" />
+              <div className="py-10 text-center" style={{ color: "var(--text-3)" }}>
+                <Bell className="mx-auto mb-2 h-6 w-6 opacity-60" />
                 <p className="text-xs">Sem notificações</p>
               </div>
             ) : (
@@ -153,16 +164,36 @@ export default function NotificationBell() {
                 const content = (
                   <div
                     onClick={() => isUnread && markRead(n.id)}
-                    className={`flex gap-3 px-4 py-3 hover:bg-white/5 transition-colors cursor-pointer border-b border-white/5 last:border-0 ${isUnread ? "bg-blue-500/5" : ""}`}
+                    className="flex cursor-pointer gap-3 border-b px-4 py-3 transition-colors last:border-0"
+                    style={{
+                      borderColor: "var(--border-soft)",
+                      background: isUnread ? "color-mix(in srgb, var(--accent-primary) 12%, transparent)" : "transparent",
+                    }}
                   >
-                    <div className={`shrink-0 w-8 h-8 rounded-xl flex items-center justify-center ${isUnread ? "bg-blue-500/20" : "bg-white/8"}`}>
-                      <Icon className={`w-4 h-4 ${isUnread ? "text-blue-400" : "text-white/40"}`} />
+                    <div
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl"
+                      style={{
+                        background: isUnread
+                          ? "color-mix(in srgb, var(--accent-primary) 22%, transparent)"
+                          : "color-mix(in srgb, var(--surface-2) 92%, transparent)",
+                        color: isUnread ? "var(--accent-primary)" : "var(--text-3)",
+                      }}
+                    >
+                      <Icon className="h-4 w-4" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className={`text-xs font-medium line-clamp-1 ${isUnread ? "text-white" : "text-white/60"}`}>{n.title}</p>
-                      {n.body && <p className="text-xs text-white/40 line-clamp-2 mt-0.5">{n.body}</p>}
+                      <p className="mt-0.5 line-clamp-1 text-xs font-medium" style={{ color: isUnread ? "var(--text)" : "var(--text-2)" }}>
+                        {n.title}
+                      </p>
+                      {n.body ? (
+                        <p className="mt-0.5 line-clamp-2 text-xs" style={{ color: "var(--text-3)" }}>
+                          {n.body}
+                        </p>
+                      ) : null}
                     </div>
-                    <span className="text-[10px] text-white/30 shrink-0 mt-0.5">{formatTime(n.created_at)}</span>
+                    <span className="mt-0.5 shrink-0 text-[10px]" style={{ color: "var(--text-3)" }}>
+                      {formatTime(n.created_at)}
+                    </span>
                   </div>
                 );
                 return n.link_url ? (

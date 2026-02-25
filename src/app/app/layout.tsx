@@ -23,7 +23,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     if (access.isClient || access.isCollaborator) {
       redirect("/portal/login?mismatch=1");
     }
-    redirect("/login?mode=team&mismatch=1");
+    redirect("/login?mismatch=1");
   }
 
   return (
