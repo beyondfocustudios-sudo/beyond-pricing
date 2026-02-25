@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase-server";
 import { AppShell } from "@/components/AppShell";
-import { ToastProvider } from "@/components/Toast";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { resolveAccessRole } from "@/lib/access-role";
@@ -28,7 +27,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <ThemeProvider userId={user.id}>
-    <ToastProvider>
       {missingEnv && (
         <div
           style={{
@@ -45,7 +43,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           {children}
         </ErrorBoundary>
       </AppShell>
-    </ToastProvider>
     </ThemeProvider>
   );
 }
