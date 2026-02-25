@@ -16,7 +16,7 @@ import {
   Star,
 } from "lucide-react";
 
-type TabId = "overview" | "deliveries" | "approvals" | "documents" | "references" | "inbox" | "calendar";
+type TabId = "overview" | "deliveries" | "approvals" | "brand_kit" | "documents" | "references" | "inbox" | "calendar";
 
 type PortalProject = {
   id: string;
@@ -103,10 +103,32 @@ type CalendarEntry = {
   source: "milestone" | "shoot_day";
 };
 
+type BrandKitVersion = {
+  id: string;
+  version_number: number;
+  summary?: string | null;
+  created_at: string;
+};
+
+type BrandKitState = {
+  id?: string;
+  title: string;
+  logos: string[];
+  guidelines: string;
+  applyPortalAccent: boolean;
+  accentLight: string;
+  accentDark: string;
+  autoAdjusted: boolean;
+  colors: Array<{ name: string; hex: string }>;
+  fonts: Array<{ name: string; usage?: string }>;
+  assets: Array<{ assetType: string; label?: string; fileUrl: string }>;
+};
+
 const TABS: Array<{ id: TabId; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "deliveries", label: "Entregas" },
   { id: "approvals", label: "Aprovações" },
+  { id: "brand_kit", label: "Brand Kit" },
   { id: "documents", label: "Documentos" },
   { id: "references", label: "Referências" },
   { id: "inbox", label: "Inbox" },
@@ -173,6 +195,21 @@ function tabClass(active: boolean) {
   return `pill ${active ? "pill-active" : ""}`;
 }
 
+function createDefaultBrandKit(): BrandKitState {
+  return {
+    title: "Brand Kit",
+    logos: [],
+    guidelines: "",
+    applyPortalAccent: false,
+    accentLight: "#1A8FA3",
+    accentDark: "#63C7D7",
+    autoAdjusted: false,
+    colors: [],
+    fonts: [],
+    assets: [],
+  };
+}
+
 export default function PortalProjectPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -196,6 +233,12 @@ export default function PortalProjectPage() {
   const [messages, setMessages] = useState<InboxMessage[]>([]);
   const [messageInput, setMessageInput] = useState("");
   const [sendingMessage, setSendingMessage] = useState(false);
+  const [savingBrandKit, setSavingBrandKit] = useState(false);
+  const [brandKitMessage, setBrandKitMessage] = useState<string | null>(null);
+  const [brandKit, setBrandKit] = useState<BrandKitState>(createDefaultBrandKit());
+  const [brandVersions, setBrandVersions] = useState<BrandKitVersion[]>([]);
+  const [calendlyUrl, setCalendlyUrl] = useState<string | null>(process.env.NEXT_PUBLIC_CALENDLY_URL ?? null);
+  const [callReason, setCallReason] = useState("");
 
   const readOnlyMode = Boolean(impersonationToken);
 
@@ -231,6 +274,8 @@ export default function PortalProjectPage() {
     setReferences(payload.references ?? []);
     setConversationId(payload.conversationId ?? null);
     setMessages(payload.messages ?? []);
+    setBrandKit(createDefaultBrandKit());
+    setBrandVersions([]);
   }, [id, impersonationToken]);
 
   const loadNormal = useCallback(async () => {
@@ -248,7 +293,7 @@ export default function PortalProjectPage() {
 
     setProject(projectRow as PortalProject);
 
-    const [milestonesRes, deliverablesRes, filesRes, requestsRes, briefRes, conversationRes] = await Promise.all([
+    const [milestonesRes, deliverablesRes, filesRes, requestsRes, briefRes, conversationRes, brandRes, orgSettingsRes] = await Promise.all([
       supabase
         .from("project_milestones")
         .select("id, project_id, title, phase, status, progress_percent, due_date, description")
@@ -279,6 +324,13 @@ export default function PortalProjectPage() {
         .eq("project_id", id)
         .maybeSingle(),
       fetch(`/api/conversations?projectId=${id}`, { cache: "no-store" }),
+      fetch(`/api/portal/brand-kit?projectId=${id}`, { cache: "no-store" }),
+      supabase
+        .from("org_settings")
+        .select("calendly_url")
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
     ]);
 
     setMilestones((milestonesRes.data ?? []) as Milestone[]);
@@ -332,6 +384,55 @@ export default function PortalProjectPage() {
         setMessages([]);
       }
     }
+
+    if (brandRes.ok) {
+      const brandPayload = (await brandRes.json().catch(() => ({}))) as {
+        kit?: {
+          id?: string;
+          title?: string | null;
+          logos?: string[] | null;
+          notes?: string | null;
+          apply_portal_accent?: boolean | null;
+          accent_light?: string | null;
+          accent_dark?: string | null;
+          auto_adjusted?: boolean | null;
+        } | null;
+        colors?: Array<{ name?: string | null; hex?: string | null }>;
+        fonts?: Array<{ name?: string | null; usage?: string | null }>;
+        assets?: Array<{ asset_type?: string | null; label?: string | null; file_url?: string | null }>;
+        versions?: Array<{ id: string; version_number: number; summary?: string | null; created_at: string }>;
+      };
+
+      const defaults = createDefaultBrandKit();
+      const mappedBrand: BrandKitState = {
+        ...defaults,
+        id: brandPayload.kit?.id,
+        title: String(brandPayload.kit?.title ?? defaults.title),
+        logos: (brandPayload.kit?.logos ?? []).map((logo) => String(logo)).filter(Boolean),
+        guidelines: String(brandPayload.kit?.notes ?? defaults.guidelines),
+        applyPortalAccent: Boolean(brandPayload.kit?.apply_portal_accent ?? defaults.applyPortalAccent),
+        accentLight: String(brandPayload.kit?.accent_light ?? defaults.accentLight),
+        accentDark: String(brandPayload.kit?.accent_dark ?? defaults.accentDark),
+        autoAdjusted: Boolean(brandPayload.kit?.auto_adjusted ?? defaults.autoAdjusted),
+        colors: (brandPayload.colors ?? [])
+          .map((entry) => ({ name: String(entry.name ?? "").trim(), hex: String(entry.hex ?? "").trim() }))
+          .filter((entry) => Boolean(entry.hex)),
+        fonts: (brandPayload.fonts ?? [])
+          .map((entry) => ({ name: String(entry.name ?? "").trim(), usage: String(entry.usage ?? "").trim() }))
+          .filter((entry) => Boolean(entry.name)),
+        assets: (brandPayload.assets ?? [])
+          .map((entry) => ({ assetType: String(entry.asset_type ?? "logo").trim() || "logo", label: String(entry.label ?? "").trim(), fileUrl: String(entry.file_url ?? "").trim() }))
+          .filter((entry) => Boolean(entry.fileUrl)),
+      };
+
+      setBrandKit(mappedBrand);
+      setBrandVersions(brandPayload.versions ?? []);
+    } else {
+      setBrandKit(createDefaultBrandKit());
+      setBrandVersions([]);
+    }
+
+    setCalendlyUrl(String(orgSettingsRes.data?.calendly_url ?? process.env.NEXT_PUBLIC_CALENDLY_URL ?? "").trim() || null);
   }, [id]);
 
   const load = useCallback(async () => {
@@ -446,6 +547,61 @@ export default function PortalProjectPage() {
     }
   }, [conversationId, id, load, messageInput, readOnlyMode, sendingMessage]);
 
+  const saveBrandKit = useCallback(async () => {
+    if (readOnlyMode || savingBrandKit) return;
+    setSavingBrandKit(true);
+    setBrandKitMessage(null);
+    try {
+      const response = await fetch("/api/portal/brand-kit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: id,
+          title: brandKit.title,
+          logos: brandKit.logos.filter(Boolean),
+          guidelines: brandKit.guidelines,
+          applyPortalAccent: brandKit.applyPortalAccent,
+          colors: brandKit.colors,
+          fonts: brandKit.fonts,
+          assets: brandKit.assets,
+          summary: "Atualização via portal do cliente",
+        }),
+      });
+
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        accentLight?: string;
+        accentDark?: string;
+        autoAdjusted?: boolean;
+      };
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Falha ao guardar brand kit.");
+      }
+
+      setBrandKit((prev) => ({
+        ...prev,
+        accentLight: payload.accentLight ?? prev.accentLight,
+        accentDark: payload.accentDark ?? prev.accentDark,
+        autoAdjusted: Boolean(payload.autoAdjusted ?? prev.autoAdjusted),
+      }));
+
+      setBrandKitMessage(payload.autoAdjusted ? "Guardado. Ajustámos a cor para contraste." : "Brand Kit guardado.");
+      await load();
+    } catch (saveErr) {
+      setBrandKitMessage(saveErr instanceof Error ? saveErr.message : "Erro ao guardar brand kit.");
+    } finally {
+      setSavingBrandKit(false);
+    }
+  }, [brandKit, id, load, readOnlyMode, savingBrandKit]);
+
+  const portalAccentStyle = brandKit.applyPortalAccent
+    ? ({
+        ["--accent-primary" as string]: brandKit.accentLight,
+        ["--accent" as string]: brandKit.accentLight,
+      })
+    : undefined;
+
   if (loading) {
     return (
       <div className="min-h-[40vh] flex items-center justify-center">
@@ -468,7 +624,7 @@ export default function PortalProjectPage() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" style={portalAccentStyle}>
       <section className="card p-5">
         <div className="flex items-start justify-between gap-4">
           <button className="btn btn-ghost btn-sm" onClick={goToPortalHome}>
@@ -613,6 +769,182 @@ export default function PortalProjectPage() {
                   <button className="btn btn-secondary btn-sm" onClick={() => openReview(deliverable.id)}>
                     Abrir review
                   </button>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => router.push(`/portal/presentation/${id}?deliverable=${deliverable.id}${impersonationToken ? `&impersonate=${encodeURIComponent(impersonationToken)}` : ""}`)}
+                  >
+                    Modo apresentação
+                  </button>
+                </div>
+              ))}
+            </div>
+          </article>
+        </section>
+      )}
+
+      {activeTab === "brand_kit" && (
+        <section className="grid gap-4 lg:grid-cols-3">
+          <article className="card p-4 lg:col-span-2 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>Brand Kit Wizard</p>
+                <p className="text-xs" style={{ color: "var(--text-3)" }}>
+                  Logos, cores, tipografia e guidelines com versioning.
+                </p>
+              </div>
+              {brandKit.autoAdjusted ? <span className="badge badge-warning">Contraste ajustado</span> : null}
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="space-y-1 text-xs">
+                <span style={{ color: "var(--text-3)" }}>Título</span>
+                <input
+                  className="input"
+                  value={brandKit.title}
+                  onChange={(event) => setBrandKit((prev) => ({ ...prev, title: event.target.value }))}
+                  disabled={readOnlyMode}
+                />
+              </label>
+
+              <label className="flex items-center gap-2 rounded-xl border px-3 py-2 text-xs" style={{ borderColor: "var(--border)", background: "var(--surface-2)", color: "var(--text-2)" }}>
+                <input
+                  type="checkbox"
+                  checked={brandKit.applyPortalAccent}
+                  onChange={(event) => setBrandKit((prev) => ({ ...prev, applyPortalAccent: event.target.checked }))}
+                  disabled={readOnlyMode}
+                />
+                Aplicar cores da marca no portal (accent)
+              </label>
+            </div>
+
+            <label className="space-y-1 text-xs block">
+              <span style={{ color: "var(--text-3)" }}>Logos (1 URL por linha)</span>
+              <textarea
+                className="input min-h-[96px]"
+                value={brandKit.logos.join("\n")}
+                onChange={(event) => setBrandKit((prev) => ({
+                  ...prev,
+                  logos: event.target.value.split("\n").map((value) => value.trim()).filter(Boolean),
+                }))}
+                disabled={readOnlyMode}
+              />
+            </label>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="space-y-1 text-xs">
+                <span style={{ color: "var(--text-3)" }}>Cor principal</span>
+                <input
+                  className="input"
+                  value={brandKit.colors[0]?.hex ?? ""}
+                  placeholder="#1A8FA3"
+                  onChange={(event) => setBrandKit((prev) => {
+                    const next = [...prev.colors];
+                    next[0] = { name: next[0]?.name || "Primary", hex: event.target.value.trim() };
+                    return { ...prev, colors: next };
+                  })}
+                  disabled={readOnlyMode}
+                />
+              </label>
+              <label className="space-y-1 text-xs">
+                <span style={{ color: "var(--text-3)" }}>Cor secundária</span>
+                <input
+                  className="input"
+                  value={brandKit.colors[1]?.hex ?? ""}
+                  placeholder="#63C7D7"
+                  onChange={(event) => setBrandKit((prev) => {
+                    const next = [...prev.colors];
+                    next[1] = { name: next[1]?.name || "Secondary", hex: event.target.value.trim() };
+                    return { ...prev, colors: next };
+                  })}
+                  disabled={readOnlyMode}
+                />
+              </label>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="space-y-1 text-xs">
+                <span style={{ color: "var(--text-3)" }}>Fonte Títulos</span>
+                <input
+                  className="input"
+                  value={brandKit.fonts[0]?.name ?? ""}
+                  placeholder="Ex: Sora"
+                  onChange={(event) => setBrandKit((prev) => {
+                    const next = [...prev.fonts];
+                    next[0] = { name: event.target.value.trim(), usage: "headings" };
+                    return { ...prev, fonts: next };
+                  })}
+                  disabled={readOnlyMode}
+                />
+              </label>
+              <label className="space-y-1 text-xs">
+                <span style={{ color: "var(--text-3)" }}>Fonte Texto</span>
+                <input
+                  className="input"
+                  value={brandKit.fonts[1]?.name ?? ""}
+                  placeholder="Ex: Inter"
+                  onChange={(event) => setBrandKit((prev) => {
+                    const next = [...prev.fonts];
+                    next[1] = { name: event.target.value.trim(), usage: "body" };
+                    return { ...prev, fonts: next };
+                  })}
+                  disabled={readOnlyMode}
+                />
+              </label>
+            </div>
+
+            <label className="space-y-1 text-xs block">
+              <span style={{ color: "var(--text-3)" }}>Guidelines</span>
+              <textarea
+                className="input min-h-[110px]"
+                value={brandKit.guidelines}
+                onChange={(event) => setBrandKit((prev) => ({ ...prev, guidelines: event.target.value }))}
+                disabled={readOnlyMode}
+              />
+            </label>
+
+            {brandKitMessage ? (
+              <p className="text-xs" style={{ color: brandKitMessage.toLowerCase().includes("erro") ? "var(--error)" : "var(--success)" }}>
+                {brandKitMessage}
+              </p>
+            ) : null}
+
+            <div className="flex flex-wrap gap-2">
+              <button className="btn btn-primary btn-sm" onClick={saveBrandKit} disabled={readOnlyMode || savingBrandKit}>
+                {savingBrandKit ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Guardar Brand Kit
+              </button>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => setBrandKit(createDefaultBrandKit())}
+                disabled={readOnlyMode || savingBrandKit}
+              >
+                Reset
+              </button>
+            </div>
+          </article>
+
+          <article className="card p-4 space-y-3">
+            <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>Preview light/dark</p>
+            <div className="rounded-xl border p-3" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
+              <div className="rounded-lg px-3 py-2 text-xs" style={{ background: brandKit.accentLight || "#1A8FA3", color: "#fff" }}>
+                Accent light · {brandKit.accentLight || "#1A8FA3"}
+              </div>
+              <div className="mt-2 rounded-lg px-3 py-2 text-xs" style={{ background: brandKit.accentDark || "#63C7D7", color: "#051014" }}>
+                Accent dark · {brandKit.accentDark || "#63C7D7"}
+              </div>
+            </div>
+
+            <p className="text-xs uppercase tracking-[0.08em]" style={{ color: "var(--text-3)" }}>Versioning</p>
+            <div className="space-y-2 max-h-[42vh] overflow-y-auto pr-1">
+              {brandVersions.length === 0 ? (
+                <p className="text-sm" style={{ color: "var(--text-3)" }}>Sem versões ainda.</p>
+              ) : brandVersions.map((version) => (
+                <div key={version.id} className="rounded-xl border px-3 py-2" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
+                  <p className="text-sm font-medium" style={{ color: "var(--text)" }}>v{version.version_number}</p>
+                  <p className="text-xs" style={{ color: "var(--text-3)" }}>{formatDate(version.created_at, true)}</p>
+                  {version.summary ? (
+                    <p className="mt-1 text-xs" style={{ color: "var(--text-2)" }}>{version.summary}</p>
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -748,6 +1080,34 @@ export default function PortalProjectPage() {
                 </div>
               </div>
             ))}
+          </div>
+
+          <div className="mt-4 rounded-xl border p-3" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
+            <p className="text-sm font-medium" style={{ color: "var(--text)" }}>Marcar call (Calendly)</p>
+            <p className="mt-1 text-xs" style={{ color: "var(--text-3)" }}>
+              Agenda uma call sem sair do portal. O motivo ajuda a equipa a preparar a reunião.
+            </p>
+            <label className="mt-3 block text-xs">
+              <span style={{ color: "var(--text-3)" }}>Motivo da call</span>
+              <input
+                className="input mt-1"
+                value={callReason}
+                onChange={(event) => setCallReason(event.target.value)}
+                placeholder="Ex: validação final da V2"
+              />
+            </label>
+            {calendlyUrl ? (
+              <iframe
+                title="Calendly Embed"
+                src={`${calendlyUrl}${calendlyUrl.includes("?") ? "&" : "?"}hide_gdpr_banner=1&primary_color=${encodeURIComponent((brandKit.accentLight || "#1A8FA3").replace("#", ""))}&a1=${encodeURIComponent(callReason || "Portal Beyond")}`}
+                className="mt-3 h-[620px] w-full rounded-xl border"
+                style={{ borderColor: "var(--border)" }}
+              />
+            ) : (
+              <p className="mt-3 text-xs" style={{ color: "var(--warning)" }}>
+                Calendly não configurado. Define `calendly_url` em `org_settings`.
+              </p>
+            )}
           </div>
         </section>
       )}
