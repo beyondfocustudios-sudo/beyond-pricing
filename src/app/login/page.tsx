@@ -1,70 +1,101 @@
 "use client";
 
-import { Suspense, useState, useEffect, useRef } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
-import { createClient } from "@/lib/supabase";
-import { setSessionCookieClient, SESSION_TTL } from "@/lib/session";
+import { AnimatePresence, motion } from "framer-motion";
 import {
-  Mail, Lock, Eye, EyeOff, ArrowRight, CheckCircle,
-  AlertCircle, Zap, Hash, RefreshCw,
+  AlertCircle,
+  ArrowRight,
+  Building2,
+  CheckCircle2,
+  Eye,
+  EyeOff,
+  Lock,
+  Mail,
+  RefreshCw,
+  Users,
+  ShieldCheck,
+  Sparkles,
+  Zap,
 } from "lucide-react";
-import { BuildStamp } from "@/components/BuildStamp";
+import { createClient } from "@/lib/supabase";
+import { SESSION_TTL, setSessionCookieClient } from "@/lib/session";
+import { buttonMotionProps, transitions, useMotionEnabled, variants } from "@/lib/motion";
+import { OtpCodeInput } from "@/components/auth/OtpCodeInput";
+import { audienceLabel, audienceLoginPath, parseAudience, type LoginAudience } from "@/lib/login-audience";
+import { AuthShell } from "@/components/layout/AuthShell";
 
-// ── Spinner ───────────────────────────────────────────────────
+type AuthTab = "password" | "otp" | "oauth";
+
+const OTP_COOLDOWN = 30;
+
 function Spinner() {
   return (
-    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden>
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8V0C5.37 0 0 5.37 0 12h4z" />
     </svg>
   );
 }
 
-// ── Google icon ───────────────────────────────────────────────
 function GoogleIcon() {
   return (
-    <svg className="h-4 w-4" viewBox="0 0 24 24">
-      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
-      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+    <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden>
+      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" />
+      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
     </svg>
   );
 }
 
-// ── Microsoft icon ────────────────────────────────────────────
 function MicrosoftIcon() {
   return (
-    <svg className="h-4 w-4" viewBox="0 0 24 24">
-      <rect x="1" y="1" width="10" height="10" fill="#F25022"/>
-      <rect x="13" y="1" width="10" height="10" fill="#7FBA00"/>
-      <rect x="1" y="13" width="10" height="10" fill="#00A4EF"/>
-      <rect x="13" y="13" width="10" height="10" fill="#FFB900"/>
+    <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden>
+      <rect x="1" y="1" width="10" height="10" fill="#F25022" />
+      <rect x="13" y="1" width="10" height="10" fill="#7FBA00" />
+      <rect x="1" y="13" width="10" height="10" fill="#00A4EF" />
+      <rect x="13" y="13" width="10" height="10" fill="#FFB900" />
     </svg>
   );
 }
 
-type AuthTab = "password" | "otp";
+async function validateAudienceAccess(audience: LoginAudience) {
+  const response = await fetch(`/api/auth/validate-audience?audience=${audience}`, { cache: "no-store" });
+  const payload = await response.json().catch(() => ({} as { message?: string; suggestedPath?: string; redirectPath?: string }));
 
-const OTP_COOLDOWN = 30; // seconds
+  if (response.ok) {
+    return {
+      ok: true as const,
+      suggestedPath: payload.redirectPath ?? "/app/dashboard",
+    };
+  }
+
+  return {
+    ok: false as const,
+    message: payload.message ?? `A conta não pertence a ${audienceLabel(audience)}.`,
+    suggestedPath: payload.suggestedPath ?? audienceLoginPath(audience),
+  };
+}
 
 function LoginPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const motionEnabled = useMotionEnabled();
   const expired = searchParams.get("expired") === "1";
+  const selectedAudience = parseAudience(searchParams.get("mode") ?? searchParams.get("role"));
+  const expectedAudience = parseAudience(searchParams.get("expected"));
+  const mismatch = searchParams.get("mismatch") === "1";
 
   const [tab, setTab] = useState<AuthTab>("password");
+  const [rememberMe, setRememberMe] = useState(false);
 
-  // Password form
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false);
   const [pwLoading, setPwLoading] = useState(false);
   const [pwError, setPwError] = useState("");
 
-  // OTP form
   const [otpEmail, setOtpEmail] = useState("");
   const [otpStep, setOtpStep] = useState<"email" | "code">("email");
   const [otpCode, setOtpCode] = useState("");
@@ -73,42 +104,75 @@ function LoginPageInner() {
   const [otpCooldown, setOtpCooldown] = useState(0);
   const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // OAuth loading
   const [oauthLoading, setOauthLoading] = useState<"google" | "microsoft" | null>(null);
+  const [oauthError, setOauthError] = useState("");
+  const [gatewayError, setGatewayError] = useState("");
 
-  // Cleanup cooldown on unmount
   useEffect(() => {
-    return () => { if (cooldownRef.current) clearInterval(cooldownRef.current); };
+    return () => {
+      if (cooldownRef.current) clearInterval(cooldownRef.current);
+    };
   }, []);
+
+  useEffect(() => {
+    if (selectedAudience === "collaborator") {
+      router.replace("/login?mode=team");
+    }
+  }, [router, selectedAudience]);
+
+  const passwordStrength = useMemo(() => {
+    const score = Number(password.length >= 8) + Number(/[A-Z]/.test(password)) + Number(/\d/.test(password));
+    if (!password) return { label: "Sem password", tone: "var(--text-3)" };
+    if (score <= 1) return { label: "Fraca", tone: "var(--error)" };
+    if (score === 2) return { label: "Média", tone: "var(--warning)" };
+    return { label: "Forte", tone: "var(--success)" };
+  }, [password]);
 
   const startCooldown = () => {
     setOtpCooldown(OTP_COOLDOWN);
     cooldownRef.current = setInterval(() => {
-      setOtpCooldown((c) => {
-        if (c <= 1) { clearInterval(cooldownRef.current!); return 0; }
-        return c - 1;
+      setOtpCooldown((current) => {
+        if (current <= 1) {
+          if (cooldownRef.current) clearInterval(cooldownRef.current);
+          return 0;
+        }
+        return current - 1;
       });
     }, 1000);
   };
 
-  // ── Password Login ───────────────────────────────────────────
-  const handlePasswordLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (pwLoading) return;
+  const completeLogin = async (ttlSeconds: number, audience: LoginAudience) => {
+    setSessionCookieClient(ttlSeconds);
+    const result = await validateAudienceAccess(audience);
+    if (!result.ok) {
+      const sb = createClient();
+      await sb.auth.signOut();
+      setGatewayError(`${result.message} Usa o acesso correto.`);
+      router.replace(result.suggestedPath.includes("?") ? `${result.suggestedPath}&mismatch=1` : `${result.suggestedPath}?mismatch=1`);
+      return false;
+    }
+
+    router.push(result.suggestedPath);
+    router.refresh();
+    return true;
+  };
+
+  const handlePasswordLogin = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (pwLoading || !selectedAudience) return;
     setPwError("");
+    setGatewayError("");
     setPwLoading(true);
 
     try {
       const sb = createClient();
       const { error } = await sb.auth.signInWithPassword({ email, password });
       if (error) {
-        setPwError("Email ou password incorretos. Verifica os teus dados.");
+        setPwError("Email ou password incorretos.");
         return;
       }
-      const ttl = rememberMe ? SESSION_TTL.LONG : SESSION_TTL.DAY;
-      setSessionCookieClient(ttl);
-      router.push("/app");
-      router.refresh();
+
+      await completeLogin(rememberMe ? SESSION_TTL.LONG : SESSION_TTL.DAY, selectedAudience);
     } catch {
       setPwError("Erro inesperado. Tenta novamente.");
     } finally {
@@ -116,11 +180,11 @@ function LoginPageInner() {
     }
   };
 
-  // ── OTP — Step 1: Send code ──────────────────────────────────
-  const handleSendOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (otpLoading || otpCooldown > 0) return;
+  const handleSendOtp = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (otpLoading || otpCooldown > 0 || !selectedAudience) return;
     setOtpError("");
+    setGatewayError("");
     setOtpLoading(true);
 
     try {
@@ -133,6 +197,8 @@ function LoginPageInner() {
         setOtpError(error.message);
         return;
       }
+
+      setOtpCode("");
       setOtpStep("code");
       startCooldown();
     } catch {
@@ -142,11 +208,11 @@ function LoginPageInner() {
     }
   };
 
-  // ── OTP — Step 2: Verify code ────────────────────────────────
-  const handleVerifyOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (otpLoading) return;
+  const handleVerifyOtp = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (otpLoading || otpCode.length !== 6 || !selectedAudience) return;
     setOtpError("");
+    setGatewayError("");
     setOtpLoading(true);
 
     try {
@@ -157,13 +223,11 @@ function LoginPageInner() {
         type: "email",
       });
       if (error) {
-        setOtpError("Código inválido ou expirado. Solicita um novo código.");
+        setOtpError("Código inválido ou expirado.");
         return;
       }
-      // OTP sessions: SHORT TTL (1 hour)
-      setSessionCookieClient(SESSION_TTL.SHORT);
-      router.push("/app");
-      router.refresh();
+
+      await completeLogin(SESSION_TTL.SHORT, selectedAudience);
     } catch {
       setOtpError("Erro ao verificar código. Tenta novamente.");
     } finally {
@@ -171,415 +235,507 @@ function LoginPageInner() {
     }
   };
 
-  // ── Resend OTP ───────────────────────────────────────────────
   const handleResendOtp = async () => {
-    if (otpCooldown > 0) return;
+    if (otpCooldown > 0 || otpLoading || !selectedAudience) return;
     setOtpError("");
+    setGatewayError("");
     setOtpLoading(true);
     try {
       const sb = createClient();
-      await sb.auth.signInWithOtp({
+      const { error } = await sb.auth.signInWithOtp({
         email: otpEmail,
         options: { shouldCreateUser: false },
       });
+      if (error) {
+        setOtpError(error.message);
+        return;
+      }
+      setOtpCode("");
       startCooldown();
-    } catch { /* ignore */ }
-    setOtpLoading(false);
+    } finally {
+      setOtpLoading(false);
+    }
   };
 
-  // ── OAuth ────────────────────────────────────────────────────
   const handleOAuth = async (provider: "google" | "azure") => {
-    setOauthLoading(provider === "azure" ? "microsoft" : "google");
-    const sb = createClient();
-    await sb.auth.signInWithOAuth({
-      provider,
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback?ttl=${rememberMe ? "30d" : "24h"}`,
-      },
-    });
+    if (!selectedAudience) return;
+    const loadingState = provider === "azure" ? "microsoft" : "google";
+    setOauthLoading(loadingState);
+    setOauthError("");
+    setGatewayError("");
+
+    try {
+      const sb = createClient();
+      const redirectUrl = new URL("/auth/callback", window.location.origin);
+      redirectUrl.searchParams.set("ttl", rememberMe ? "30d" : "24h");
+      redirectUrl.searchParams.set("audience", selectedAudience);
+      redirectUrl.searchParams.set("next", selectedAudience === "team" ? "/app/dashboard" : "/portal");
+      const { error } = await sb.auth.signInWithOAuth({
+        provider,
+        options: {
+          redirectTo: redirectUrl.toString(),
+        },
+      });
+      if (error) {
+        setOauthError("Não foi possível iniciar SSO.");
+        setOauthLoading(null);
+      }
+    } catch {
+      setOauthError("Erro de rede ao iniciar SSO.");
+      setOauthLoading(null);
+    }
   };
+
+  const tabItems: Array<{ id: AuthTab; label: string }> = [
+    { id: "password", label: "Password" },
+    { id: "otp", label: "Código" },
+    { id: "oauth", label: "OAuth" },
+  ];
+
+  if (!selectedAudience) {
+    return (
+      <AuthShell maxWidth={1280}>
+        <motion.div
+          initial={motionEnabled ? "initial" : false}
+          animate={motionEnabled ? "animate" : undefined}
+          variants={variants.page}
+          transition={transitions.page}
+          className="w-full"
+        >
+          <section className="card-glass rounded-[32px] border p-6 sm:p-8" style={{ borderColor: "var(--border-soft)" }}>
+            <div className="mb-6">
+              <p className="text-xs uppercase tracking-[0.11em]" style={{ color: "var(--text-3)" }}>
+                Role Gateway
+              </p>
+              <h1 className="mt-2 text-[2rem] font-[560] tracking-[-0.03em]" style={{ color: "var(--text)" }}>
+                Seleciona o teu acesso
+              </h1>
+              <p className="mt-2 text-sm" style={{ color: "var(--text-2)" }}>
+                Escolhe o perfil correto para entrar sem erros de permissões.
+              </p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <motion.button
+                type="button"
+                className="card text-left p-4"
+                onClick={() => router.push("/login?mode=team")}
+                {...buttonMotionProps({ enabled: motionEnabled })}
+              >
+                <Users className="mb-2 h-5 w-5" style={{ color: "var(--accent-blue)" }} />
+                <p className="font-semibold" style={{ color: "var(--text)" }}>Equipa Beyond</p>
+                <p className="mt-1 text-xs" style={{ color: "var(--text-2)" }}>Owner, admin e membros internos.</p>
+              </motion.button>
+
+              <motion.button
+                type="button"
+                className="card text-left p-4"
+                onClick={() => router.push("/portal/login?mode=client")}
+                {...buttonMotionProps({ enabled: motionEnabled })}
+              >
+                <Building2 className="mb-2 h-5 w-5" style={{ color: "var(--accent-blue)" }} />
+                <p className="font-semibold" style={{ color: "var(--text)" }}>Cliente Beyond</p>
+                <p className="mt-1 text-xs" style={{ color: "var(--text-2)" }}>Acesso portal para projetos e entregas.</p>
+              </motion.button>
+            </div>
+          </section>
+        </motion.div>
+      </AuthShell>
+    );
+  }
+
+  if (selectedAudience === "collaborator") return null;
+
+  if (selectedAudience === "client") {
+    return (
+      <AuthShell maxWidth={640}>
+        <div className="w-full card-glass rounded-[28px] border p-6" style={{ borderColor: "var(--border-soft)" }}>
+          <p className="text-xs uppercase tracking-[0.11em]" style={{ color: "var(--text-3)" }}>
+            Cliente
+          </p>
+          <h2 className="mt-1 text-2xl font-semibold" style={{ color: "var(--text)" }}>
+            Este acesso usa o portal cliente
+          </h2>
+          <p className="mt-2 text-sm" style={{ color: "var(--text-2)" }}>
+            Para este acesso, entra no portal.
+          </p>
+          <div className="mt-5 flex gap-2">
+            <button className="btn btn-secondary" onClick={() => router.push("/login")}>Voltar</button>
+            <button className="btn btn-primary" onClick={() => router.push(`/portal/login?mode=${selectedAudience}`)}>Ir para Portal</button>
+          </div>
+        </div>
+      </AuthShell>
+    );
+  }
 
   return (
-    <div
-      className="min-h-dvh flex flex-col items-center justify-center px-4 relative overflow-hidden"
-      style={{ background: "var(--bg)" }}
-    >
-      {/* Background glow */}
-      <div
-        className="pointer-events-none absolute inset-0"
-        style={{
-          background:
-            "radial-gradient(ellipse 80% 60% at 50% -10%, rgba(26,143,163,0.12) 0%, transparent 60%)",
-        }}
-      />
-      {/* Grid texture */}
-      <div
-        className="pointer-events-none absolute inset-0 opacity-30"
-        style={{
-          backgroundImage:
-            "linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px)",
-          backgroundSize: "48px 48px",
-        }}
-      />
-
+    <AuthShell maxWidth={1400}>
       <motion.div
-        initial={{ opacity: 0, y: 24 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, ease: "easeOut" }}
-        className="relative w-full max-w-sm"
+        initial={motionEnabled ? "initial" : false}
+        animate={motionEnabled ? "animate" : undefined}
+        variants={variants.page}
+        transition={transitions.page}
+        className="w-full"
       >
-        {/* Logo */}
-        <div className="text-center mb-8">
-          <div
-            className="inline-flex items-center justify-center h-14 w-14 rounded-2xl mb-4"
-            style={{ background: "var(--accent)", boxShadow: "0 0 40px var(--accent-glow), 0 8px 32px rgba(0,0,0,0.4)" }}
-          >
-            <Zap className="h-7 w-7 text-white" />
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight" style={{ color: "var(--text)", letterSpacing: "-0.03em" }}>
-            Beyond Pricing
-          </h1>
-          <p className="mt-1 text-sm" style={{ color: "var(--text-2)" }}>
-            Plataforma de produção audiovisual
-          </p>
-        </div>
-
-        {/* Expired session banner */}
-        {expired && (
-          <motion.div
-            initial={{ opacity: 0, y: -8 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="alert alert-error mb-4"
-          >
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            <span className="text-sm">Sessão expirada. Volta a entrar.</span>
-          </motion.div>
-        )}
-
-        {/* Card */}
-        <div
-          className="card-glass p-6"
-          style={{
-            background: "rgba(13,17,27,0.8)",
-            border: "1px solid var(--border-2)",
-            borderRadius: "var(--r-xl)",
-            boxShadow: "var(--shadow-lg), inset 0 1px 0 rgba(255,255,255,0.05)",
-          }}
-        >
-          {/* Tab switcher */}
-          <div className="flex gap-1 p-1 rounded-xl mb-5" style={{ background: "var(--surface-2)" }}>
-            {(["password", "otp"] as AuthTab[]).map((t) => (
-              <button
-                key={t}
-                onClick={() => { setTab(t); setPwError(""); setOtpError(""); }}
-                className="flex-1 py-1.5 rounded-lg text-xs font-medium transition-all"
+        <section className="card-glass overflow-hidden rounded-[32px] border" style={{ borderColor: "var(--border-soft)" }}>
+          <div className="grid min-h-[680px] md:grid-cols-[1.1fr_1fr]">
+            <aside className="relative hidden overflow-hidden border-r md:flex md:flex-col" style={{ borderColor: "var(--border)" }}>
+              <div
+                className="absolute inset-0 pointer-events-none"
                 style={{
-                  background: tab === t ? "var(--surface-3)" : "transparent",
-                  color: tab === t ? "var(--text)" : "var(--text-3)",
+                  background:
+                    "radial-gradient(52rem 34rem at 16% 14%, rgba(26,143,163,0.22), transparent 60%), radial-gradient(48rem 28rem at 80% 88%, rgba(216,206,246,0.22), transparent 55%)",
                 }}
-              >
-                {t === "password" ? "Password" : "Código (OTP)"}
-              </button>
-            ))}
-          </div>
+              />
 
-          <AnimatePresence mode="wait">
-            {/* ── PASSWORD TAB ─────────────────────────────── */}
-            {tab === "password" && (
-              <motion.div
-                key="password"
-                initial={{ opacity: 0, x: -8 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 8 }}
-                transition={{ duration: 0.2 }}
-              >
-                <form onSubmit={handlePasswordLogin} className="space-y-4">
-                  {/* Email */}
-                  <div className="space-y-1.5">
-                    <label className="label">Email</label>
-                    <div className="relative">
-                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 pointer-events-none" style={{ color: "var(--text-3)" }} />
-                      <input
-                        type="email"
-                        required
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder="tu@beyondfocus.pt"
-                        className="input"
-                        style={{ paddingLeft: "2.5rem" }}
-                        autoComplete="email"
-                        autoFocus
-                      />
-                    </div>
+              <div className="relative z-10 p-9 lg:p-11">
+                <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl" style={{ background: "var(--accent-primary)", color: "#f8fbfc" }}>
+                  <Zap className="h-5 w-5" />
+                </div>
+                <h1 className="mt-5 text-[2.2rem] font-[540] tracking-[-0.03em]" style={{ color: "var(--text)" }}>
+                  Beyond Pricing
+                </h1>
+                <p className="mt-3 max-w-sm text-sm leading-relaxed" style={{ color: "var(--text-2)" }}>
+                  Acede diretamente ao teu dashboard premium e mantém autenticação por password, código OTP ou SSO.
+                </p>
+
+                <div className="mt-8 space-y-3">
+                  <div className="pill inline-flex items-center gap-2">
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    Sessões seguras com TTL
                   </div>
-
-                  {/* Password */}
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <label className="label" style={{ margin: 0 }}>Password</label>
-                      <a href="/reset-password" className="text-xs" style={{ color: "var(--accent-2)" }}>
-                        Esqueci a password
-                      </a>
-                    </div>
-                    <div className="relative">
-                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 pointer-events-none" style={{ color: "var(--text-3)" }} />
-                      <input
-                        type={showPw ? "text" : "password"}
-                        required
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder="••••••••"
-                        className="input"
-                        style={{ paddingLeft: "2.5rem", paddingRight: "2.5rem" }}
-                        autoComplete="current-password"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPw(!showPw)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2"
-                        style={{ color: "var(--text-3)" }}
-                      >
-                        {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </button>
-                    </div>
+                  <div className="pill inline-flex items-center gap-2">
+                    <Sparkles className="h-3.5 w-3.5" />
+                    UI premium com motion suave
                   </div>
+                </div>
+              </div>
+            </aside>
 
-                  {/* Remember me */}
-                  <label className="flex items-center gap-2.5 cursor-pointer select-none">
-                    <div
-                      className="relative h-4 w-4 rounded flex items-center justify-center border transition-colors shrink-0"
+            <div className="p-5 sm:p-7 md:p-9">
+              <div className="mb-6 flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.11em]" style={{ color: "var(--text-3)" }}>
+                    {audienceLabel(selectedAudience)}
+                  </p>
+                  <h2 className="mt-1.5 text-[1.75rem] font-[560] tracking-[-0.03em]" style={{ color: "var(--text)" }}>
+                    Entrar na plataforma
+                  </h2>
+                </div>
+                <div className="flex flex-col items-end gap-2">
+                  <button
+                    type="button"
+                    className="text-xs"
+                    style={{ color: "var(--text-3)" }}
+                    onClick={() => router.push("/login")}
+                  >
+                    Mudar acesso
+                  </button>
+                  <motion.button
+                    type="button"
+                    className="pill inline-flex items-center gap-2"
+                    onClick={() => setRememberMe((current) => !current)}
+                    aria-pressed={rememberMe}
+                    {...buttonMotionProps({ enabled: motionEnabled })}
+                  >
+                    <span
+                      className="inline-flex h-4 w-4 items-center justify-center rounded-full border"
                       style={{
-                        background: rememberMe ? "var(--accent)" : "transparent",
-                        borderColor: rememberMe ? "var(--accent)" : "var(--border-2)",
+                        borderColor: rememberMe ? "transparent" : "var(--border-soft)",
+                        background: rememberMe ? "var(--accent-primary)" : "transparent",
+                        color: "#fff",
                       }}
-                      onClick={() => setRememberMe(!rememberMe)}
                     >
-                      {rememberMe && <CheckCircle className="h-3 w-3 text-white" />}
-                    </div>
-                    <span className="text-xs" style={{ color: "var(--text-2)" }}>
-                      Manter sessão por 30 dias
+                      {rememberMe ? <CheckCircle2 className="h-3 w-3" /> : null}
                     </span>
-                  </label>
+                    30 dias
+                  </motion.button>
+                </div>
+              </div>
 
-                  {/* Error */}
-                  <AnimatePresence>
-                    {pwError && (
-                      <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: "auto" }}
-                        exit={{ opacity: 0, height: 0 }}
-                        className="alert alert-error"
-                      >
+              {expired ? (
+                <motion.div
+                  initial={motionEnabled ? "initial" : false}
+                  animate={motionEnabled ? "animate" : undefined}
+                  variants={variants.page}
+                  transition={transitions.smooth}
+                  className="alert alert-error mb-4"
+                >
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span className="text-sm">Sessão expirada. Entra novamente.</span>
+                </motion.div>
+              ) : null}
+
+              {mismatch ? (
+                <div className="alert alert-error mb-4">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span className="text-sm">
+                    Conta sem permissão para este acesso.
+                    {expectedAudience ? ` Usa "${audienceLabel(expectedAudience)}".` : ""}
+                  </span>
+                </div>
+              ) : null}
+
+              {gatewayError ? (
+                <div className="alert alert-error mb-4">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span className="text-sm">{gatewayError}</span>
+                </div>
+              ) : null}
+
+              <div className="mb-5 flex flex-wrap gap-2">
+                {tabItems.map((item) => (
+                  <motion.button
+                    key={item.id}
+                    type="button"
+                    className={`pill ${tab === item.id ? "pill-active" : ""}`}
+                    onClick={() => {
+                      setTab(item.id);
+                      setPwError("");
+                      setOtpError("");
+                      setOauthError("");
+                      setGatewayError("");
+                    }}
+                    {...buttonMotionProps({ enabled: motionEnabled })}
+                  >
+                    {item.label}
+                  </motion.button>
+                ))}
+              </div>
+
+              <AnimatePresence mode="wait">
+                {tab === "password" ? (
+                  <motion.form
+                    key="password-tab"
+                    onSubmit={handlePasswordLogin}
+                    className="space-y-4"
+                    initial={motionEnabled ? "initial" : false}
+                    animate={motionEnabled ? "animate" : undefined}
+                    exit={motionEnabled ? "exit" : undefined}
+                    variants={variants.tab}
+                    transition={transitions.page}
+                  >
+                    <div className="space-y-1.5">
+                      <label className="label">Email</label>
+                      <div className="relative">
+                        <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" style={{ color: "var(--text-3)" }} />
+                        <input
+                          type="email"
+                          required
+                          autoComplete="email"
+                          autoFocus
+                          className="input w-full pl-9"
+                          placeholder="tu@beyondfocus.pt"
+                          value={email}
+                          onChange={(event) => setEmail(event.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <label className="label">Password</label>
+                        <a href="/reset-password" className="text-xs" style={{ color: "var(--accent-2)" }}>
+                          Esqueci a password
+                        </a>
+                      </div>
+                      <div className="relative">
+                        <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" style={{ color: "var(--text-3)" }} />
+                        <input
+                          type={showPw ? "text" : "password"}
+                          required
+                          autoComplete="current-password"
+                          className="input w-full pl-9 pr-10"
+                          placeholder="••••••••"
+                          value={password}
+                          onChange={(event) => setPassword(event.target.value)}
+                        />
+                        <motion.button
+                          type="button"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-3)]"
+                          onClick={() => setShowPw((current) => !current)}
+                          {...buttonMotionProps({ enabled: motionEnabled })}
+                        >
+                          {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </motion.button>
+                      </div>
+                      <p className="text-xs" style={{ color: passwordStrength.tone }}>
+                        Força: {passwordStrength.label}
+                      </p>
+                    </div>
+
+                    {pwError ? (
+                      <motion.div className="alert alert-error" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                         <AlertCircle className="h-4 w-4 shrink-0" />
                         <span className="text-sm">{pwError}</span>
                       </motion.div>
+                    ) : null}
+
+                    <motion.button
+                      type="submit"
+                      disabled={pwLoading || !email || !password}
+                      className="btn btn-primary btn-lg w-full"
+                      {...buttonMotionProps({ enabled: motionEnabled })}
+                    >
+                      {pwLoading ? <><Spinner /> A entrar…</> : <>Entrar <ArrowRight className="h-4 w-4" /></>}
+                    </motion.button>
+                  </motion.form>
+                ) : null}
+
+                {tab === "otp" ? (
+                  <motion.div
+                    key="otp-tab"
+                    initial={motionEnabled ? "initial" : false}
+                    animate={motionEnabled ? "animate" : undefined}
+                    exit={motionEnabled ? "exit" : undefined}
+                    variants={variants.tab}
+                    transition={transitions.page}
+                    className="space-y-4"
+                  >
+                    {otpStep === "email" ? (
+                      <form onSubmit={handleSendOtp} className="space-y-4">
+                        <p className="text-sm" style={{ color: "var(--text-2)" }}>
+                          Enviamos um código de 6 dígitos para login rápido. Sessão OTP: 1 hora.
+                        </p>
+                        <div className="space-y-1.5">
+                          <label className="label">Email</label>
+                          <div className="relative">
+                            <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" style={{ color: "var(--text-3)" }} />
+                            <input
+                              type="email"
+                              required
+                              autoFocus
+                              className="input w-full pl-9"
+                              placeholder="tu@beyondfocus.pt"
+                              value={otpEmail}
+                              onChange={(event) => setOtpEmail(event.target.value)}
+                            />
+                          </div>
+                        </div>
+
+                        {otpError ? (
+                          <div className="alert alert-error">
+                            <AlertCircle className="h-4 w-4 shrink-0" />
+                            <span className="text-sm">{otpError}</span>
+                          </div>
+                        ) : null}
+
+                        <motion.button
+                          type="submit"
+                          disabled={otpLoading || !otpEmail || otpCooldown > 0}
+                          className="btn btn-primary btn-lg w-full"
+                          {...buttonMotionProps({ enabled: motionEnabled })}
+                        >
+                          {otpLoading ? <><Spinner /> A enviar…</> : <>Enviar código <ArrowRight className="h-4 w-4" /></>}
+                        </motion.button>
+                      </form>
+                    ) : (
+                      <form onSubmit={handleVerifyOtp} className="space-y-4">
+                        <p className="text-sm" style={{ color: "var(--text-2)" }}>
+                          Introduz o código enviado para <span style={{ color: "var(--text)" }}>{otpEmail}</span>.
+                        </p>
+
+                        <OtpCodeInput
+                          value={otpCode}
+                          onChange={(next) => setOtpCode(next.replace(/\D/g, "").slice(0, 6))}
+                          autoFocus
+                          disabled={otpLoading}
+                        />
+
+                        {otpError ? (
+                          <div className="alert alert-error">
+                            <AlertCircle className="h-4 w-4 shrink-0" />
+                            <span className="text-sm">{otpError}</span>
+                          </div>
+                        ) : null}
+
+                        <motion.button
+                          type="submit"
+                          disabled={otpLoading || otpCode.length < 6}
+                          className="btn btn-primary btn-lg w-full"
+                          {...buttonMotionProps({ enabled: motionEnabled })}
+                        >
+                          {otpLoading ? <><Spinner /> A verificar…</> : <>Verificar código <ArrowRight className="h-4 w-4" /></>}
+                        </motion.button>
+
+                        <div className="flex items-center justify-between text-xs">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOtpStep("email");
+                              setOtpCode("");
+                              setOtpError("");
+                            }}
+                            style={{ color: "var(--text-3)" }}
+                          >
+                            Mudar email
+                          </button>
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1"
+                            onClick={handleResendOtp}
+                            disabled={otpCooldown > 0 || otpLoading}
+                            style={{ color: otpCooldown > 0 ? "var(--text-3)" : "var(--accent-2)" }}
+                          >
+                            <RefreshCw className="h-3 w-3" />
+                            {otpCooldown > 0 ? `Reenviar (${otpCooldown}s)` : "Reenviar código"}
+                          </button>
+                        </div>
+                      </form>
                     )}
-                  </AnimatePresence>
+                  </motion.div>
+                ) : null}
 
-                  <button
-                    type="submit"
-                    disabled={pwLoading || !email || !password}
-                    className="btn btn-primary btn-lg w-full"
+                {tab === "oauth" ? (
+                  <motion.div
+                    key="oauth-tab"
+                    initial={motionEnabled ? "initial" : false}
+                    animate={motionEnabled ? "animate" : undefined}
+                    exit={motionEnabled ? "exit" : undefined}
+                    variants={variants.tab}
+                    transition={transitions.page}
+                    className="space-y-4"
                   >
-                    {pwLoading ? <><Spinner /> A entrar…</> : <>Entrar <ArrowRight className="h-4 w-4" /></>}
-                  </button>
-                </form>
+                    <p className="text-sm" style={{ color: "var(--text-2)" }}>
+                      Continua com SSO. TTL: 24h, ou 30 dias com toggle ativo.
+                    </p>
 
-                {/* Divider */}
-                <div className="relative my-4">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t" style={{ borderColor: "var(--border)" }} />
-                  </div>
-                  <div className="relative flex justify-center">
-                    <span className="px-2 text-xs" style={{ background: "rgba(13,17,27,0.8)", color: "var(--text-3)" }}>
-                      ou continua com
-                    </span>
-                  </div>
-                </div>
-
-                {/* OAuth buttons */}
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    disabled={oauthLoading !== null}
-                    onClick={() => handleOAuth("google")}
-                    className="btn btn-secondary flex items-center justify-center gap-2 text-xs"
-                  >
-                    {oauthLoading === "google" ? <Spinner /> : <GoogleIcon />}
-                    Google
-                  </button>
-                  <button
-                    type="button"
-                    disabled={oauthLoading !== null}
-                    onClick={() => handleOAuth("azure")}
-                    className="btn btn-secondary flex items-center justify-center gap-2 text-xs"
-                  >
-                    {oauthLoading === "microsoft" ? <Spinner /> : <MicrosoftIcon />}
-                    Microsoft
-                  </button>
-                </div>
-
-                <p className="text-xs text-center mt-3" style={{ color: "var(--text-3)" }}>
-                  OAuth: sessão 24h (ou 30 dias com &ldquo;manter sessão&rdquo; activo)
-                </p>
-              </motion.div>
-            )}
-
-            {/* ── OTP TAB ───────────────────────────────────── */}
-            {tab === "otp" && (
-              <motion.div
-                key="otp"
-                initial={{ opacity: 0, x: 8 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -8 }}
-                transition={{ duration: 0.2 }}
-              >
-                <AnimatePresence mode="wait">
-                  {otpStep === "email" ? (
-                    <motion.form
-                      key="otp-email"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      onSubmit={handleSendOtp}
-                      className="space-y-4"
+                    <motion.button
+                      type="button"
+                      disabled={oauthLoading !== null}
+                      onClick={() => handleOAuth("google")}
+                      className="btn btn-secondary w-full justify-center gap-2"
+                      {...buttonMotionProps({ enabled: motionEnabled })}
                     >
-                      <div>
-                        <p className="text-sm font-medium mb-0.5" style={{ color: "var(--text)" }}>
-                          Entrar com código por email
-                        </p>
-                        <p className="text-xs" style={{ color: "var(--text-3)" }}>
-                          Enviamos um código de 6 dígitos. Sessão de 1 hora.
-                        </p>
-                      </div>
+                      {oauthLoading === "google" ? <Spinner /> : <GoogleIcon />}
+                      Google
+                    </motion.button>
 
-                      <div className="space-y-1.5">
-                        <label className="label">Email</label>
-                        <div className="relative">
-                          <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 pointer-events-none" style={{ color: "var(--text-3)" }} />
-                          <input
-                            type="email"
-                            required
-                            value={otpEmail}
-                            onChange={(e) => setOtpEmail(e.target.value)}
-                            placeholder="tu@beyondfocus.pt"
-                            className="input"
-                            style={{ paddingLeft: "2.5rem" }}
-                            autoComplete="email"
-                            autoFocus
-                          />
-                        </div>
-                      </div>
-
-                      <AnimatePresence>
-                        {otpError && (
-                          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="alert alert-error">
-                            <AlertCircle className="h-4 w-4 shrink-0" />
-                            <span className="text-sm">{otpError}</span>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-
-                      <button
-                        type="submit"
-                        disabled={otpLoading || !otpEmail || otpCooldown > 0}
-                        className="btn btn-primary btn-lg w-full"
-                      >
-                        {otpLoading ? <><Spinner /> A enviar…</> : <>Enviar código <ArrowRight className="h-4 w-4" /></>}
-                      </button>
-                    </motion.form>
-                  ) : (
-                    <motion.form
-                      key="otp-code"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      onSubmit={handleVerifyOtp}
-                      className="space-y-4"
+                    <motion.button
+                      type="button"
+                      disabled={oauthLoading !== null}
+                      onClick={() => handleOAuth("azure")}
+                      className="btn btn-secondary w-full justify-center gap-2"
+                      {...buttonMotionProps({ enabled: motionEnabled })}
                     >
-                      <div>
-                        <p className="text-sm font-medium mb-0.5" style={{ color: "var(--text)" }}>
-                          Código enviado!
-                        </p>
-                        <p className="text-xs" style={{ color: "var(--text-3)" }}>
-                          Verifica o email <span className="font-medium" style={{ color: "var(--text-2)" }}>{otpEmail}</span>
-                        </p>
+                      {oauthLoading === "microsoft" ? <Spinner /> : <MicrosoftIcon />}
+                      Microsoft
+                    </motion.button>
+
+                    {oauthError ? (
+                      <div className="alert alert-error">
+                        <AlertCircle className="h-4 w-4 shrink-0" />
+                        <span className="text-sm">{oauthError}</span>
                       </div>
-
-                      <div className="space-y-1.5">
-                        <label className="label">Código de 6 dígitos</label>
-                        <div className="relative">
-                          <Hash className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 pointer-events-none" style={{ color: "var(--text-3)" }} />
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            pattern="[0-9]{6}"
-                            maxLength={6}
-                            required
-                            value={otpCode}
-                            onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                            placeholder="123456"
-                            className="input text-center tracking-[0.5em] font-mono"
-                            style={{ paddingLeft: "2.5rem", fontSize: "1.25rem" }}
-                            autoFocus
-                            autoComplete="one-time-code"
-                          />
-                        </div>
-                      </div>
-
-                      <AnimatePresence>
-                        {otpError && (
-                          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="alert alert-error">
-                            <AlertCircle className="h-4 w-4 shrink-0" />
-                            <span className="text-sm">{otpError}</span>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-
-                      <button
-                        type="submit"
-                        disabled={otpLoading || otpCode.length < 6}
-                        className="btn btn-primary btn-lg w-full"
-                      >
-                        {otpLoading ? <><Spinner /> A verificar…</> : <>Verificar código <ArrowRight className="h-4 w-4" /></>}
-                      </button>
-
-                      <div className="flex items-center justify-between text-xs">
-                        <button
-                          type="button"
-                          onClick={() => { setOtpStep("email"); setOtpCode(""); setOtpError(""); }}
-                          style={{ color: "var(--text-3)" }}
-                        >
-                          ← Mudar email
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleResendOtp}
-                          disabled={otpCooldown > 0 || otpLoading}
-                          className="flex items-center gap-1"
-                          style={{ color: otpCooldown > 0 ? "var(--text-3)" : "var(--accent-2)" }}
-                        >
-                          <RefreshCw className="h-3 w-3" />
-                          {otpCooldown > 0 ? `Reenviar (${otpCooldown}s)` : "Reenviar código"}
-                        </button>
-                      </div>
-                    </motion.form>
-                  )}
-                </AnimatePresence>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-
-        <p className="text-center text-xs mt-5" style={{ color: "var(--text-3)" }}>
-          {tab === "password"
-            ? "Sem conta? Contacta a tua equipa Beyond."
-            : "Código de uso único. Sessão expira em 1 hora."}
-        </p>
+                    ) : null}
+                  </motion.div>
+                ) : null}
+              </AnimatePresence>
+            </div>
+          </div>
+        </section>
       </motion.div>
-
-      <BuildStamp className="mt-6 text-center" />
-    </div>
+    </AuthShell>
   );
 }
 

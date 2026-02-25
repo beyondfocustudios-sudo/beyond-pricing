@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { createClient } from "@/lib/supabase";
 import { formatDateShort, generateId } from "@/lib/utils";
 import { Plus, FileText, X, Check, ChevronRight, Package } from "lucide-react";
+import { useToast } from "@/components/Toast";
 
 interface TemplateRow {
   id: string;
@@ -44,20 +45,26 @@ const TYPE_COLORS: Record<string, string> = {
 export default function TemplatesPage() {
   const [templates, setTemplates] = useState<TemplateRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [selected, setSelected] = useState<TemplateRow | null>(null);
   const [templateItems, setTemplateItems] = useState<TemplateItem[]>([]);
   const [loadingItems, setLoadingItems] = useState(false);
   const [successId, setSuccessId] = useState<string | null>(null);
+  const toast = useToast();
 
   const load = useCallback(async () => {
     setLoading(true);
+    setErrorMsg(null);
     const sb = createClient();
-    const { data } = await sb
+    const { data, error } = await sb
       .from("templates")
       .select("id, name, type, defaults, created_at, user_id")
       .order("created_at", { ascending: true });
 
-    if (data) {
+    if (error) {
+      toast.error(`Erro ao carregar templates: ${error.message}`);
+      setErrorMsg(error.message);
+    } else if (data) {
       // Get item counts
       const ids = data.map((t) => t.id);
       const counts = await Promise.all(
@@ -72,7 +79,7 @@ export default function TemplatesPage() {
       setTemplates(withCounts as TemplateRow[]);
     }
     setLoading(false);
-  }, []);
+  }, [toast]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -96,10 +103,11 @@ export default function TemplatesPage() {
 
     // Create a new project with this template's defaults
     const defaults = t.defaults as Record<string, number>;
-    const { data: proj } = await sb
+    const { data: proj, error } = await sb
       .from("projects")
       .insert({
         user_id: user.user.id,
+        owner_user_id: user.user.id,  // triggers auto project_member(owner)
         project_name: `${t.name} — Novo Projeto`,
         client_name: "",
         status: "rascunho",
@@ -124,13 +132,16 @@ export default function TemplatesPage() {
       .select()
       .single();
 
+    if (error) {
+      toast.error(`Erro ao criar projeto: ${error.message}`);
+      return;
+    }
     if (proj) {
+      toast.success("Projeto criado a partir do template!");
       setSuccessId(t.id);
       setTimeout(() => {
         window.location.href = `/app/projects/${proj.id}`;
       }, 800);
-    } else {
-      alert("Erro ao criar projeto a partir do template. Tenta novamente.");
     }
   };
 
@@ -162,6 +173,15 @@ export default function TemplatesPage() {
               <div className="skeleton h-4 w-24" />
             </div>
           ))}
+        </div>
+      ) : errorMsg ? (
+        <div className="card">
+          <div className="empty-state">
+            <FileText className="empty-icon" />
+            <p className="empty-title">Erro ao carregar templates</p>
+            <p className="empty-desc">{errorMsg}</p>
+            <button className="btn btn-secondary btn-sm" onClick={load}>Tentar novamente</button>
+          </div>
         </div>
       ) : (
         <>

@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { createClient } from "@/lib/supabase";
 import { calcularOrcamento } from "@/lib/calc";
-import { fmtEur, fmt, generateId } from "@/lib/utils";
+import { fmtEur, fmt } from "@/lib/utils";
 import {
   CATEGORIAS,
   IVA_REGIMES,
@@ -43,8 +43,14 @@ import {
   ExternalLink,
   FolderOpen,
   Settings2,
+  Presentation,
+  UserPlus,
+  Copy,
 } from "lucide-react";
 import Link from "next/link";
+import { CatalogModal } from "@/components/CatalogModal";
+import { ProjectLogisticsTab } from "@/components/ProjectLogisticsTab";
+import { useToast } from "@/components/Toast";
 
 // ── Default inputs ────────────────────────────────────────────
 const DEFAULT_INPUTS: ProjectInputs = {
@@ -207,6 +213,7 @@ export default function ProjectPage() {
   const params = useParams();
   const router = useRouter();
   const projectId = params.id as string;
+  const toast = useToast();
 
   const [projectName, setProjectName] = useState("Novo Projeto");
   const [clientName, setClientName] = useState("");
@@ -214,12 +221,25 @@ export default function ProjectPage() {
   const [inputs, setInputs] = useState<ProjectInputs>(DEFAULT_INPUTS);
   const [calc, setCalc] = useState<ProjectCalc | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [activeTab, setActiveTab] = useState<"items" | "parametros" | "resumo" | "brief" | "entregas">("items");
+  const [activeTab, setActiveTab] = useState<"resumo" | "items" | "logistica" | "tempo" | "brief" | "entregas" | "aprovacoes">("items");
   const [expandedCat, setExpandedCat] = useState<string | null>("crew");
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [catalogCat, setCatalogCat] = useState<Categoria>("crew");
   const [editingName, setEditingName] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
+
+  // ── Logistics state ─────────────────────────────────────────
+  const [locationText, setLocationText] = useState<string | null>(null);
+  const [locationLat, setLocationLat] = useState<number | null>(null);
+  const [locationLng, setLocationLng] = useState<number | null>(null);
+  const [locationAddress, setLocationAddress] = useState<string | null>(null);
+  const [travelKm, setTravelKm] = useState<number | null>(null);
+  const [travelMinutes, setTravelMinutes] = useState<number | null>(null);
+  const [logisticsStartDate, setLogisticsStartDate] = useState<string | null>(null);
+  const [logisticsEndDate, setLogisticsEndDate] = useState<string | null>(null);
 
   // ── Entregas state ────────────────────────────────────────
   interface DelivFile {
@@ -239,45 +259,64 @@ export default function ProjectPage() {
 
   // ── Load ──────────────────────────────────────────────────
   const loadProject = useCallback(async () => {
-    const sb = createClient();
-    const { data, error } = await sb
-      .from("projects")
-      .select("*")
-      .eq("id", projectId)
-      .single();
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const sb = createClient();
+      const { data, error } = await sb
+        .from("projects")
+        .select("*")
+        .eq("id", projectId)
+        .single();
 
-    if (error || !data) {
-      router.push("/app/projects");
-      return;
+      if (error || !data) {
+        setLoadError(error?.message ?? "Projeto não encontrado ou sem acesso.");
+        return;
+      }
+
+      setProjectName(data.project_name ?? "");
+      setClientName(data.client_name ?? "");
+      setStatus(data.status ?? "rascunho");
+
+      const inp = data.inputs as ProjectInputs;
+      setInputs({
+        ...DEFAULT_INPUTS,
+        ...inp,
+        itens: inp?.itens ?? [],
+      });
+      setCalc(data.calc as ProjectCalc);
+
+      // Load logistics data
+      const d2 = data as Record<string, unknown>;
+      setLocationText((d2.location_text as string | null) ?? null);
+      setLocationLat(typeof d2.location_lat === "number" ? (d2.location_lat as number) : null);
+      setLocationLng(typeof d2.location_lng === "number" ? (d2.location_lng as number) : null);
+      setLocationAddress((d2.location_address as string | null) ?? null);
+      setTravelKm(typeof d2.travel_km === "number" ? (d2.travel_km as number) : null);
+      setTravelMinutes(typeof d2.travel_minutes === "number" ? (d2.travel_minutes as number) : null);
+      setLogisticsStartDate((d2.logistics_start_date as string | null) ?? null);
+      setLogisticsEndDate((d2.logistics_end_date as string | null) ?? null);
+
+      // Load Dropbox config + files
+      const sb2 = createClient();
+      const [pdRes, filesRes] = await Promise.all([
+        sb2.from("project_dropbox").select("root_path, last_sync_at").eq("project_id", projectId).single(),
+        sb2.from("deliverable_files").select("id, filename, ext, file_type, collection, shared_link, bytes, captured_at, created_at").eq("project_id", projectId).order("captured_at", { ascending: false }),
+      ]);
+      if (pdRes.data) {
+        setDropboxPath(pdRes.data.root_path ?? "");
+        setDropboxConfigured(true);
+        setLastSync(pdRes.data.last_sync_at ?? null);
+      } else {
+        setDropboxConfigured(false);
+      }
+      setDelivFiles((filesRes.data ?? []) as DelivFile[]);
+    } catch {
+      setLoadError("Sem ligação — não foi possível carregar o projeto.");
+    } finally {
+      setLoading(false);
     }
-
-    setProjectName(data.project_name ?? "");
-    setClientName(data.client_name ?? "");
-    setStatus(data.status ?? "rascunho");
-
-    const inp = data.inputs as ProjectInputs;
-    setInputs({
-      ...DEFAULT_INPUTS,
-      ...inp,
-      itens: inp?.itens ?? [],
-    });
-    setCalc(data.calc as ProjectCalc);
-
-    // Load Dropbox config + files
-    const sb2 = createClient();
-    const [pdRes, filesRes] = await Promise.all([
-      sb2.from("project_dropbox").select("root_path, last_sync_at").eq("project_id", projectId).single(),
-      sb2.from("deliverable_files").select("id, filename, ext, file_type, collection, shared_link, bytes, captured_at, created_at").eq("project_id", projectId).order("captured_at", { ascending: false }),
-    ]);
-    if (pdRes.data) {
-      setDropboxPath(pdRes.data.root_path ?? "");
-      setDropboxConfigured(true);
-      setLastSync(pdRes.data.last_sync_at ?? null);
-    }
-    setDelivFiles((filesRes.data ?? []) as DelivFile[]);
-
-    setLoading(false);
-  }, [projectId, router]);
+  }, [projectId]);
 
   useEffect(() => {
     loadProject();
@@ -311,16 +350,26 @@ export default function ProjectPage() {
         status,
         inputs,
         calc,
+        location_text: locationText,
+        location_lat: locationLat,
+        location_lng: locationLng,
+        location_address: locationAddress,
+        travel_km: travelKm,
+        travel_minutes: travelMinutes,
+        logistics_start_date: logisticsStartDate,
+        logistics_end_date: logisticsEndDate,
         updated_at: new Date().toISOString(),
       })
       .eq("id", projectId);
 
     setSaving(false);
-    if (!error) {
+    if (error) {
+      toast.error(`Erro ao guardar: ${error.message}`);
+    } else {
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     }
-  }, [calc, projectName, clientName, status, inputs, projectId]);
+  }, [calc, projectName, clientName, status, inputs, projectId, toast, locationText, locationLat, locationLng, locationAddress, travelKm, travelMinutes, logisticsStartDate, logisticsEndDate]);
 
   // Auto-save on changes (debounced)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -333,26 +382,9 @@ export default function ProjectPage() {
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
-  }, [inputs, projectName, clientName, status, loading, handleSave]);
+  }, [inputs, projectName, clientName, status, loading, handleSave, locationText, locationLat, locationLng, locationAddress, travelKm, travelMinutes, logisticsStartDate, logisticsEndDate]);
 
   // ── Item CRUD ─────────────────────────────────────────────
-  const addItem = (categoria: Categoria) => {
-    const newItem: ProjectItem = {
-      id: generateId(),
-      categoria,
-      nome: "",
-      unidade: "dia",
-      quantidade: 1,
-      preco_unitario: 0,
-      total: 0,
-    };
-    setInputs((prev) => ({
-      ...prev,
-      itens: [...prev.itens, newItem],
-    }));
-    setExpandedCat(categoria);
-  };
-
   const updateItem = (id: string, updated: ProjectItem) => {
     setInputs((prev) => ({
       ...prev,
@@ -365,6 +397,76 @@ export default function ProjectPage() {
       ...prev,
       itens: prev.itens.filter((i) => i.id !== id),
     }));
+  };
+
+  // ── Logistics update handler ──────────────────────────────
+  const handleLogisticsUpdate = async (data: {
+    location_text: string | null;
+    location_lat: number | null;
+    location_lng: number | null;
+    location_address: string | null;
+    travel_km: number | null;
+    travel_minutes: number | null;
+  }) => {
+    setLocationText(data.location_text);
+    setLocationLat(data.location_lat);
+    setLocationLng(data.location_lng);
+    setLocationAddress(data.location_address);
+    setTravelKm(data.travel_km);
+    setTravelMinutes(data.travel_minutes);
+    // Auto-save will trigger via useEffect
+  };
+
+  // ── Delete project (soft delete) ──────────────────────────
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [showCollaboratorInviteModal, setShowCollaboratorInviteModal] = useState(false);
+  const [collabInviteEmail, setCollabInviteEmail] = useState("");
+  const [collabInviteRole, setCollabInviteRole] = useState<"editor" | "admin">("editor");
+  const [collabInviteLoading, setCollabInviteLoading] = useState(false);
+  const [collabInviteLink, setCollabInviteLink] = useState<string | null>(null);
+  const [collabInviteExpiresAt, setCollabInviteExpiresAt] = useState<string | null>(null);
+
+  const handleDeleteProject = async () => {
+    setDeleting(true);
+    const res = await fetch(`/api/projects/${projectId}`, {
+      method: "DELETE",
+    });
+    const payload = await res.json().catch(() => ({} as { error?: string }));
+    setDeleting(false);
+    if (!res.ok) {
+      toast.error(`Erro ao apagar projeto: ${payload.error ?? "falha inesperada"}`);
+    } else {
+      toast.success("Projeto arquivado com sucesso");
+      router.push("/app/projects");
+    }
+  };
+
+  const handleCreateCollaboratorInvite = async () => {
+    const email = collabInviteEmail.trim().toLowerCase();
+    if (!email || collabInviteLoading) return;
+    setCollabInviteLoading(true);
+
+    const res = await fetch(`/api/projects/${projectId}/collaborators/invites`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email,
+        role: collabInviteRole,
+        expiresInDays: 7,
+      }),
+    });
+    const payload = await res.json().catch(() => ({} as { error?: string; inviteUrl?: string; expiresAt?: string }));
+    setCollabInviteLoading(false);
+
+    if (!res.ok || !payload.inviteUrl) {
+      toast.error(payload.error ?? "Falha ao criar convite de colaborador");
+      return;
+    }
+
+    setCollabInviteLink(payload.inviteUrl);
+    setCollabInviteExpiresAt(payload.expiresAt ?? null);
+    toast.success("Convite de colaborador criado");
   };
 
   // ── Export PDF ────────────────────────────────────────────
@@ -389,7 +491,7 @@ export default function ProjectPage() {
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      alert("Erro ao gerar PDF");
+      toast.error("Erro ao gerar PDF — tenta novamente");
     }
   };
 
@@ -416,8 +518,27 @@ export default function ProjectPage() {
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      alert("Erro ao gerar CSV");
+      toast.error("Erro ao gerar CSV");
     }
+  };
+
+  // ── Export PPTX ───────────────────────────────────────────
+  const [pptxLoading, setPptxLoading] = useState(false);
+  const handleExportPptx = async () => {
+    if (!calc || pptxLoading) return;
+    setPptxLoading(true);
+    try {
+      const res = await fetch(`/api/export/pptx?projectId=${projectId}`);
+      if (!res.ok) { toast.error("Erro ao gerar apresentação PPTX"); return; }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${projectName.replace(/\s+/g, "-").toLowerCase()}.pptx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch { toast.error("Erro ao gerar apresentação"); }
+    finally { setPptxLoading(false); }
   };
 
   // ── Donut chart data ──────────────────────────────────────
@@ -446,6 +567,23 @@ export default function ProjectPage() {
             ))}
           </div>
           <div className="skeleton h-64 rounded-xl" />
+        </div>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="card text-center space-y-3">
+        <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>Erro ao carregar projeto</p>
+        <p className="text-sm" style={{ color: "var(--text-2)" }}>{loadError}</p>
+        <div className="flex items-center justify-center gap-2">
+          <button className="btn btn-secondary btn-sm" onClick={() => void loadProject()}>
+            Tentar novamente
+          </button>
+          <Link href="/app/projects" className="btn btn-ghost btn-sm">
+            Voltar
+          </Link>
         </div>
       </div>
     );
@@ -547,11 +685,32 @@ export default function ProjectPage() {
             <span className="hidden sm:inline">CSV</span>
           </button>
           <button
+            onClick={handleExportPptx}
+            disabled={pptxLoading || !calc}
+            className="btn btn-ghost btn-sm"
+            title="Gerar Apresentação (.pptx)"
+          >
+            {pptxLoading ? (
+              <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+            ) : (
+              <Presentation className="h-4 w-4" />
+            )}
+            <span className="hidden sm:inline">{pptxLoading ? "…" : "Slides"}</span>
+          </button>
+          <button
             onClick={handleExport}
             className="btn btn-secondary btn-sm"
           >
             <Download className="h-4 w-4" />
             <span className="hidden sm:inline">PDF</span>
+          </button>
+          <button
+            onClick={() => setShowCollaboratorInviteModal(true)}
+            className="btn btn-ghost btn-sm"
+            title="Convidar colaborador"
+          >
+            <UserPlus className="h-4 w-4" />
+            <span className="hidden sm:inline">Colaborador</span>
           </button>
           <button
             onClick={handleSave}
@@ -561,22 +720,179 @@ export default function ProjectPage() {
             <Save className="h-4 w-4" />
             {saving ? "…" : <span className="hidden sm:inline">Guardar</span>}
           </button>
+          <button
+            onClick={() => setShowDeleteModal(true)}
+            className="btn btn-ghost btn-icon-sm"
+            title="Arquivar projeto"
+            style={{ color: "var(--error)" }}
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
         </div>
       </div>
 
+      {/* ── Delete confirmation modal ── */}
+      <AnimatePresence>
+        {showDeleteModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+            onClick={(e) => { if (e.target === e.currentTarget) setShowDeleteModal(false); }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 12, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.95, y: 12, opacity: 0 }}
+              className="card w-full max-w-sm space-y-4"
+              style={{ border: "1px solid var(--error-border)", background: "var(--surface)" }}
+            >
+              <div className="flex items-center gap-3">
+                <div
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+                  style={{ background: "var(--error-bg)" }}
+                >
+                  <Trash2 className="h-5 w-5" style={{ color: "var(--error)" }} />
+                </div>
+                <div>
+                  <p className="font-semibold" style={{ color: "var(--text)" }}>Arquivar Projeto</p>
+                  <p className="text-xs" style={{ color: "var(--text-3)" }}>Esta ação é reversível</p>
+                </div>
+              </div>
+              <p className="text-sm" style={{ color: "var(--text-2)" }}>
+                O projeto <strong style={{ color: "var(--text)" }}>&quot;{projectName}&quot;</strong> será arquivado e removido da lista principal. Podes recuperá-lo mais tarde.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowDeleteModal(false)}
+                  className="btn btn-secondary flex-1"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleDeleteProject}
+                  disabled={deleting}
+                  className="btn btn-sm flex-1"
+                  style={{ background: "var(--error)", color: "white", borderRadius: "var(--r-full)" }}
+                >
+                  {deleting ? "A arquivar…" : "Arquivar"}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Collaborator invite modal ── */}
+      <AnimatePresence>
+        {showCollaboratorInviteModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+            onClick={(e) => { if (e.target === e.currentTarget) setShowCollaboratorInviteModal(false); }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 12, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.95, y: 12, opacity: 0 }}
+              className="card w-full max-w-md space-y-4"
+            >
+              <div className="flex items-center gap-3">
+                <div
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+                  style={{ background: "rgba(26, 143, 163, 0.16)" }}
+                >
+                  <UserPlus className="h-5 w-5" style={{ color: "var(--accent)" }} />
+                </div>
+                <div>
+                  <p className="font-semibold" style={{ color: "var(--text)" }}>Convidar Colaborador</p>
+                  <p className="text-xs" style={{ color: "var(--text-3)" }}>Convite expira em 7 dias</p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <input
+                  type="email"
+                  className="input"
+                  value={collabInviteEmail}
+                  onChange={(e) => setCollabInviteEmail(e.target.value)}
+                  placeholder="email@colaborador.com"
+                />
+                <select
+                  className="input"
+                  value={collabInviteRole}
+                  onChange={(e) => setCollabInviteRole(e.target.value as "editor" | "admin")}
+                >
+                  <option value="editor">Colaborador (editor)</option>
+                  <option value="admin">Colaborador (admin projeto)</option>
+                </select>
+              </div>
+
+              {collabInviteLink ? (
+                <div className="space-y-2 rounded-xl border p-3" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
+                  <p className="text-xs" style={{ color: "var(--text-3)" }}>
+                    Link gerado {collabInviteExpiresAt ? `· expira ${new Date(collabInviteExpiresAt).toLocaleDateString("pt-PT")}` : ""}
+                  </p>
+                  <p className="text-xs break-all" style={{ color: "var(--text-2)" }}>{collabInviteLink}</p>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={async () => {
+                      await navigator.clipboard.writeText(collabInviteLink);
+                      toast.success("Link copiado");
+                    }}
+                  >
+                    <Copy className="h-4 w-4" />
+                    Copiar link
+                  </button>
+                </div>
+              ) : null}
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setShowCollaboratorInviteModal(false);
+                    setCollabInviteEmail("");
+                    setCollabInviteRole("editor");
+                    setCollabInviteLink(null);
+                    setCollabInviteExpiresAt(null);
+                  }}
+                  className="btn btn-secondary flex-1"
+                >
+                  Fechar
+                </button>
+                <button
+                  onClick={handleCreateCollaboratorInvite}
+                  disabled={collabInviteLoading}
+                  className="btn btn-primary flex-1"
+                >
+                  {collabInviteLoading ? "A gerar…" : "Gerar convite"}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* ── Tabs ── */}
       <div className="tabs-list">
-        {(["items", "parametros", "resumo", "brief", "entregas"] as const).map((tab) => (
+        {(["resumo", "items", "logistica", "tempo", "brief", "entregas", "aprovacoes"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={`tab-trigger ${activeTab === tab ? "active" : ""}`}
           >
-            {tab === "items" && `Items (${totalItems})`}
-            {tab === "parametros" && "Parâmetros"}
             {tab === "resumo" && "Resumo"}
+            {tab === "items" && `Items (${totalItems})`}
+            {tab === "logistica" && "Logística"}
+            {tab === "tempo" && "Tempo"}
             {tab === "brief" && "Brief"}
             {tab === "entregas" && "Entregas"}
+            {tab === "aprovacoes" && "Aprovações"}
           </button>
         ))}
       </div>
@@ -681,7 +997,7 @@ export default function ProjectPage() {
                           </AnimatePresence>
 
                           <button
-                            onClick={() => addItem(cat.value as Categoria)}
+                            onClick={() => { setCatalogCat(cat.value as Categoria); setCatalogOpen(true); }}
                             className="btn btn-ghost btn-sm w-full mt-1"
                             style={{ color: cat.color, justifyContent: "flex-start" }}
                           >
@@ -698,9 +1014,9 @@ export default function ProjectPage() {
           </motion.div>
         )}
 
-        {activeTab === "parametros" && (
+        {activeTab === "tempo" && (
           <motion.div
-            key="parametros"
+            key="tempo"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
@@ -1018,6 +1334,30 @@ export default function ProjectPage() {
           </motion.div>
         )}
 
+        {activeTab === "logistica" && (
+          <motion.div
+            key="logistica"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="space-y-4"
+          >
+            <ProjectLogisticsTab
+              projectId={projectId}
+              locationText={locationText}
+              locationLat={locationLat}
+              locationLng={locationLng}
+              locationAddress={locationAddress}
+              travelKm={travelKm}
+              travelMinutes={travelMinutes}
+              startDate={logisticsStartDate}
+              endDate={logisticsEndDate}
+              onUpdate={handleLogisticsUpdate}
+            />
+          </motion.div>
+        )}
+
         {activeTab === "brief" && (
           <motion.div
             key="brief"
@@ -1066,14 +1406,27 @@ export default function ProjectPage() {
                   />
                 </div>
                 <div>
-                  <label className="label">Cidade / Local</label>
+                  <label className="label">Data Início de Rodagem</label>
                   <input
-                    type="text"
-                    value={inputs.cidade ?? ""}
-                    onChange={(e) => setInputs((p) => ({ ...p, cidade: e.target.value }))}
+                    type="date"
+                    value={(inputs as unknown as Record<string, unknown>).shoot_date_start as string ?? ""}
+                    onChange={(e) => setInputs((p) => ({ ...p, shoot_date_start: e.target.value }))}
                     className="input"
-                    placeholder="Ex: Lisboa, Porto…"
                   />
+                </div>
+                <div>
+                  <label className="label">Data Fim de Rodagem</label>
+                  <input
+                    type="date"
+                    value={(inputs as unknown as Record<string, unknown>).shoot_date_end as string ?? ""}
+                    onChange={(e) => setInputs((p) => ({ ...p, shoot_date_end: e.target.value }))}
+                    className="input"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <p className="text-xs" style={{ color: "var(--text-3)" }}>
+                    💡 Localização e rotas: usar a aba <strong>Logística</strong>
+                  </p>
                 </div>
                 <div>
                   <label className="label">País</label>
@@ -1319,6 +1672,29 @@ export default function ProjectPage() {
             })()}
           </motion.div>
         )}
+
+        {activeTab === "aprovacoes" && (
+          <motion.div
+            key="aprovacoes"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="space-y-4"
+          >
+            <div className="card space-y-3">
+              <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                Aprovações
+              </p>
+              <p className="text-sm" style={{ color: "var(--text-2)" }}>
+                Esta secção concentra decisões de aprovação do cliente por ronda.
+              </p>
+              <p className="text-xs" style={{ color: "var(--text-3)" }}>
+                Próximo passo: ligar histórico de aprovações aos módulos de inbox e notificações.
+              </p>
+            </div>
+          </motion.div>
+        )}
       </AnimatePresence>
 
       {/* ── Floating summary bar ── */}
@@ -1400,6 +1776,17 @@ export default function ProjectPage() {
           </div>
         </div>
       )}
+
+      {/* Catalog modal */}
+      <CatalogModal
+        open={catalogOpen}
+        defaultCategoria={catalogCat}
+        onClose={() => setCatalogOpen(false)}
+        onSelect={(item) => {
+          setInputs((prev) => ({ ...prev, itens: [...prev.itens, item] }));
+          setExpandedCat(item.categoria);
+        }}
+      />
     </div>
   );
 }

@@ -15,7 +15,12 @@ CREATE TABLE IF NOT EXISTS clients (
 );
 
 -- ── 2. CLIENT_USERS (maps auth users to clients with roles) ──
-CREATE TYPE IF NOT EXISTS client_role AS ENUM ('client_viewer', 'client_approver');
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'client_role') THEN
+    CREATE TYPE client_role AS ENUM ('client_viewer', 'client_approver');
+  END IF;
+END$$;
 
 CREATE TABLE IF NOT EXISTS client_users (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -35,9 +40,14 @@ ALTER TABLE projects
 UPDATE projects SET owner_user_id = user_id WHERE owner_user_id IS NULL;
 
 -- ── 4. PROJECT_MEMBERS ────────────────────────────────────────
-CREATE TYPE IF NOT EXISTS project_member_role AS ENUM (
-  'owner', 'admin', 'editor', 'client_viewer', 'client_approver'
-);
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'project_member_role') THEN
+    CREATE TYPE project_member_role AS ENUM (
+      'owner', 'admin', 'editor', 'client_viewer', 'client_approver'
+    );
+  END IF;
+END$$;
 
 CREATE TABLE IF NOT EXISTS project_members (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -56,9 +66,14 @@ WHERE user_id IS NOT NULL
 ON CONFLICT (project_id, user_id) DO NOTHING;
 
 -- ── 5. DELIVERABLES ──────────────────────────────────────────
-CREATE TYPE IF NOT EXISTS deliverable_status AS ENUM (
-  'pending', 'in_review', 'approved', 'rejected'
-);
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'deliverable_status') THEN
+    CREATE TYPE deliverable_status AS ENUM (
+      'pending', 'in_review', 'approved', 'rejected'
+    );
+  END IF;
+END$$;
 
 CREATE TABLE IF NOT EXISTS deliverables (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -71,7 +86,12 @@ CREATE TABLE IF NOT EXISTS deliverables (
 );
 
 -- ── 6. DELIVERABLE_FILES ─────────────────────────────────────
-CREATE TYPE IF NOT EXISTS file_type AS ENUM ('photo', 'video', 'document', 'audio', 'other');
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'file_type') THEN
+    CREATE TYPE file_type AS ENUM ('photo', 'video', 'document', 'audio', 'other');
+  END IF;
+END$$;
 
 CREATE TABLE IF NOT EXISTS deliverable_files (
   id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),

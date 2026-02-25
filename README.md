@@ -1,301 +1,295 @@
-# Beyond Pricing
+# Beyond Pricing — Platform SaaS Completa
 
-**Premium SaaS platform for audiovisual production pricing.**
-Built for Portuguese-speaking production companies to quote, manage, and export professional proposals.
-
----
+Plataforma completa para produtoras de vídeo: gestão de orçamentos, portal do cliente, CRM, tarefas, journaling, call sheets, logística, e muito mais.
 
 ## Stack
 
-| Layer | Tech |
-|-------|------|
-| Framework | Next.js 15 (App Router) |
-| Styling | Tailwind v4 (PostCSS) |
-| Database | Supabase (Postgres + RLS) |
-| Auth | Supabase Auth (Password + OTP + Google OAuth + Microsoft/Azure OAuth) |
-| Animation | Framer Motion v12 |
-| Charts | Recharts |
-| PDF | pdf-lib |
-| Deployment | Vercel |
+- **Framework**: Next.js 15 (App Router) + React 19
+- **Estilos**: Tailwind CSS v4
+- **Base de dados**: Supabase (PostgreSQL + RLS + Realtime)
+- **Auth**: Supabase Auth (OTP código, Password, OAuth Google/Microsoft)
+- **Deploy**: Vercel
+- **Ficheiros**: Dropbox API (OAuth + refresh token + sync incremental)
+- **Voz**: Web Speech API (browser nativo, grátis)
+- **Meteo**: Open-Meteo (grátis, sem key)
+- **Geo**: OpenStreetMap + Nominatim (grátis)
+- **IA**: OpenAI (completamente opcional, OFF por defeito)
 
 ---
 
-## Features
+## Variáveis de Ambiente
 
-### Pricing Builder (`/app/projects/[id]`)
-- Inline project name + client name editing
-- Item CRUD grouped by category (Crew, Equipamento, Pós-Produção, Despesas, Outro)
-- Margin/overhead/contingência sliders with live recalculation
-- IVA regime selector (Continental 23%, Madeira 22%, Açores 16%, Isento)
-- Investimento em equipamento slider
-- Donut chart (Recharts) — cost distribution
-- Auto-save with 1.5s debounce
-- **Brief tab**: production type, delivery date, location fields, notes
-- **Commercial terms generator**: preset payment structures (50/50, 30/70, faseado) + auto-generate button
-- Export: **PDF** (premium branded) + **CSV**
+### Obrigatórias
 
-### Checklists (`/app/checklists`)
-- 3-phase production checklists (Pré-Produção, Rodagem, Pós-Produção)
-- Real-time check/uncheck with Supabase persistence
-- Progress bars per phase + overall
-- Batch "complete all" per phase
+```env
+NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
+SUPABASE_SERVICE_ROLE_KEY=eyJ...
+OWNER_EMAIL=daniellopes@beyondfocus.pt
+```
 
-### Templates (`/app/templates`)
-- 4 system presets: Institucional, Short-Form, Documentário, Evento
-- Preview modal with full item list + default parameters
-- One-click "Usar template" → creates pre-filled project
+### Dropbox (para sync de entregas)
 
-### Insights (`/app/insights`)
-- KPI cards: total revenue, avg price, approval rate, pipeline
-- Monthly revenue bar chart (last 6 months)
-- Category cost distribution with animated bars
-- Guardrails engine: low margin / high overhead alerts
+```env
+DROPBOX_APP_KEY=xxx
+DROPBOX_APP_SECRET=xxx
+```
 
-### Preferences (`/app/preferences`)
-- Default overhead, contingência, margem alvo/mínima, investimento, IVA regime
-- **AI Tagging toggle** (beta) — enables OpenAI Vision auto-tagging for photos in deliverables
+### Email (opcional — sem estes, apenas notificações in-app)
 
-### Client Portal (`/portal`)
-- Login at `/portal/login` — **OTP-only** (6-digit email code, short 1-hour session)
-- Project list: clients see only their projects (RLS-enforced)
-- Project detail: Overview / Entregas (files from Dropbox) / Approvals & Feedback tabs
+```env
+RESEND_API_KEY=re_xxx
+SMTP_FROM=noreply@beyondfocus.pt
+```
 
-### Clients Backoffice (`/app/clients`)
-- Create clients (name + slug)
-- Associate projects to clients
-- Invite client users (email + initial password + role)
-- Manage project membership per client
+### OpenAI (opcional — todas as features têm fallback grátis)
 
-### Entregas / Deliverables (`/app/projects/[id]` → Entregas tab)
-- Configure Dropbox root path per project
-- "Sincronizar agora" button → triggers `/api/dropbox/sync`
-- Files displayed by type (Fotos / Vídeos / Docs) and collection (subfolder)
-- Filter bar by type and collection
-- Direct Dropbox shared links
+```env
+OPENAI_API_KEY=sk-xxx
+ASSISTANT_MODEL=gpt-5-mini
+```
+
+### Vercel Cron
+
+```env
+CRON_SECRET=xxx
+```
 
 ---
 
-## Setup
+## Configuração Supabase
 
-### Environment Variables
+### 1. Executar migrações (por ordem no SQL Editor)
 
-Copy `.env.local.example` to `.env.local` and fill in:
+```
+001_initial_schema.sql
+002_seed_templates.sql
+003_client_portal_rbac.sql
+004_portal_messaging.sql
+005_premium_features.sql
+006_seed_checklist_templates.sql
+007_admin_bootstrap.sql
+008_rbac_soft_delete.sql
+009_portal_enhancements.sql
+010_dropbox_sync.sql
+011_callsheets_weather.sql
+012_crm_deals_pipeline.sql
+```
+
+### 2. Auth Settings (Dashboard → Authentication → Settings)
+
+- **Disable signups**: ON
+- **Email provider**: ON
+- **OTP expiry**: 3600
+- **Site URL**: `https://beyond-pricing.vercel.app`
+- **Redirect URLs**: `https://beyond-pricing.vercel.app/auth/callback`
+
+### 3. Bootstrap do owner (uma vez após deploy)
 
 ```bash
-# Supabase (required)
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
-
-# Dropbox (required for Entregas feature)
-DROPBOX_APP_KEY=your-dropbox-app-key
-DROPBOX_APP_SECRET=your-dropbox-app-secret
-DROPBOX_REFRESH_TOKEN=your-offline-refresh-token
-DROPBOX_BASE_PATH=/Beyond/Clients
-
-# OpenAI (optional — for AI photo tagging beta)
-OPENAI_API_KEY=sk-...
+curl -X POST https://beyond-pricing.vercel.app/api/admin/bootstrap
 ```
 
-#### Google OAuth Setup
+---
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials
-2. Create OAuth 2.0 Client ID (Web application)
-3. Add Authorized Redirect URI: `https://YOUR_SUPABASE_PROJECT.supabase.co/auth/v1/callback`
-4. Copy `Client ID` and `Client Secret`
-5. In Supabase Dashboard → Authentication → Providers → Google:
-   - Enable Google provider
-   - Paste Client ID and Client Secret
-   - Save
+## Configuração Dropbox
 
-#### Microsoft / Azure OAuth Setup
+1. Criar app em [dropbox.com/developers](https://www.dropbox.com/developers)
+2. **Redirect URI**: `https://beyond-pricing.vercel.app/api/dropbox/callback`
+3. Permissões: `files.metadata.read`, `files.content.read`
+4. Copiar `App key` e `App secret` para `.env`
+5. Ligar em `/app/projects/[id]` → aba "Entregas" → "Conectar Dropbox"
 
-1. Go to [Azure Portal](https://portal.azure.com/) → Azure Active Directory → App registrations → New registration
-2. Name: `Beyond Pricing` | Supported account types: **Any Azure AD directory + personal Microsoft accounts** (for broad login support)
-3. Redirect URI: Web → `https://YOUR_SUPABASE_PROJECT.supabase.co/auth/v1/callback`
-4. After creation, go to **Certificates & secrets** → New client secret → copy the value
-5. Copy Application (client) ID from the Overview page
-6. In Supabase Dashboard → Authentication → Providers → Azure:
-   - Enable Azure provider
-   - Paste Azure Application ID (Client ID)
-   - Paste Client Secret
-   - Set Tenant URL: `https://login.microsoftonline.com/common` (for multi-tenant/personal accounts)
-   - Save
+---
 
-#### Dropbox Setup
-1. Go to [Dropbox Developer Console](https://www.dropbox.com/developers/apps) → Create App
-2. Set permissions: `files.metadata.read`, `files.content.read`, `sharing.write`
-3. Generate a **refresh token** (offline access):
-   ```bash
-   # 1. Get authorization URL:
-   https://www.dropbox.com/oauth2/authorize?client_id=APP_KEY&token_access_type=offline&response_type=code
-   # 2. Exchange the code for tokens:
-   curl -X POST https://api.dropbox.com/oauth2/token \
-     -d "code=AUTH_CODE&grant_type=authorization_code&client_id=APP_KEY&client_secret=APP_SECRET"
-   # 3. Copy refresh_token from the response → DROPBOX_REFRESH_TOKEN
-   ```
-4. Set `DROPBOX_BASE_PATH` to your root folder (e.g. `/Beyond/Clients`)
-5. Per-project, configure the root path in the Entregas tab: e.g. `/Beyond/Clients/ACME/Project-X`
+## Módulos
 
-### Database Migrations
+### Área Interna (/app)
 
-Run the SQL migrations in Supabase SQL Editor in order:
+| Rota | Módulo |
+|------|--------|
+| /app | Dashboard |
+| /app/projects | Projetos + Orçamentos |
+| /app/projects/[id] | Detalhe (itens, PPTX, Dropbox, timeline) |
+| /app/clients | Clientes + convites (admin only) |
+| /app/checklists | Checklists de produção |
+| /app/templates | Templates reutilizáveis |
+| /app/tasks | Kanban drag-drop + voz |
+| /app/crm | Contactos + Pipeline de deals |
+| /app/journal | Notas + voz + export .md |
+| /app/inbox | Mensagens com clientes |
+| /app/callsheets | Call Sheets + scaletta |
+| /app/logistics | Planeador de rotas + gasolina |
+| /app/weather | Open-Meteo para dias de rodagem |
+| /app/insights | Análise de orçamentos |
+| /app/support | Centro de tickets (owner/admin) |
 
-```
-supabase/migrations/001_initial_schema.sql      # Core tables + RLS policies
-supabase/migrations/002_seed_templates.sql      # Global template presets
-supabase/migrations/003_client_portal_rbac.sql  # RBAC, client portal, deliverables, Dropbox
-```
+### Portal do Cliente (/portal)
 
-Or via Supabase CLI:
-```bash
-supabase db push
-```
+| Rota | Descrição |
+|------|-----------|
+| /portal | Lista de projetos |
+| /portal/projects/[id] | Overview + Entregas + Pedidos + Mensagens |
 
-### Development
+---
+
+## RBAC
+
+| Role | Acesso |
+|------|--------|
+| `owner` | Tudo — gestão de clientes, membros, admin |
+| `admin` | Maioria dos recursos |
+| `member` | Projetos onde é membro |
+| `client_viewer` | Portal — só leitura |
+| `client_approver` | Portal — pode aprovar e criar pedidos |
+
+### Convidar membro
 
 ```bash
-npm install
-npm run dev
+curl -X POST /api/admin/invite \
+  -H "Content-Type: application/json" \
+  -d '{"email":"novo@beyond.pt","role":"member"}'
 ```
 
-### Build
+### Convidar colaborador para projeto
 
 ```bash
-npm run build
+curl -X POST /api/projects/<project_id>/collaborators/invites \
+  -H "Content-Type: application/json" \
+  -d '{"email":"colab@studio.pt","role":"editor","expiresInDays":7}'
+```
+
+O colaborador conclui o setup em `/portal/invite?token=...` e fica associado ao projeto.
+
+---
+
+## Dropbox — Categorização Automática
+
+| Padrão | Resultado |
+|--------|-----------|
+| `*.mp4`, `*.mov`, `*.r3d` | categoria: `video` |
+| `*.jpg`, `*.raw`, `*.dng` | categoria: `photo` |
+| `FINAL`, `EXPORT` no nome | categoria: `final` |
+| `GRADE` no nome | categoria: `grade` |
+| Pasta `01_PRE` / `PRE_PRODUCAO` | fase: `pre` |
+| Pasta `02_SHOOT` / `RODAGEM` | fase: `shoot` |
+| Pasta `03_POST` / `POS_PRODUCAO` | fase: `post` |
+| Pasta `04_FINAL` / `ENTREGA` | fase: `final` |
+
+---
+
+## Cron (Vercel)
+
+Criar `vercel.json` na raiz do projeto:
+
+```json
+{
+  "crons": [
+    {
+      "path": "/api/notifications/dispatch",
+      "schedule": "*/15 * * * *"
+    }
+  ]
+}
 ```
 
 ---
 
-## Auth System
+## QA Checklist
 
-### Login Methods (`/login`)
+### Auth
+- [ ] Login password → /app
+- [ ] Login OTP código → /app
+- [ ] Reset password funcional
+- [ ] Login portal OTP → /portal
+- [ ] Logout funcional
 
-| Method | Who | Session Duration |
-|--------|-----|-----------------|
-| Email + Password | Team members | 24h default; 30 days with "Lembrar-me" |
-| Email OTP (6-digit code) | Anyone with quick access | Always 1 hour |
-| Google OAuth | Team members | 24h default; 30 days with "Lembrar-me" |
-| Microsoft/Azure OAuth | Team members | 24h default; 30 days with "Lembrar-me" |
+### Projetos
+- [ ] Criar projeto + itens + calcular
+- [ ] Export PPTX (download)
+- [ ] Export PDF
+- [ ] Conectar Dropbox + sync + filtros
 
-### Portal Login (`/portal/login`)
+### Portal Cliente
+- [ ] Login OTP em /portal/login
+- [ ] Ver projetos em /portal
+- [ ] Ver milestones + progresso
+- [ ] Criar pedido
+- [ ] Enviar mensagem
 
-OTP-only. No password, no OAuth. Session is always **1 hour**. No "remember me" option.
-Client users must already exist in `client_users` — `shouldCreateUser: false` prevents signup from the portal.
+### Notificações
+- [ ] Bell badge com unread count
+- [ ] Marcar como lido
+- [ ] Marcar tudo como lido
 
-### Session TTL Enforcement
+### Call Sheets
+- [ ] Criar com equipa + scaletta
+- [ ] Ver detalhes
+- [ ] Eliminar (soft delete)
 
-Supabase JWTs have a fixed server-side expiry (~1 hour). We layer an app-level session TTL on top:
+### CRM
+- [ ] Adicionar contacto
+- [ ] Import/Export CSV
+- [ ] Pipeline de deals + mover stages
 
-- After login, a `bp_session_ttl` cookie is set containing `{login_at, ttl}` as JSON
-- The middleware reads this cookie on every request and computes `now < login_at + ttl`
-- If expired: Supabase session is signed out, TTL cookie is cleared, user is redirected to the appropriate login page with `?expired=1`
-- If no TTL cookie is present: Supabase's own session validity is trusted
+### Tarefas
+- [ ] Criar tarefa por coluna
+- [ ] Drag-drop entre colunas
+- [ ] Ditar com voz (Chrome/Edge)
 
-### OAuth Flow
-
-```
-User clicks Google/Microsoft button
-→ signInWithOAuth({ redirectTo: /auth/callback?ttl=30d|24h })
-→ Supabase OAuth dance
-→ GET /auth/callback?code=...&ttl=...
-→ exchangeCodeForSession (server-side)
-→ redirect to /auth/set-session?ttl=...&next=/app
-→ client sets bp_session_ttl cookie
-→ router.replace(/app)
-```
-
-### Password Reset Flow
-
-```
-User clicks "Esqueci a password" on /login
-→ /reset-password (stage 1: email form)
-→ resetPasswordForEmail({ redirectTo: /auth/callback?type=recovery })
-→ User clicks link in email
-→ GET /auth/callback?code=...&type=recovery
-→ exchangeCodeForSession (establishes PASSWORD_RECOVERY session)
-→ redirect to /reset-password
-→ onAuthStateChange fires PASSWORD_RECOVERY event
-→ stage 2: new password form
-→ updateUser({ password })
-→ signOut + clearSessionCookieClient
-→ redirect to /login
-```
+### Journal
+- [ ] Criar entrada com voz
+- [ ] Export markdown
+- [ ] Summarize heurístico
 
 ---
 
-## Project Structure
+## Segurança
 
-```
-src/
-├── app/
-│   ├── app/                    # Internal authenticated routes
-│   │   ├── page.tsx            # Dashboard
-│   │   ├── projects/           # Project list + [id] pricing builder (+ Entregas tab)
-│   │   ├── checklists/         # Checklist list + [id] detail
-│   │   ├── templates/          # Template grid + modal
-│   │   ├── insights/           # Analytics + guardrails
-│   │   ├── clients/            # Client management backoffice
-│   │   ├── rates/              # Base rate management
-│   │   └── preferences/        # User preferences + AI tagging toggle
-│   ├── portal/                 # Client portal (separate from /app)
-│   │   ├── layout.tsx          # Portal shell (header, auth guard)
-│   │   ├── login/              # OTP-only login (6-digit code, 1h session)
-│   │   ├── page.tsx            # Client's project list
-│   │   └── projects/[id]/      # Project detail (Overview, Entregas, Approvals)
-│   ├── api/dropbox/
-│   │   ├── sync/               # POST /api/dropbox/sync?projectId=...
-│   │   └── ai-tag/             # POST /api/dropbox/ai-tag?fileId=...
-│   ├── auth/
-│   │   ├── callback/           # OAuth PKCE + password recovery handler
-│   │   ├── set-session/        # Client shim: sets TTL cookie after OAuth
-│   │   └── auth-code-error/    # Error page for failed code exchange
-│   ├── login/                  # Internal auth (Password + OTP + Google + Microsoft)
-│   └── reset-password/         # Password reset flow (request + update stages)
-├── components/
-│   └── AppShell.tsx            # Sidebar + mobile bottom nav
-├── lib/
-│   ├── authz.ts                # RBAC helpers (hasProjectRole, requireProjectAccess)
-│   ├── calc.ts                 # Core pricing engine
-│   ├── dropbox.ts              # Dropbox API (token refresh, sync, shared links)
-│   ├── pdf.ts                  # PDF + CSV export
-│   ├── session.ts              # Session TTL helpers (encode/decode cookie, isSessionValid)
-│   ├── supabase-ephemeral.ts   # Browser client with persistSession: false (OTP)
-│   ├── types.ts                # All TypeScript types
-│   ├── utils.ts                # cn(), fmtEur(), etc.
-│   ├── supabase.ts             # Browser Supabase client
-│   └── supabase-server.ts      # Server Supabase client
-└── middleware.ts               # Auth + TTL enforcement (/app/*, /portal/*, /auth/*)
-```
-
-### RBAC Roles
-
-| Role | Description |
-|------|-------------|
-| `owner` | Full project + client management |
-| `admin` | Can manage members, view all |
-| `editor` | Can edit project content |
-| `client_viewer` | Read-only portal access |
-| `client_approver` | Portal access + can submit approvals |
+- **Invite-only**: signups desativados no Supabase
+- **RLS**: todas as tabelas com Row Level Security
+- **Service role**: apenas em server-side routes
+- **Session TTL**: OTP = 1h, normal = 24h, "lembrar-me" = 30d
+- **Rate limiting**: todos os API endpoints
+- **Soft delete**: projetos, clientes, tarefas, CRM
+- **Audit log**: `audit_log` para ações críticas
 
 ---
 
-## Vercel Deployment
+## HQ Assistant v2
 
-1. Push to `main` branch
-2. Set env vars in Vercel project settings
-3. Deploy
+- Widget ativo em `/app/*` e `/portal/*` (feature flag em `org_settings.enable_hq_assistant`)
+- Tabs: `Ações`, `Pesquisa`, `Assistente`
+- AI só para equipa interna e apenas quando:
+  - `org_settings.enable_ai_assistant = true`
+  - `OPENAI_API_KEY` configurada
+- Limite semanal por user: `org_settings.ai_weekly_limit` (default 50)
 
-Add all env vars in Vercel → Settings → Environment Variables:
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- `DROPBOX_APP_KEY`
-- `DROPBOX_APP_SECRET`
-- `DROPBOX_REFRESH_TOKEN`
-- `DROPBOX_BASE_PATH`
-- `OPENAI_API_KEY` *(optional, for AI photo tagging)*
+### Ativar AI (rápido)
+
+1. Definir env no Vercel:
+   - `OPENAI_API_KEY`
+   - `ASSISTANT_MODEL=gpt-5-mini`
+2. Em DB, ligar flag:
+   - `update org_settings set enable_ai_assistant = true;`
+3. Ajustar limite semanal se necessário:
+   - `update org_settings set ai_weekly_limit = 50;`
 
 ---
 
-## License
+## How To Test In Prod (rápido)
 
-Private — Beyond Focus Studios
+1. Login Equipa em `/login?mode=team` e confirmar redirect para `/app/dashboard`.
+2. Abrir `/app/projects`, criar projeto e entrar no detalhe.
+3. No detalhe do projeto, testar tab **Logística**:
+   - geocode automático
+   - fallback manual de km/min
+   - weather/fuel com retry.
+4. Arquivar projeto e confirmar que desaparece da lista principal.
+5. Abrir `/app/templates`, criar projeto a partir de template e validar abertura.
+6. Abrir `/app/tasks`, criar tarefa, mover coluna e validar persistência após refresh.
+7. Abrir `/app/clients` (owner/admin), gerar convite de cliente e copiar link.
+8. Abrir `/app/integrations` e confirmar que carrega sem erro (owner/admin only).
+9. Abrir `/app/insights` e confirmar métricas sem contar projetos deleted/archived.
+10. Abrir `/app/diagnostics` e confirmar checks verdes (DB + plugins + support logs).
+

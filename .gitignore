@@ -39,3 +39,16 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# supabase local state (contains connection URLs)
+supabase/.temp/
+
+# playwright test results
+test-results/
+playwright-report/
+
+# design tokens (actual export from Figma — only example is committed)
+design-tokens/tokens.json
+
+# generated token outputs (rebuilt from tokens:build)
+src/styles/tokens.css

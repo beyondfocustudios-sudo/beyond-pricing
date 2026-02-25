@@ -4,7 +4,78 @@ import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import Link from "next/link";
-import { LogOut, Folder, ChevronRight } from "lucide-react";
+import { LogOut, Moon, Sun, Zap } from "lucide-react";
+import { ThemeProvider, useTheme } from "@/components/ThemeProvider";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { TopScheduleBar } from "@/components/ui-kit";
+import HQAssistantWidget from "@/components/HQAssistantWidget";
+import { OnboardingGate } from "@/components/onboarding/OnboardingGate";
+
+function PortalShell({
+  children,
+  email,
+  onLogout,
+}: {
+  children: React.ReactNode;
+  email: string | null;
+  onLogout: () => Promise<void>;
+}) {
+  const { theme, toggleTheme } = useTheme();
+
+  return (
+    <div className="super-theme super-shell-bg h-full min-h-dvh w-full">
+      <OnboardingGate surface="portal" />
+      <div className="super-app-surface">
+        <header className="super-topbar">
+          <div className="super-topbar__inner">
+            <Link href="/portal" className="inline-flex items-center gap-2.5">
+              <span
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full"
+                style={{ background: "var(--accent-primary)", color: "#fff" }}
+              >
+                <Zap className="h-4 w-4" />
+              </span>
+              <span className="text-sm font-semibold tracking-tight" style={{ color: "var(--text)" }}>
+                Beyond Portal
+              </span>
+            </Link>
+
+            <div className="flex items-center gap-1.5">
+              {email ? (
+                <span className="hidden rounded-full border px-3 py-1 text-xs md:inline-flex" style={{ borderColor: "var(--border-soft)", color: "var(--text-2)" }}>
+                  {email}
+                </span>
+              ) : null}
+              <button
+                onClick={toggleTheme}
+                className="icon-btn"
+                title={theme === "dark" ? "Modo claro" : "Modo escuro"}
+                aria-label={theme === "dark" ? "Modo claro" : "Modo escuro"}
+              >
+                {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              </button>
+              <button onClick={() => void onLogout()} className="icon-btn" title="Sair" aria-label="Sair">
+                <LogOut className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <main className="min-h-0 flex-1 overflow-y-auto">
+          <div className="shell-inner pb-24 pt-5 md:pb-8 md:pt-6">
+          <TopScheduleBar className="mb-4" avatars={email ? [email] : []} />
+          <div className="surface p-4 sm:p-5">
+            <ErrorBoundary label="portal">
+              {children}
+            </ErrorBoundary>
+          </div>
+          </div>
+        </main>
+      </div>
+      <HQAssistantWidget />
+    </div>
+  );
+}
 
 export default function PortalLayout({
   children,
@@ -14,19 +85,44 @@ export default function PortalLayout({
   const router = useRouter();
   const pathname = usePathname();
   const [email, setEmail] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (pathname === "/portal/login" || pathname === "/portal/invite") {
+      setLoading(false);
+      return;
+    }
+
     const sb = createClient();
-    sb.auth.getUser().then(({ data }) => {
+    sb.auth.getUser().then(async ({ data }) => {
       if (!data.user) {
         router.replace("/portal/login");
         return;
       }
+
+      const [clientRes, teamRes] = await Promise.all([
+        fetch("/api/auth/validate-audience?audience=client", { cache: "no-store" }),
+        fetch("/api/auth/validate-audience?audience=team", { cache: "no-store" }),
+      ]);
+      if (!clientRes.ok) {
+        if (teamRes.ok) {
+          const teamPayload = await teamRes.json().catch(() => ({} as { redirectPath?: string }));
+          router.replace(teamPayload.redirectPath ?? "/app/dashboard");
+          return;
+        }
+        await sb.auth.signOut();
+        router.replace("/portal/login?mismatch=1");
+        return;
+      }
+
+      setUserId(data.user.id);
       setEmail(data.user.email ?? null);
       setLoading(false);
+    }).catch(() => {
+      router.replace("/portal/login");
     });
-  }, [router]);
+  }, [pathname, router]);
 
   const handleLogout = async () => {
     const sb = createClient();
@@ -34,57 +130,25 @@ export default function PortalLayout({
     router.push("/portal/login");
   };
 
-  // Don't render layout on login page
-  if (pathname === "/portal/login") {
-    return <>{children}</>;
+  if (pathname === "/portal/login" || pathname === "/portal/invite") {
+    return <ThemeProvider>{children}</ThemeProvider>;
   }
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: "#f5f5f7" }}>
-        <div className="h-8 w-8 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: "#1a8fa3", borderTopColor: "transparent" }} />
-      </div>
+      <ThemeProvider>
+        <div className="flex min-h-dvh w-full items-center justify-center" style={{ background: "var(--bg)" }}>
+          <div className="h-8 w-8 rounded-full border-2 animate-spin" style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }} />
+        </div>
+      </ThemeProvider>
     );
   }
 
   return (
-    <div className="min-h-screen" style={{ background: "#f5f5f7", fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif" }}>
-      {/* Top bar */}
-      <header style={{
-        background: "rgba(255,255,255,0.72)",
-        backdropFilter: "blur(20px)",
-        WebkitBackdropFilter: "blur(20px)",
-        borderBottom: "1px solid rgba(0,0,0,0.08)",
-        position: "sticky",
-        top: 0,
-        zIndex: 40,
-      }}>
-        <div className="mx-auto max-w-5xl px-4 sm:px-6 h-14 flex items-center justify-between">
-          <Link href="/portal" className="flex items-center gap-2">
-            <div className="h-7 w-7 rounded-lg flex items-center justify-center" style={{ background: "linear-gradient(135deg, #1a8fa3, #0d6b7e)" }}>
-              <span className="text-xs font-bold text-white">B</span>
-            </div>
-            <span className="text-sm font-semibold" style={{ color: "#1d1d1f" }}>Beyond Portal</span>
-          </Link>
-
-          <div className="flex items-center gap-3">
-            <span className="text-xs hidden sm:block" style={{ color: "#86868b" }}>{email}</span>
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-              style={{ background: "rgba(0,0,0,0.05)", color: "#1d1d1f" }}
-            >
-              <LogOut className="h-3.5 w-3.5" />
-              Sair
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* Main */}
-      <main className="mx-auto max-w-5xl px-4 sm:px-6 py-8">
+    <ThemeProvider userId={userId ?? undefined}>
+      <PortalShell email={email} onLogout={handleLogout}>
         {children}
-      </main>
-    </div>
+      </PortalShell>
+    </ThemeProvider>
   );
 }

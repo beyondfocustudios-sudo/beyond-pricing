@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE, decodeSessionMeta, isSessionValid } from "@/lib/session";
+import { defaultAppPathForRole, isCollaboratorAllowedPath, resolveAccessRole } from "@/lib/access-role";
 
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -32,24 +33,45 @@ export async function middleware(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
 
-  // ── Hard-disable legacy gateway routes ──────────────────────
-  const legacyLoginPaths = ["/login-gateway", "/gateway", "/role-gateway"];
-  if (legacyLoginPaths.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    return NextResponse.redirect(url);
-  }
+  const resolveAccess = async () => (user ? resolveAccessRole(supabase, user) : null);
 
-  // ── Public paths — always allow ─────────────────────────────
+  // ── Public paths — always allow (except login redirects) ─────
   const publicPaths = [
     "/auth/callback",
     "/auth/auth-code-error",
     "/auth/set-session",
     "/login",
     "/portal/login",
+    "/portal/invite",
     "/reset-password",
   ];
   if (publicPaths.some((p) => pathname.startsWith(p))) {
+    if (user && (pathname === "/login" || pathname === "/portal/login")) {
+      const access = await resolveAccess();
+      if (!access) return supabaseResponse;
+
+      if (pathname === "/portal/login") {
+        if (access.isClient) {
+          const url = request.nextUrl.clone();
+          url.pathname = "/portal";
+          return NextResponse.redirect(url);
+        }
+        const url = request.nextUrl.clone();
+        url.pathname = defaultAppPathForRole(access.role);
+        return NextResponse.redirect(url);
+      }
+
+      if (access.isClient) {
+        const url = request.nextUrl.clone();
+        url.pathname = "/portal/login";
+        url.searchParams.set("mode", "client");
+        return NextResponse.redirect(url);
+      }
+
+      const url = request.nextUrl.clone();
+      url.pathname = defaultAppPathForRole(access.role);
+      return NextResponse.redirect(url);
+    }
     return supabaseResponse;
   }
 
@@ -87,26 +109,49 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // ── Redirect authenticated users away from login pages ──────
-  if (user && pathname === "/login") {
-    const url = request.nextUrl.clone();
-    url.pathname = "/app";
-    return NextResponse.redirect(url);
+  if (user && (pathname.startsWith("/app") || pathname.startsWith("/portal"))) {
+    const access = await resolveAccess();
+    if (!access) return supabaseResponse;
+
+    if (pathname.startsWith("/portal")) {
+      if (!access.isClient) {
+        const url = request.nextUrl.clone();
+        url.pathname = defaultAppPathForRole(access.role);
+        return NextResponse.redirect(url);
+      }
+      return supabaseResponse;
+    }
+
+    if (access.isClient && !access.isTeam && !access.isCollaborator) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/portal";
+      return NextResponse.redirect(url);
+    }
+
+    if (pathname.startsWith("/app/integrations") && access.role !== "owner" && access.role !== "admin") {
+      const url = request.nextUrl.clone();
+      url.pathname = defaultAppPathForRole(access.role);
+      return NextResponse.redirect(url);
+    }
+
+    if (access.isCollaborator && !access.isTeam) {
+      if (pathname === "/app" || pathname === "/app/dashboard") {
+        const url = request.nextUrl.clone();
+        url.pathname = "/app/collaborator";
+        return NextResponse.redirect(url);
+      }
+      if (!isCollaboratorAllowedPath(pathname)) {
+        const url = request.nextUrl.clone();
+        url.pathname = "/app/collaborator";
+        url.searchParams.set("restricted", "1");
+        return NextResponse.redirect(url);
+      }
+    }
   }
 
   return supabaseResponse;
 }
 
 export const config = {
-  matcher: [
-    "/",
-    "/app/:path*",
-    "/login",
-    "/login-gateway/:path*",
-    "/gateway/:path*",
-    "/role-gateway/:path*",
-    "/portal/:path*",
-    "/reset-password",
-    "/auth/:path*",
-  ],
+  matcher: ["/app/:path*", "/login", "/portal/:path*", "/reset-password", "/auth/:path*"],
 };

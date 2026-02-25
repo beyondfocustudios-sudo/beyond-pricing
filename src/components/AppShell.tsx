@@ -3,89 +3,147 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import {
   LayoutDashboard,
   Calculator,
+  Building2,
+  CalendarDays,
+  MessageSquare,
+  TrendingUp,
+  Settings,
   CheckSquare,
   FileText,
-  Settings,
+  BookOpen,
+  ListTodo,
+  Users2,
+  ClipboardList,
+  Activity,
+  LifeBuoy,
   LogOut,
-  ChevronRight,
+  Moon,
+  Sun,
   Zap,
-  TrendingUp,
-  Building2,
+  UserRound,
 } from "lucide-react";
-import { useState } from "react";
-import { BuildStamp } from "@/components/BuildStamp";
+import { type ReactNode, useMemo, useState } from "react";
+import NotificationBell from "@/components/NotificationBell";
+import { useTheme } from "@/components/ThemeProvider";
+import { PillTabs } from "@/components/dashboard/super-dashboard";
+import { buttonMotionProps, transitions, variants } from "@/lib/motion";
+import HQAssistantWidget from "@/components/HQAssistantWidget";
+import { OnboardingGate } from "@/components/onboarding/OnboardingGate";
 
-const NAV_ITEMS = [
-  {
-    href: "/app",
-    label: "Dashboard",
-    icon: LayoutDashboard,
-    exact: true,
-    description: "Visão geral",
-  },
-  {
-    href: "/app/projects",
-    label: "Projetos",
-    icon: Calculator,
-    exact: false,
-    description: "Orçamentos",
-  },
-  {
-    href: "/app/checklists",
-    label: "Checklists",
-    icon: CheckSquare,
-    exact: false,
-    description: "Produção",
-  },
-  {
-    href: "/app/templates",
-    label: "Templates",
-    icon: FileText,
-    exact: false,
-    description: "Reutilizar",
-  },
-  {
-    href: "/app/insights",
-    label: "Insights",
-    icon: TrendingUp,
-    exact: false,
-    description: "Análise",
-  },
-  {
-    href: "/app/clients",
-    label: "Clientes",
-    icon: Building2,
-    exact: false,
-    description: "Portal",
-  },
-  {
-    href: "/app/preferences",
-    label: "Preferências",
-    icon: Settings,
-    exact: false,
-    description: "Configurar",
-  },
+type NavItem = {
+  href: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+};
+
+const PRIMARY_NAV: NavItem[] = [
+  { href: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/app/projects", label: "Projects", icon: Calculator },
+  { href: "/app/clients", label: "Clients", icon: Building2 },
+  { href: "/app/inbox", label: "Inbox", icon: MessageSquare },
+  { href: "/app/insights", label: "Insights", icon: TrendingUp },
+  { href: "/app/settings", label: "Settings", icon: Settings },
 ];
 
-function isActive(href: string, pathname: string, exact: boolean) {
-  if (exact) return pathname === href;
-  return pathname.startsWith(href);
+const PRIMARY_NAV_OWNER_ADMIN: NavItem[] = [
+  ...PRIMARY_NAV.slice(0, 5),
+  { href: "/app/integrations", label: "Integrations", icon: Zap },
+  PRIMARY_NAV[5],
+];
+
+const PRIMARY_NAV_COLLABORATOR: NavItem[] = [
+  { href: "/app/collaborator", label: "Home", icon: LayoutDashboard },
+  { href: "/app/projects", label: "Projects", icon: Calculator },
+  { href: "/app/tasks", label: "Tasks", icon: ListTodo },
+  { href: "/app/inbox", label: "Inbox", icon: MessageSquare },
+  { href: "/app/preferences", label: "Perfil", icon: UserRound },
+];
+
+const SECONDARY_NAV: NavItem[] = [
+  { href: "/app/checklists", label: "Checklists", icon: CheckSquare },
+  { href: "/app/templates", label: "Templates", icon: FileText },
+  { href: "/app/journal", label: "Journal", icon: BookOpen },
+  { href: "/app/tasks", label: "Tasks", icon: ListTodo },
+  { href: "/app/crm", label: "CRM", icon: Users2 },
+  { href: "/app/callsheets", label: "Call Sheets", icon: ClipboardList },
+  { href: "/app/diagnostics", label: "Diagnostics", icon: Activity },
+  { href: "/app/support", label: "Support", icon: LifeBuoy },
+];
+
+const CEO_RAIL: NavItem[] = [
+  { href: "/app/tasks", label: "My Tasks", icon: ListTodo },
+  { href: "/app/callsheets", label: "Calendar", icon: CalendarDays },
+  { href: "/app/inbox", label: "Inbox", icon: MessageSquare },
+];
+
+const COLLABORATOR_RAIL: NavItem[] = [
+  { href: "/app/projects", label: "Projetos", icon: Calculator },
+  { href: "/app/tasks", label: "Tarefas", icon: ListTodo },
+  { href: "/app/inbox", label: "Inbox", icon: MessageSquare },
+  { href: "/app/preferences", label: "Perfil", icon: UserRound },
+];
+
+const MOBILE_NAV: NavItem[] = [
+  { href: "/app/dashboard", label: "Dash", icon: LayoutDashboard },
+  { href: "/app/projects", label: "Projects", icon: Calculator },
+  { href: "/app/clients", label: "Clients", icon: Building2 },
+  { href: "/app/inbox", label: "Inbox", icon: MessageSquare },
+  { href: "/app/settings", label: "Settings", icon: Settings },
+];
+
+const MOBILE_NAV_COLLABORATOR: NavItem[] = [
+  { href: "/app/collaborator", label: "Home", icon: LayoutDashboard },
+  { href: "/app/projects", label: "Projects", icon: Calculator },
+  { href: "/app/tasks", label: "Tasks", icon: ListTodo },
+  { href: "/app/inbox", label: "Inbox", icon: MessageSquare },
+  { href: "/app/preferences", label: "Perfil", icon: UserRound },
+];
+
+function navIsActive(pathname: string, href: string) {
+  if (pathname === "/app/preferences" && href === "/app/settings") return true;
+  if (href === "/app/dashboard") return pathname === "/app" || pathname === "/app/dashboard";
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+function resolvePrimaryActive(pathname: string, tabs: NavItem[]) {
+  const found = tabs.find((tab) => navIsActive(pathname, tab.href));
+  return found?.href ?? tabs[0]?.href ?? "/app/dashboard";
+}
+
+function railIsActive(pathname: string, href: string) {
+  if (href === "/app/dashboard") return pathname === "/app" || pathname === "/app/dashboard";
+  return pathname === href || pathname.startsWith(`${href}/`);
 }
 
 export function AppShell({
   children,
   userEmail,
+  userRole,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
   userEmail: string;
+  userRole: "owner" | "admin" | "member" | "collaborator" | "client" | "unknown";
 }) {
   const pathname = usePathname();
   const router = useRouter();
   const [signingOut, setSigningOut] = useState(false);
+  const { theme, toggleTheme, dashboardMode } = useTheme();
+  const reduceMotion = useReducedMotion();
+  const isCollaborator = userRole === "collaborator";
+  const isOwnerAdmin = userRole === "owner" || userRole === "admin";
+  const primaryNav = useMemo(() => {
+    if (isCollaborator) return PRIMARY_NAV_COLLABORATOR;
+    if (isOwnerAdmin) return PRIMARY_NAV_OWNER_ADMIN;
+    return PRIMARY_NAV;
+  }, [isCollaborator, isOwnerAdmin]);
+  const mobileNav = useMemo(() => (isCollaborator ? MOBILE_NAV_COLLABORATOR : MOBILE_NAV), [isCollaborator]);
+  const activePrimary = useMemo(() => resolvePrimaryActive(pathname, primaryNav), [pathname, primaryNav]);
+  const isCeoMode = dashboardMode === "ceo";
+  const railItems = isCollaborator ? COLLABORATOR_RAIL : isCeoMode ? CEO_RAIL : SECONDARY_NAV;
 
   const handleLogout = async () => {
     setSigningOut(true);
@@ -95,215 +153,152 @@ export function AppShell({
     router.refresh();
   };
 
-  const userInitial = userEmail?.[0]?.toUpperCase() ?? "U";
+  const userInitial = (userEmail?.[0] ?? "U").toUpperCase();
 
   return (
-    <div className="flex min-h-dvh" style={{ background: "var(--bg)" }}>
-      {/* ── Desktop Sidebar ─────────────────────────── */}
-      <aside
-        className="hidden md:flex w-64 flex-col"
-        style={{
-          background: "var(--surface)",
-          borderRight: "1px solid var(--border)",
-          position: "sticky",
-          top: 0,
-          height: "100dvh",
-        }}
-      >
-        {/* Logo */}
-        <div
-          className="flex items-center gap-3 px-5 py-5"
-          style={{ borderBottom: "1px solid var(--border)" }}
-        >
-          <div
-            className="flex h-8 w-8 items-center justify-center rounded-lg"
-            style={{
-              background: "var(--accent)",
-              boxShadow: "0 0 16px var(--accent-glow)",
-            }}
-          >
-            <Zap className="h-4 w-4 text-white" />
-          </div>
-          <div>
-            <p className="text-sm font-bold" style={{ color: "var(--text)", letterSpacing: "-0.02em" }}>
-              Beyond Pricing
-            </p>
-            <p className="text-xs" style={{ color: "var(--text-3)" }}>
-              Production Studio
-            </p>
-          </div>
-        </div>
-
-        {/* Nav */}
-        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          <p className="section-title px-2 mb-3">Menu</p>
-          {NAV_ITEMS.map((item) => {
-            const active = isActive(item.href, pathname, item.exact);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`nav-item ${active ? "active" : ""}`}
+    <div className="super-theme super-shell-bg h-full min-h-dvh w-full">
+      <OnboardingGate surface="app" collaboratorMode={isCollaborator} />
+      <div className="super-app-surface">
+        <header className="super-topbar">
+          <div className="super-topbar__inner">
+            <Link href={isCollaborator ? "/app/collaborator" : "/app/dashboard"} className="inline-flex items-center gap-2.5">
+              <span
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full"
+                style={{ background: "var(--accent-blue)", color: "#fff" }}
               >
-                <item.icon className="h-4 w-4 shrink-0" />
-                <span className="flex-1">{item.label}</span>
-                {active && (
-                  <ChevronRight
-                    className="h-3.5 w-3.5 shrink-0"
-                    style={{ color: "var(--accent)" }}
-                  />
-                )}
-              </Link>
-            );
-          })}
-        </nav>
+                <Zap className="h-4 w-4" />
+              </span>
+              <span className="text-sm font-semibold tracking-tight" style={{ color: "var(--text)" }}>
+                Beyond Pricing
+              </span>
+            </Link>
 
-        {/* User footer */}
-        <div
-          className="px-3 py-4 space-y-3"
-          style={{ borderTop: "1px solid var(--border)" }}
-        >
-          <div className="flex items-center gap-3 px-2">
-            <div
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
-              style={{ background: "var(--accent)" }}
-            >
-              {userInitial}
+            <div className="hidden min-w-0 flex-1 justify-center px-5 md:flex">
+              <PillTabs tabs={primaryNav.map((tab) => ({ href: tab.href, label: tab.label }))} active={activePrimary} />
             </div>
-            <div className="min-w-0 flex-1">
-              <p
-                className="truncate text-xs font-medium"
-                style={{ color: "var(--text)" }}
+
+            <div className="flex items-center gap-1.5">
+              <NotificationBell />
+
+              <motion.button
+                onClick={toggleTheme}
+                className="icon-btn"
+                title={theme === "dark" ? "Modo claro" : "Modo escuro"}
+                aria-label={theme === "dark" ? "Modo claro" : "Modo escuro"}
+                {...buttonMotionProps({ enabled: !reduceMotion })}
               >
-                {userEmail}
-              </p>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <span className="glow-dot" />
-                <span className="text-xs" style={{ color: "var(--text-3)" }}>
-                  Online
-                </span>
-              </div>
+                {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              </motion.button>
+
+              <motion.button
+                onClick={handleLogout}
+                disabled={signingOut}
+                className="icon-btn"
+                title="Terminar sessão"
+                aria-label="Terminar sessão"
+                {...buttonMotionProps({ enabled: !reduceMotion })}
+              >
+                <LogOut className="h-4 w-4" />
+              </motion.button>
+
+              <span
+                className="hidden h-8 w-8 items-center justify-center rounded-full text-xs font-semibold md:inline-flex"
+                style={{
+                  background: "rgba(26, 143, 163, 0.14)",
+                  border: "1px solid rgba(26, 143, 163, 0.32)",
+                  color: "var(--accent-blue)",
+                }}
+                title={userEmail}
+              >
+                {userInitial}
+              </span>
             </div>
           </div>
-          <button
-            onClick={handleLogout}
-            disabled={signingOut}
-            className="btn btn-ghost btn-sm w-full justify-start"
-            style={{ color: "var(--text-3)" }}
-          >
-            <LogOut className="h-3.5 w-3.5" />
-            {signingOut ? "A sair…" : "Terminar sessão"}
-          </button>
-        </div>
-      </aside>
-
-      {/* ── Mobile Layout ───────────────────────────── */}
-      <div className="flex flex-1 flex-col md:hidden min-w-0">
-        {/* Mobile top bar */}
-        <header
-          className="flex h-14 items-center justify-between px-4"
-          style={{
-            background: "var(--surface)",
-            borderBottom: "1px solid var(--border)",
-            position: "sticky",
-            top: 0,
-            zIndex: 40,
-          }}
-        >
-          <div className="flex items-center gap-2.5">
-            <div
-              className="flex h-7 w-7 items-center justify-center rounded-lg"
-              style={{ background: "var(--accent)", boxShadow: "0 0 12px var(--accent-glow)" }}
-            >
-              <Zap className="h-3.5 w-3.5 text-white" />
-            </div>
-            <span
-              className="text-sm font-bold"
-              style={{ color: "var(--text)", letterSpacing: "-0.02em" }}
-            >
-              Beyond Pricing
-            </span>
-          </div>
-
-          <button
-            onClick={handleLogout}
-            disabled={signingOut}
-            className="btn btn-ghost btn-icon-sm"
-          >
-            <LogOut className="h-4 w-4" />
-          </button>
         </header>
 
-        {/* Main content */}
-        <main className="flex-1 overflow-auto pb-20">
-          <div className="px-4 py-5 md:px-8 md:py-8">
-            {children}
-            <BuildStamp className="mt-6 text-center" />
+        <div className="border-b md:hidden" style={{ borderColor: "var(--border)" }}>
+          <div className="shell-inner py-2">
+            <PillTabs tabs={primaryNav.map((tab) => ({ href: tab.href, label: tab.label }))} active={activePrimary} />
           </div>
-        </main>
+        </div>
 
-        {/* Mobile bottom nav */}
-        <nav
-          className="fixed bottom-0 left-0 right-0 flex items-center"
-          style={{
-            background: "var(--glass-bg)",
-            backdropFilter: "var(--glass-blur)",
-            WebkitBackdropFilter: "var(--glass-blur)",
-            borderTop: "1px solid var(--border-2)",
-            paddingBottom: "env(safe-area-inset-bottom)",
-            zIndex: 40,
-          }}
-        >
-          {NAV_ITEMS.map((item) => {
-            const active = isActive(item.href, pathname, item.exact);
+        <main className="min-h-0 flex-1 overflow-y-auto">
+          <motion.div
+            initial={reduceMotion ? false : "initial"}
+            animate={reduceMotion ? undefined : "animate"}
+            variants={variants.page}
+            transition={transitions.page}
+            className="shell-inner app-main-grid items-start pb-24 pt-5 md:pb-8 md:pt-6"
+          >
+            <aside className="quick-rail hidden xl:flex">
+              {railItems.map((item) => {
+                const active = railIsActive(pathname, item.href);
+                return (
+                  <Link key={item.href} href={item.href} className={`quick-rail__link ${active ? "quick-rail__link--active" : ""}`}>
+                    <item.icon className="h-4 w-4" />
+                    <span>{item.label}</span>
+                  </Link>
+                );
+              })}
+            </aside>
+            <section className="min-w-0">
+              {children}
+            </section>
+          </motion.div>
+        </main>
+      </div>
+
+      <HQAssistantWidget />
+
+      <nav
+        className="fixed bottom-0 left-0 right-0 z-40 border-t backdrop-blur-md md:hidden"
+        style={{
+          borderColor: "var(--border)",
+          background: "color-mix(in srgb, var(--surface) 88%, transparent)",
+          paddingBottom: "env(safe-area-inset-bottom)",
+        }}
+      >
+        <div className="flex items-stretch justify-around px-2 py-1.5">
+          {mobileNav.map((item) => {
+            const active = navIsActive(pathname, item.href);
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                className="relative flex flex-1 flex-col items-center justify-center py-3 gap-1 transition-all"
-                style={{
-                  color: active ? "var(--accent-2)" : "var(--text-3)",
-                  WebkitTapHighlightColor: "transparent",
-                }}
+                className="relative flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl py-1"
+                style={{ color: active ? "#1a8fa3" : "#7d889d" }}
               >
-                {active && (
-                  <motion.div
-                    layoutId="mobile-nav-indicator"
-                    className="absolute inset-x-1 top-0 h-0.5 rounded-full"
-                    style={{ background: "var(--accent)" }}
-                    transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                {active ? (
+                  <motion.span
+                    layoutId="mobile-nav-pill"
+                    className="absolute inset-0 rounded-2xl"
+                    style={{
+                      background: "rgba(26, 143, 163, 0.12)",
+                      border: "1px solid rgba(26, 143, 163, 0.26)",
+                    }}
+                    transition={transitions.ui}
                   />
-                )}
-                <item.icon className="h-5 w-5" />
-                <span className="text-xs font-medium" style={{ fontSize: "0.65rem" }}>
-                  {item.label}
-                </span>
+                ) : null}
+                <item.icon className="relative z-10 h-4 w-4" />
+                <span className="relative z-10 text-[0.63rem] font-semibold">{item.label}</span>
               </Link>
             );
           })}
-        </nav>
-      </div>
-
-      {/* ── Desktop main content ─────────────────────── */}
-      <main className="hidden md:flex flex-1 flex-col min-w-0 overflow-auto">
-        <div className="flex min-h-full flex-col px-8 py-8">
-          <div className="flex-1">{children}</div>
-          <BuildStamp className="mt-8 text-right" />
         </div>
-      </main>
+      </nav>
     </div>
   );
 }
 
-/* Animated page wrapper para usar dentro das páginas */
-export function PageTransition({ children }: { children: React.ReactNode }) {
+export function PageTransition({ children }: { children: ReactNode }) {
   return (
     <AnimatePresence mode="wait">
       <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -8 }}
-        transition={{ duration: 0.2, ease: "easeOut" }}
+        initial="initial"
+        animate="animate"
+        exit="exit"
+        variants={variants.page}
+        transition={transitions.smooth}
       >
         {children}
       </motion.div>

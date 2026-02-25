@@ -16,11 +16,30 @@ interface PrefsState {
   ai_tagging_enabled?: boolean;
 }
 
+interface NotificationPrefs {
+  in_app: boolean;
+  email: boolean;
+  new_comments: boolean;
+  new_versions: boolean;
+  approvals: boolean;
+}
+
+const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
+  in_app: true,
+  email: true,
+  new_comments: true,
+  new_versions: true,
+  approvals: true,
+};
+
 export default function PreferencesPage() {
   const [prefs, setPrefs] = useState<PrefsState>({ ...DEFAULT_PREFERENCES });
+  const [notificationPrefs, setNotificationPrefs] = useState<NotificationPrefs>(DEFAULT_NOTIFICATION_PREFS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [notifSaving, setNotifSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [notifSaved, setNotifSaved] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -28,7 +47,10 @@ export default function PreferencesPage() {
       const sb = createClient();
       const { data: { user } } = await sb.auth.getUser();
       if (!user) return;
-      const { data } = await sb.from("preferences").select("*").eq("user_id", user.id).single();
+      const [{ data }, { data: userPrefs }] = await Promise.all([
+        sb.from("preferences").select("*").eq("user_id", user.id).single(),
+        sb.from("user_preferences").select("notification_prefs").eq("user_id", user.id).maybeSingle(),
+      ]);
       if (data) {
         setPrefs({
           iva_regime: data.iva_regime ?? DEFAULT_PREFERENCES.iva_regime,
@@ -39,6 +61,13 @@ export default function PreferencesPage() {
           investimento_pct: data.investimento_pct ?? DEFAULT_PREFERENCES.investimento_pct,
           moeda: data.moeda ?? DEFAULT_PREFERENCES.moeda,
           ai_tagging_enabled: (data as Record<string, unknown>).ai_tagging_enabled as boolean ?? false,
+        });
+      }
+      const rawPrefs = (userPrefs as { notification_prefs?: unknown } | null)?.notification_prefs;
+      if (rawPrefs && typeof rawPrefs === "object") {
+        setNotificationPrefs({
+          ...DEFAULT_NOTIFICATION_PREFS,
+          ...(rawPrefs as Partial<NotificationPrefs>),
         });
       }
       setLoading(false);
@@ -63,6 +92,31 @@ export default function PreferencesPage() {
     if (err) { setError(err.message); return; }
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
+  };
+
+  const handleSaveNotifications = async () => {
+    setNotifSaving(true);
+    setError("");
+    const sb = createClient();
+    const { data: { user } } = await sb.auth.getUser();
+    if (!user) {
+      setNotifSaving(false);
+      return;
+    }
+
+    const { error: err } = await sb.from("user_preferences").upsert({
+      user_id: user.id,
+      notification_prefs: notificationPrefs,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "user_id" });
+
+    setNotifSaving(false);
+    if (err) {
+      setError(err.message);
+      return;
+    }
+    setNotifSaved(true);
+    setTimeout(() => setNotifSaved(false), 2500);
   };
 
   const field = (label: string, key: keyof PrefsState, min: number, max: number, step = 1, suffix = "%") => (
@@ -177,6 +231,48 @@ export default function PreferencesPage() {
         <p className="text-xs" style={{ color: "var(--text-3)" }}>
           Tags guardadas em metadata.tags — ficheiros Dropbox nunca são renomeados.
         </p>
+      </div>
+
+      <div className="card space-y-4">
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-4 w-4" style={{ color: "var(--accent)" }} />
+          <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>Notificações de Review</p>
+        </div>
+
+        {[
+          { key: "in_app", label: "Notificações in-app", desc: "Centro de notificações e badges." },
+          { key: "email", label: "Notificações por email", desc: "Enviar para email_outbox quando disponível." },
+          { key: "new_comments", label: "Novos comentários", desc: "Avisar quando há mensagens novas em reviews." },
+          { key: "new_versions", label: "Novas versões", desc: "Avisar quando uma nova versão é publicada." },
+          { key: "approvals", label: "Aprovações e decisões", desc: "Avisar em approved / changes requested." },
+        ].map((item) => {
+          const key = item.key as keyof NotificationPrefs;
+          return (
+            <div key={item.key} className="flex items-center justify-between rounded-xl p-3" style={{ background: "var(--surface-2)" }}>
+              <div className="min-w-0 pr-3">
+                <p className="text-sm font-medium" style={{ color: "var(--text)" }}>{item.label}</p>
+                <p className="text-xs" style={{ color: "var(--text-3)" }}>{item.desc}</p>
+              </div>
+              <button
+                onClick={() => setNotificationPrefs((prev) => ({ ...prev, [key]: !prev[key] }))}
+                className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0"
+                style={{ background: notificationPrefs[key] ? "var(--accent)" : "var(--surface-3)" }}
+                aria-label={item.label}
+              >
+                <span
+                  className="inline-block h-4 w-4 rounded-full bg-white shadow transition-transform"
+                  style={{ transform: notificationPrefs[key] ? "translateX(22px)" : "translateX(2px)" }}
+                />
+              </button>
+            </div>
+          );
+        })}
+
+        {notifSaved && <div className="alert alert-success">Preferências de notificações guardadas!</div>}
+        <button onClick={handleSaveNotifications} disabled={notifSaving} className="btn btn-secondary w-full">
+          <Save className="h-4 w-4" />
+          {notifSaving ? "A guardar notificações…" : "Guardar Notificações"}
+        </button>
       </div>
     </motion.div>
   );
