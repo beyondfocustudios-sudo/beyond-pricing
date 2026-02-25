@@ -48,14 +48,14 @@ export type PortalMessage = {
 
 type ProjectMemberRow = {
   project_id: string;
-  projects: PortalProject | PortalProject[] | null;
+  projects: ({ id: string; project_name: string; status: string | null; updated_at: string; client_id?: string | null } | Array<{ id: string; project_name: string; status: string | null; updated_at: string; client_id?: string | null }>) | null;
 };
 
 export async function getClientProjects() {
   const supabase = createClient();
   const { data: memberRows } = await supabase
     .from("project_members")
-    .select("project_id, role, projects:project_id(id, name, status, updated_at, client_id)")
+    .select("project_id, role, projects:project_id(id, project_name, status, updated_at, client_id)")
     .in("role", ["client_viewer", "client_approver"])
     .not("projects", "is", null);
 
@@ -65,7 +65,7 @@ export async function getClientProjects() {
     if (!project?.id) continue;
     map.set(project.id, {
       id: project.id,
-      name: project.name,
+      name: project.project_name,
       status: project.status ?? null,
       updated_at: project.updated_at,
       client_id: project.client_id ?? null,
@@ -129,4 +129,3 @@ export async function sendConversationMessage(conversationId: string, body: stri
   });
   return res.ok;
 }
-

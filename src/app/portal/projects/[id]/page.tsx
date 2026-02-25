@@ -33,7 +33,7 @@ import { createClient } from "@/lib/supabase";
 
 type ProjectRow = {
   id: string;
-  name: string;
+  project_name: string;
   status: string | null;
   description?: string | null;
   updated_at: string;
@@ -127,7 +127,7 @@ export default function PortalProjectDetailPage() {
       const supabase = createClient();
       const { data: projectRow, error: projectError } = await supabase
         .from("projects")
-        .select("id, name, status, description, updated_at")
+        .select("id, project_name, status, description, updated_at")
         .eq("id", projectId)
         .maybeSingle();
 
@@ -237,7 +237,7 @@ export default function PortalProjectDetailPage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="text-xs uppercase tracking-[0.11em]" style={{ color: "var(--text-3)" }}>Projeto</p>
-            <h1 className="truncate text-[1.35rem] font-semibold" style={{ color: "var(--text)" }}>{project.name}</h1>
+            <h1 className="truncate text-[1.35rem] font-semibold" style={{ color: "var(--text)" }}>{project.project_name}</h1>
             <p className="text-sm" style={{ color: "var(--text-2)" }}>{project.description || "Resumo e colaboração centralizados."}</p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -429,7 +429,7 @@ export default function PortalProjectDetailPage() {
               Conversa centralizada com a equipa.
             </p>
             <div className="mt-4 rounded-xl border p-3" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
-              <p className="text-sm font-medium" style={{ color: "var(--text)" }}>{project.name}</p>
+              <p className="text-sm font-medium" style={{ color: "var(--text)" }}>{project.project_name}</p>
               <p className="text-xs" style={{ color: "var(--text-3)" }}>{messages.length} mensagens</p>
               <Link href={`/portal/inbox?project=${projectId}`} className="btn btn-ghost btn-sm mt-2">
                 Abrir inbox dedicada
