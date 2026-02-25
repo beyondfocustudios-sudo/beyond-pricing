@@ -2,9 +2,18 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CalendarDays, ChevronRight, FolderOpen, Loader2, MessageCircle, Package } from "lucide-react";
+import { motion } from "framer-motion";
+import {
+  AlertCircle,
+  CalendarDays,
+  ChevronRight,
+  FolderOpen,
+  Loader2,
+  MessageCircle,
+  Package,
+} from "lucide-react";
 import { createClient } from "@/lib/supabase";
-import { EmptyState } from "@/components/ui-kit";
+import { buttonMotionProps, useMotionEnabled, variants } from "@/lib/motion";
 
 type PortalProject = {
   id: string;
@@ -40,6 +49,15 @@ type ConversationItem = {
   updated_at: string;
 };
 
+type ActivityEvent = {
+  id: string;
+  type: "milestone" | "delivery" | "message";
+  title: string;
+  subtitle: string;
+  at: string;
+  href: string;
+};
+
 const STATUS_LABELS: Record<string, string> = {
   rascunho: "Pré-produção",
   enviado: "Em aprovação",
@@ -61,9 +79,21 @@ function formatDate(iso?: string | null) {
   return date.toLocaleDateString("pt-PT", { day: "2-digit", month: "short" });
 }
 
+function isPendingStatus(status?: string | null) {
+  const normalized = String(status ?? "").toLowerCase();
+  return ["sent", "in_review", "review", "pendente", "enviado"].includes(normalized);
+}
+
+function isActiveProject(status?: string | null) {
+  const normalized = String(status ?? "").toLowerCase();
+  return normalized !== "archived" && normalized !== "cancelled" && normalized !== "arquivado" && normalized !== "cancelado";
+}
+
 export default function PortalHomePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const motionEnabled = useMotionEnabled();
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -74,6 +104,26 @@ export default function PortalHomePage() {
   const [latestMessages, setLatestMessages] = useState<ConversationItem[]>([]);
 
   const impersonationToken = searchParams.get("impersonate");
+
+  const withImpersonation = useCallback(
+    (href: string) => {
+      if (!impersonationToken) return href;
+      const hasQuery = href.includes("?");
+      return `${href}${hasQuery ? "&" : "?"}impersonate=${encodeURIComponent(impersonationToken)}`;
+    },
+    [impersonationToken],
+  );
+
+  const openProject = useCallback(
+    (projectId: string, tab?: string) => {
+      const query = new URLSearchParams();
+      if (tab) query.set("tab", tab);
+      if (impersonationToken) query.set("impersonate", impersonationToken);
+      const qs = query.toString();
+      router.push(`/portal/projects/${projectId}${qs ? `?${qs}` : ""}`);
+    },
+    [impersonationToken, router],
+  );
 
   const loadNormalPortal = useCallback(async () => {
     const supabase = createClient();
@@ -104,7 +154,9 @@ export default function PortalHomePage() {
       .not("projects", "is", null);
 
     const mapped = (memberRows ?? [])
-      .map((row: { projects: PortalProject | PortalProject[] | null }) => (Array.isArray(row.projects) ? row.projects[0] : row.projects))
+      .map((row: { projects: PortalProject | PortalProject[] | null }) =>
+        Array.isArray(row.projects) ? row.projects[0] : row.projects,
+      )
       .filter(Boolean) as PortalProject[];
 
     const dedup = Array.from(new Map(mapped.map((project) => [project.id, project])).values());
@@ -115,7 +167,7 @@ export default function PortalHomePage() {
       setUpcomingMilestones([]);
       setLatestDeliverables([]);
       setLatestMessages([]);
-      setClientName(user?.user_metadata?.full_name ?? null);
+      setClientName(user?.user_metadata?.full_name ?? user?.email ?? null);
       return;
     }
 
@@ -128,14 +180,14 @@ export default function PortalHomePage() {
         .in("project_id", projectIds)
         .is("deleted_at", null)
         .order("due_date", { ascending: true })
-        .limit(6),
+        .limit(8),
       supabase
         .from("deliverables")
         .select("id, project_id, title, status, created_at")
         .in("project_id", projectIds)
         .is("deleted_at", null)
         .order("created_at", { ascending: false })
-        .limit(3),
+        .limit(7),
       fetch("/api/conversations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -144,12 +196,12 @@ export default function PortalHomePage() {
     ]);
 
     const openMilestones = (milestonesRes.data ?? []).filter((item) => item.status !== "completed");
-    setUpcomingMilestones(openMilestones.slice(0, 4) as Milestone[]);
+    setUpcomingMilestones(openMilestones.slice(0, 6) as Milestone[]);
     setLatestDeliverables((deliverablesRes.data ?? []) as Deliverable[]);
 
     if (conversationsRes.ok) {
       const convPayload = (await conversationsRes.json()) as { conversations?: ConversationItem[] };
-      setLatestMessages((convPayload.conversations ?? []).slice(0, 3));
+      setLatestMessages((convPayload.conversations ?? []).slice(0, 5));
     } else {
       setLatestMessages([]);
     }
@@ -184,7 +236,8 @@ export default function PortalHomePage() {
     const messagePreview = (payload.latestMessages ?? []).map((message, index) => ({
       id: `${index}-${message.created_at}`,
       project_id: message.project_id ?? undefined,
-      project_name: impersonationProjects.find((project) => project.id === message.project_id)?.project_name ?? "Projeto",
+      project_name:
+        impersonationProjects.find((project) => project.id === message.project_id)?.project_name ?? "Projeto",
       last_message: message.body ?? null,
       updated_at: message.created_at,
     }));
@@ -213,10 +266,66 @@ export default function PortalHomePage() {
 
   const primaryProject = useMemo(() => projects[0] ?? null, [projects]);
 
+  const activeProjectsCount = useMemo(() => projects.filter((project) => isActiveProject(project.status)).length, [projects]);
+
+  const deliveriesLast7Days = useMemo(() => {
+    const threshold = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    return latestDeliverables.filter((item) => new Date(item.created_at).getTime() >= threshold).length;
+  }, [latestDeliverables]);
+
+  const pendingApprovals = useMemo(
+    () => latestDeliverables.filter((item) => isPendingStatus(item.status)).length,
+    [latestDeliverables],
+  );
+
+  const messagesToReply = latestMessages.length;
+
+  const activityFeed = useMemo<ActivityEvent[]>(() => {
+    const projectById = new Map(projects.map((project) => [project.id, project]));
+
+    const milestones = upcomingMilestones.map((milestone) => ({
+      id: `milestone-${milestone.id}`,
+      type: "milestone" as const,
+      title: milestone.title,
+      subtitle: `${milestone.phase ?? "Fase"} · ${formatDate(milestone.due_date)}`,
+      at: milestone.due_date ?? new Date().toISOString(),
+      href: withImpersonation(`/portal/projects/${milestone.project_id}?tab=overview`),
+    }));
+
+    const deliveries = latestDeliverables.map((deliverable) => ({
+      id: `delivery-${deliverable.id}`,
+      type: "delivery" as const,
+      title: deliverable.title,
+      subtitle: `${projectById.get(deliverable.project_id)?.project_name ?? "Projeto"} · ${deliverable.status ?? "review"}`,
+      at: deliverable.created_at,
+      href: withImpersonation(`/portal/review/${deliverable.id}`),
+    }));
+
+    const messages = latestMessages.map((message) => ({
+      id: `message-${message.id}`,
+      type: "message" as const,
+      title: message.project_name ?? "Mensagem recebida",
+      subtitle: message.last_message ?? "Nova atualização da equipa",
+      at: message.updated_at,
+      href: withImpersonation(`/portal/projects/${message.project_id ?? primaryProject?.id ?? ""}?tab=inbox`),
+    }));
+
+    return [...milestones, ...deliveries, ...messages]
+      .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+      .slice(0, 8);
+  }, [latestDeliverables, latestMessages, primaryProject?.id, projects, upcomingMilestones, withImpersonation]);
+
   if (loading) {
     return (
-      <div className="min-h-[40vh] flex items-center justify-center">
-        <Loader2 className="h-7 w-7 animate-spin" style={{ color: "var(--text-3)" }} />
+      <div className="grid gap-5">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={index} className="card h-[96px] animate-pulse" style={{ background: "var(--surface-2)" }} />
+          ))}
+        </div>
+        <div className="card min-h-[340px] flex items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin" style={{ color: "var(--text-3)" }} />
+        </div>
       </div>
     );
   }
@@ -224,7 +333,7 @@ export default function PortalHomePage() {
   if (error) {
     return (
       <div className="card p-6 text-center space-y-3">
-        <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>Erro ao carregar portal</p>
+        <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>Erro ao carregar dashboard</p>
         <p className="text-sm" style={{ color: "var(--text-2)" }}>{error}</p>
         <button className="btn btn-secondary btn-sm" onClick={load}>Tentar novamente</button>
       </div>
@@ -232,157 +341,243 @@ export default function PortalHomePage() {
   }
 
   return (
-    <div className="space-y-6">
-      <section className="card p-6 sm:p-7">
-        <p className="text-xs uppercase tracking-[0.1em]" style={{ color: "var(--muted)" }}>
-          Portal do Cliente
-        </p>
-        <h1 className="mt-2 text-2xl font-semibold" style={{ color: "var(--text)" }}>
-          Hi, {clientName ?? "Cliente"}
-        </h1>
-        <p className="mt-1 text-sm" style={{ color: "var(--text-2)" }}>
-          Resumo rápido de estado, marcos e comunicação com a equipa.
-        </p>
-
-        {primaryProject ? (
-          <div className="mt-5 rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
-            <p className="text-xs" style={{ color: "var(--text-3)" }}>Projeto principal</p>
-            <p className="mt-1 text-base font-semibold" style={{ color: "var(--text)" }}>{primaryProject.project_name}</p>
-            <p className="mt-1 text-xs" style={{ color: "var(--text-2)" }}>
-              {STATUS_LABELS[String(primaryProject.status ?? "")] ?? (primaryProject.status || "Em progresso")}
-              {" · "}
-              atualizado {formatDate(primaryProject.updated_at)}
-            </p>
-            <button
-              className="btn btn-primary btn-sm mt-3"
-              onClick={() => router.push(`/portal/projects/${primaryProject.id}${impersonationToken ? `?impersonate=${encodeURIComponent(impersonationToken)}` : ""}`)}
+    <motion.div
+      className="space-y-5 pb-24"
+      initial={motionEnabled ? "initial" : false}
+      animate={motionEnabled ? "animate" : undefined}
+      variants={variants.containerStagger}
+    >
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {[
+          {
+            key: "projects",
+            label: "Projetos ativos",
+            value: activeProjectsCount,
+            hint: "Projetos em andamento",
+            icon: FolderOpen,
+            onClick: () => router.push(withImpersonation("/portal/projects")),
+          },
+          {
+            key: "deliveries",
+            label: "Entregas novas",
+            value: deliveriesLast7Days,
+            hint: "Últimos 7 dias",
+            icon: Package,
+            onClick: () =>
+              primaryProject ? openProject(primaryProject.id, "deliveries") : router.push(withImpersonation("/portal/projects")),
+          },
+          {
+            key: "approvals",
+            label: "Aprovações pendentes",
+            value: pendingApprovals,
+            hint: "Aguardam decisão",
+            icon: AlertCircle,
+            onClick: () =>
+              primaryProject ? openProject(primaryProject.id, "approvals") : router.push(withImpersonation("/portal/projects")),
+          },
+          {
+            key: "messages",
+            label: "Mensagens",
+            value: messagesToReply,
+            hint: "Conversas recentes",
+            icon: MessageCircle,
+            onClick: () =>
+              primaryProject ? openProject(primaryProject.id, "inbox") : router.push(withImpersonation("/portal/projects")),
+          },
+        ].map((kpi) => {
+          const Icon = kpi.icon;
+          return (
+            <motion.button
+              key={kpi.key}
+              className="card card-hover p-4 text-left"
+              variants={variants.cardEnter}
+              onClick={kpi.onClick}
+              {...buttonMotionProps({ enabled: motionEnabled })}
             >
-              Abrir projeto
-            </button>
-          </div>
-        ) : null}
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.08em]" style={{ color: "var(--text-3)" }}>{kpi.label}</p>
+                  <p className="mt-2 text-2xl font-semibold tracking-[-0.02em]" style={{ color: "var(--text)" }}>{kpi.value}</p>
+                  <p className="mt-1 text-xs" style={{ color: "var(--text-2)" }}>{kpi.hint}</p>
+                </div>
+                <span
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-full"
+                  style={{ background: "var(--surface-2)", color: "var(--accent-primary)", border: "1px solid var(--border)" }}
+                >
+                  <Icon className="h-4 w-4" />
+                </span>
+              </div>
+            </motion.button>
+          );
+        })}
       </section>
 
-      {projects.length === 0 ? (
-        <section className="card">
-          <EmptyState
-            title="Nenhum projeto associado"
-            description="Contacta a Beyond Focus para obter acesso ao teu projeto."
-            action={<FolderOpen className="empty-icon" />}
-          />
-        </section>
-      ) : (
-        <>
-          <section className="grid gap-4 lg:grid-cols-3">
-            <article className="card p-4 lg:col-span-1">
-              <p className="text-xs uppercase tracking-[0.08em]" style={{ color: "var(--text-3)" }}>Próximos marcos</p>
-              <div className="mt-3 space-y-2">
-                {upcomingMilestones.length === 0 ? (
-                  <p className="text-sm" style={{ color: "var(--text-3)" }}>Sem marcos por agora.</p>
-                ) : upcomingMilestones.map((milestone) => (
-                  <div key={milestone.id} className="rounded-xl border px-3 py-2" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
-                    <p className="text-sm font-medium" style={{ color: "var(--text)" }}>{milestone.title}</p>
-                    <p className="text-xs" style={{ color: "var(--text-3)" }}>
-                      {milestone.phase ?? "fase"} · {formatDate(milestone.due_date)}
-                    </p>
+      <section className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
+        <motion.article className="card p-5" variants={variants.cardEnter}>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.08em]" style={{ color: "var(--text-3)" }}>Atividade do projeto</p>
+              <h2 className="mt-1 text-lg font-semibold" style={{ color: "var(--text)" }}>Timeline recente</h2>
+              <p className="text-xs" style={{ color: "var(--text-3)" }}>Conta: {clientName ?? "Cliente Beyond"}</p>
+            </div>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => router.push(withImpersonation("/portal/projects"))}
+            >
+              Ver todos
+            </button>
+          </div>
+
+          <div className="mt-4 space-y-2.5">
+            {activityFeed.length === 0 ? (
+              <div className="rounded-2xl border p-4 text-sm" style={{ borderColor: "var(--border)", background: "var(--surface-2)", color: "var(--text-2)" }}>
+                Ainda não há atividade recente. Assim que houver entregas, marcos ou mensagens, aparecem aqui.
+              </div>
+            ) : (
+              activityFeed.map((item) => (
+                <motion.button
+                  key={item.id}
+                  className="w-full rounded-2xl border px-4 py-3 text-left"
+                  style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}
+                  onClick={() => router.push(item.href)}
+                  variants={variants.itemEnter}
+                  {...buttonMotionProps({ enabled: motionEnabled, hoverY: -1.5 })}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="truncate text-sm font-medium" style={{ color: "var(--text)" }}>{item.title}</p>
+                    <span className="text-xs" style={{ color: "var(--text-3)" }}>{formatDate(item.at)}</span>
                   </div>
-                ))}
-              </div>
-            </article>
+                  <p className="mt-1 truncate text-xs" style={{ color: "var(--text-2)" }}>{item.subtitle}</p>
+                </motion.button>
+              ))
+            )}
+          </div>
+        </motion.article>
 
-            <article className="card p-4 lg:col-span-1">
-              <p className="text-xs uppercase tracking-[0.08em]" style={{ color: "var(--text-3)" }}>Últimas entregas</p>
-              <div className="mt-3 space-y-2">
-                {latestDeliverables.length === 0 ? (
-                  <p className="text-sm" style={{ color: "var(--text-3)" }}>Sem entregas recentes.</p>
-                ) : latestDeliverables.map((item) => (
-                  <button
-                    key={item.id}
-                    className="w-full rounded-xl border px-3 py-2 text-left transition hover:opacity-90"
-                    style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}
-                    onClick={() => router.push(`/portal/review/${item.id}${impersonationToken ? `?impersonate=${encodeURIComponent(impersonationToken)}` : ""}`)}
-                  >
-                    <p className="text-sm font-medium" style={{ color: "var(--text)" }}>{item.title}</p>
-                    <p className="text-xs" style={{ color: "var(--text-3)" }}>{formatDate(item.created_at)} · {item.status ?? "review"}</p>
-                  </button>
-                ))}
-              </div>
-            </article>
-
-            <article className="card p-4 lg:col-span-1">
-              <p className="text-xs uppercase tracking-[0.08em]" style={{ color: "var(--text-3)" }}>Inbox preview</p>
-              <div className="mt-3 space-y-2">
-                {latestMessages.length === 0 ? (
-                  <p className="text-sm" style={{ color: "var(--text-3)" }}>Sem mensagens recentes.</p>
-                ) : latestMessages.map((item) => (
-                  <div key={item.id} className="rounded-xl border px-3 py-2" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
-                    <p className="text-xs font-medium" style={{ color: "var(--text-2)" }}>{item.project_name ?? "Projeto"}</p>
-                    <p className="mt-1 text-sm line-clamp-2" style={{ color: "var(--text)" }}>{item.last_message ?? "Nova atualização"}</p>
-                  </div>
-                ))}
-              </div>
-            </article>
-          </section>
-
-          <section className="card p-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.08em]" style={{ color: "var(--text-3)" }}>
-                  Projetos atribuídos
-                </p>
-                <p className="text-sm" style={{ color: "var(--text-2)" }}>
-                  Abre qualquer projeto para ver entregas, feedback e calendário.
-                </p>
-              </div>
+        <div className="grid gap-5">
+          <motion.article className="card p-5" variants={variants.cardEnter}>
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>Últimas entregas</h3>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() =>
+                  primaryProject ? openProject(primaryProject.id, "deliveries") : router.push(withImpersonation("/portal/projects"))
+                }
+              >
+                Abrir
+              </button>
             </div>
             <div className="mt-3 space-y-2">
-              {projects.map((project) => (
-                <button
-                  key={project.id}
-                  className="w-full flex items-center gap-3 rounded-xl border px-4 py-3 text-left"
-                  style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}
-                  onClick={() => router.push(`/portal/projects/${project.id}${impersonationToken ? `?impersonate=${encodeURIComponent(impersonationToken)}` : ""}`)}
-                >
-                  <div className="h-8 w-8 rounded-lg flex items-center justify-center" style={{ background: "var(--accent-dim)", color: "var(--accent-primary)" }}>
+              {latestDeliverables.length === 0 ? (
+                <p className="text-sm" style={{ color: "var(--text-3)" }}>Sem entregas recentes.</p>
+              ) : (
+                latestDeliverables.slice(0, 4).map((item) => (
+                  <button
+                    key={item.id}
+                    className="w-full rounded-xl border px-3 py-2 text-left"
+                    style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}
+                    onClick={() => router.push(withImpersonation(`/portal/review/${item.id}`))}
+                  >
+                    <p className="truncate text-sm font-medium" style={{ color: "var(--text)" }}>{item.title}</p>
+                    <p className="text-xs" style={{ color: "var(--text-3)" }}>{item.status ?? "review"} · {formatDate(item.created_at)}</p>
+                  </button>
+                ))
+              )}
+            </div>
+          </motion.article>
+
+          <motion.article className="card p-5" variants={variants.cardEnter}>
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>Mensagens</h3>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() =>
+                  primaryProject ? openProject(primaryProject.id, "inbox") : router.push(withImpersonation("/portal/projects"))
+                }
+              >
+                Inbox
+              </button>
+            </div>
+            <div className="mt-3 space-y-2">
+              {latestMessages.length === 0 ? (
+                <p className="text-sm" style={{ color: "var(--text-3)" }}>Sem mensagens recentes.</p>
+              ) : (
+                latestMessages.slice(0, 4).map((item) => (
+                  <button
+                    key={item.id}
+                    className="w-full rounded-xl border px-3 py-2 text-left"
+                    style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}
+                    onClick={() => item.project_id && openProject(item.project_id, "inbox")}
+                  >
+                    <p className="truncate text-xs font-semibold uppercase tracking-[0.08em]" style={{ color: "var(--text-3)" }}>
+                      {item.project_name ?? "Projeto"}
+                    </p>
+                    <p className="mt-1 line-clamp-2 text-sm" style={{ color: "var(--text)" }}>{item.last_message ?? "Nova atualização"}</p>
+                  </button>
+                ))
+              )}
+            </div>
+          </motion.article>
+        </div>
+      </section>
+
+      <motion.section className="card p-5" variants={variants.cardEnter}>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-[0.08em]" style={{ color: "var(--text-3)" }}>Projetos</p>
+            <h3 className="text-base font-semibold" style={{ color: "var(--text)" }}>Abrir projeto</h3>
+          </div>
+          <button className="btn btn-secondary btn-sm" onClick={() => router.push(withImpersonation("/portal/projects"))}>
+            Ver lista completa
+          </button>
+        </div>
+
+        {projects.length === 0 ? (
+          <div className="rounded-2xl border p-4 text-sm" style={{ borderColor: "var(--border)", background: "var(--surface-2)", color: "var(--text-2)" }}>
+            Nenhum projeto associado. Contacta a equipa Beyond para ativarem o acesso.
+          </div>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {projects.slice(0, 6).map((project) => (
+              <motion.button
+                key={project.id}
+                className="w-full rounded-2xl border px-4 py-3 text-left"
+                style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}
+                onClick={() => openProject(project.id, "overview")}
+                variants={variants.itemEnter}
+                {...buttonMotionProps({ enabled: motionEnabled, hoverY: -1.5 })}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="inline-flex h-8 w-8 items-center justify-center rounded-full" style={{ background: "var(--accent-dim)", color: "var(--accent-primary)" }}>
                     <FolderOpen className="h-4 w-4" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium" style={{ color: "var(--text)" }}>{project.project_name}</p>
-                    <p className="text-xs" style={{ color: "var(--text-3)" }}>
-                      {STATUS_LABELS[String(project.status ?? "")] ?? (project.status || "Em progresso")} · {formatDate(project.updated_at)}
+                    <p className="truncate text-xs" style={{ color: "var(--text-3)" }}>
+                      {STATUS_LABELS[String(project.status ?? "")] ?? (project.status || "Em progresso")} · atualizado {formatDate(project.updated_at)}
                     </p>
                   </div>
                   <ChevronRight className="h-4 w-4" style={{ color: "var(--text-3)" }} />
-                </button>
-              ))}
-            </div>
-          </section>
-        </>
-      )}
+                </div>
+              </motion.button>
+            ))}
+          </div>
+        )}
+      </motion.section>
 
-      <section className="grid gap-3 sm:grid-cols-3">
-        <button className="card p-4 text-left" onClick={() => router.push("/portal")}> 
-          <p className="text-xs" style={{ color: "var(--text-3)" }}>Onboarding</p>
-          <p className="mt-1 text-sm font-medium" style={{ color: "var(--text)" }}>1. Ver projeto</p>
-        </button>
-        <button className="card p-4 text-left" onClick={() => primaryProject && router.push(`/portal/projects/${primaryProject.id}${impersonationToken ? `?impersonate=${encodeURIComponent(impersonationToken)}` : ""}`)}>
-          <p className="text-xs" style={{ color: "var(--text-3)" }}>Onboarding</p>
-          <p className="mt-1 text-sm font-medium" style={{ color: "var(--text)" }}>2. Ver entregas</p>
-          <Package className="mt-2 h-4 w-4" style={{ color: "var(--text-3)" }} />
-        </button>
-        <button className="card p-4 text-left" onClick={() => primaryProject && router.push(`/portal/projects/${primaryProject.id}${impersonationToken ? `?impersonate=${encodeURIComponent(impersonationToken)}` : ""}`)}>
-          <p className="text-xs" style={{ color: "var(--text-3)" }}>Onboarding</p>
-          <p className="mt-1 text-sm font-medium" style={{ color: "var(--text)" }}>3. Enviar feedback</p>
-          <MessageCircle className="mt-2 h-4 w-4" style={{ color: "var(--text-3)" }} />
-        </button>
-      </section>
-
-      <section className="card p-4">
-        <div className="flex items-center gap-2" style={{ color: "var(--text-3)" }}>
-          <CalendarDays className="h-4 w-4" />
-          <p className="text-xs">Calendário e fases estão disponíveis dentro de cada projeto.</p>
-        </div>
-      </section>
-    </div>
+      {primaryProject ? (
+        <motion.section className="card p-4" variants={variants.itemEnter}>
+          <div className="flex flex-wrap items-center gap-2 text-xs" style={{ color: "var(--text-2)" }}>
+            <CalendarDays className="h-4 w-4" />
+            <span>
+              Próximas fases e agenda estão em <strong style={{ color: "var(--text)" }}>{primaryProject.project_name}</strong>.
+            </span>
+            <button className="btn btn-secondary btn-sm ml-auto" onClick={() => openProject(primaryProject.id, "calendar")}>
+              Abrir agenda
+            </button>
+          </div>
+        </motion.section>
+      ) : null}
+    </motion.div>
   );
 }
