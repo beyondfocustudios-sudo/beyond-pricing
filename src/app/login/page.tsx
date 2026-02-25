@@ -6,14 +6,12 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   AlertCircle,
   ArrowRight,
-  Building2,
   CheckCircle2,
   Eye,
   EyeOff,
   Lock,
   Mail,
   RefreshCw,
-  Users,
   ShieldCheck,
   Sparkles,
   Zap,
@@ -83,7 +81,7 @@ function LoginPageInner() {
   const searchParams = useSearchParams();
   const motionEnabled = useMotionEnabled();
   const expired = searchParams.get("expired") === "1";
-  const selectedAudience = parseAudience(searchParams.get("mode") ?? searchParams.get("role"));
+  const selectedAudience = parseAudience(searchParams.get("mode") ?? searchParams.get("role")) ?? "team";
   const expectedAudience = parseAudience(searchParams.get("expected"));
   const mismatch = searchParams.get("mismatch") === "1";
 
@@ -117,6 +115,12 @@ function LoginPageInner() {
   useEffect(() => {
     if (selectedAudience === "collaborator") {
       router.replace("/login?mode=team");
+    }
+  }, [router, selectedAudience]);
+
+  useEffect(() => {
+    if (selectedAudience === "client") {
+      router.replace("/portal/login?mode=client");
     }
   }, [router, selectedAudience]);
 
@@ -292,80 +296,10 @@ function LoginPageInner() {
     { id: "oauth", label: "OAuth" },
   ];
 
-  if (!selectedAudience) {
-    return (
-      <AuthShell maxWidth={1280}>
-        <motion.div
-          initial={motionEnabled ? "initial" : false}
-          animate={motionEnabled ? "animate" : undefined}
-          variants={variants.page}
-          transition={transitions.page}
-          className="w-full"
-        >
-          <section className="card-glass rounded-[32px] border p-6 sm:p-8" style={{ borderColor: "var(--border-soft)" }}>
-            <div className="mb-6">
-              <p className="text-xs uppercase tracking-[0.11em]" style={{ color: "var(--text-3)" }}>
-                Role Gateway
-              </p>
-              <h1 className="mt-2 text-[2rem] font-[560] tracking-[-0.03em]" style={{ color: "var(--text)" }}>
-                Seleciona o teu acesso
-              </h1>
-              <p className="mt-2 text-sm" style={{ color: "var(--text-2)" }}>
-                Escolhe o perfil correto para entrar sem erros de permissões.
-              </p>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <motion.button
-                type="button"
-                className="card text-left p-4"
-                onClick={() => router.push("/login?mode=team")}
-                {...buttonMotionProps({ enabled: motionEnabled })}
-              >
-                <Users className="mb-2 h-5 w-5" style={{ color: "var(--accent-blue)" }} />
-                <p className="font-semibold" style={{ color: "var(--text)" }}>Equipa Beyond</p>
-                <p className="mt-1 text-xs" style={{ color: "var(--text-2)" }}>Owner, admin e membros internos.</p>
-              </motion.button>
-
-              <motion.button
-                type="button"
-                className="card text-left p-4"
-                onClick={() => router.push("/portal/login?mode=client")}
-                {...buttonMotionProps({ enabled: motionEnabled })}
-              >
-                <Building2 className="mb-2 h-5 w-5" style={{ color: "var(--accent-blue)" }} />
-                <p className="font-semibold" style={{ color: "var(--text)" }}>Cliente Beyond</p>
-                <p className="mt-1 text-xs" style={{ color: "var(--text-2)" }}>Acesso portal para projetos e entregas.</p>
-              </motion.button>
-            </div>
-          </section>
-        </motion.div>
-      </AuthShell>
-    );
-  }
-
   if (selectedAudience === "collaborator") return null;
 
   if (selectedAudience === "client") {
-    return (
-      <AuthShell maxWidth={640}>
-        <div className="w-full card-glass rounded-[28px] border p-6" style={{ borderColor: "var(--border-soft)" }}>
-          <p className="text-xs uppercase tracking-[0.11em]" style={{ color: "var(--text-3)" }}>
-            Cliente
-          </p>
-          <h2 className="mt-1 text-2xl font-semibold" style={{ color: "var(--text)" }}>
-            Este acesso usa o portal cliente
-          </h2>
-          <p className="mt-2 text-sm" style={{ color: "var(--text-2)" }}>
-            Para este acesso, entra no portal.
-          </p>
-          <div className="mt-5 flex gap-2">
-            <button className="btn btn-secondary" onClick={() => router.push("/login")}>Voltar</button>
-            <button className="btn btn-primary" onClick={() => router.push(`/portal/login?mode=${selectedAudience}`)}>Ir para Portal</button>
-          </div>
-        </div>
-      </AuthShell>
-    );
+    return null;
   }
 
   return (

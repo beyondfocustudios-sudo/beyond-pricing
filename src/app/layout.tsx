@@ -1,6 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
+import { Suspense } from "react";
 import "./globals.css";
+import BuildStampBadge from "@/components/BuildStampBadge";
+import { getBuildStamp } from "@/lib/build-stamp";
 
 const themeInitScript = `
 (() => {
@@ -38,12 +41,19 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const stamp = getBuildStamp();
+
   return (
     <html lang="pt-PT" className={inter.variable} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
-      <body className="h-full min-h-dvh w-full antialiased">{children}</body>
+      <body className="h-full min-h-dvh w-full antialiased">
+        {children}
+        <Suspense fallback={null}>
+          <BuildStampBadge stamp={stamp} />
+        </Suspense>
+      </body>
     </html>
   );
 }
