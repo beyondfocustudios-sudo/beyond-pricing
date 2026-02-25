@@ -5,6 +5,8 @@ import { createClient } from "@/lib/supabase";
 import { motion, AnimatePresence } from "framer-motion";
 import { slugify } from "@/lib/utils";
 import { useToast } from "@/components/Toast";
+import { CopyToast, MotionList, MotionListItem, MotionPage, SavedCheckmark } from "@/components/motion-system";
+import { transitions, variants } from "@/lib/motion";
 import {
   Plus, Users, X, Building2, User,
   Shield, FolderOpen, Check, Copy, Mail,
@@ -66,6 +68,7 @@ export default function ClientsPage() {
   const [members, setMembers] = useState<ClientUser[]>([]);
   const [selectedMemberProjectId, setSelectedMemberProjectId] = useState("");
   const [allProjects, setAllProjects] = useState<Project[]>([]);
+  const [showCopyToast, setShowCopyToast] = useState(false);
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -233,7 +236,11 @@ export default function ClientsPage() {
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text)
-      .then(() => toast.success("Copiado"))
+      .then(() => {
+        setShowCopyToast(true);
+        window.setTimeout(() => setShowCopyToast(false), 1500);
+        toast.success("Copiado");
+      })
       .catch(() => toast.error("Não foi possível copiar"));
   };
 
@@ -293,7 +300,7 @@ export default function ClientsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <MotionPage className="space-y-6">
       {/* Header */}
       <div className="page-header">
         <div>
@@ -335,9 +342,9 @@ export default function ClientsPage() {
       )}
 
       {/* Client cards */}
-      <div className="grid gap-4 sm:grid-cols-2">
+      <MotionList className="grid gap-4 sm:grid-cols-2">
         {clients.map((client) => (
-          <div key={client.id} className="card card-hover">
+          <MotionListItem key={client.id} className="card card-hover">
             <div className="flex items-start justify-between mb-3">
               <div className="flex items-center gap-3">
                 <div
@@ -418,25 +425,28 @@ export default function ClientsPage() {
                 </button>
               </div>
             )}
-          </div>
+          </MotionListItem>
         ))}
-      </div>
+      </MotionList>
 
       {/* Modals */}
       <AnimatePresence>
         {modal && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+            variants={variants.fadeIn}
+            transition={transitions.fadeSlide}
             className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
             style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }}
             onClick={(e) => { if (e.target === e.currentTarget) setModal(null); }}
           >
             <motion.div
-              initial={{ y: 24, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: 24, opacity: 0 }}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              variants={variants.modalEnter}
               className="modal-content w-full max-w-md"
             >
               <div className="flex items-center justify-between mb-5">
@@ -493,6 +503,7 @@ export default function ClientsPage() {
                       <div className="flex items-center gap-2 mb-1" style={{ color: "var(--success)" }}>
                         <Check className="w-4 h-4" /> Utilizador criado!
                       </div>
+                      <SavedCheckmark show={true} label="Guardado" />
                       <p className="text-xs font-mono break-all" style={{ color: "var(--text-2)" }}>{saveSuccess}</p>
                       <button
                         onClick={() => copyToClipboard(saveSuccess)}
@@ -562,6 +573,7 @@ export default function ClientsPage() {
                       <div className="flex items-center gap-2 mb-1" style={{ color: "var(--success)" }}>
                         <Check className="w-4 h-4" /> Convite criado!
                       </div>
+                      <SavedCheckmark show={true} label="Guardado" />
                       <p className="text-xs break-all" style={{ color: "var(--text-2)" }}>{inviteLink}</p>
                       <p className="text-xs mt-1" style={{ color: "var(--text-3)" }}>
                         Expira: {inviteExpiresAt ? new Date(inviteExpiresAt).toLocaleDateString("pt-PT") : "7 dias"}
@@ -718,6 +730,7 @@ export default function ClientsPage() {
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+      <CopyToast show={showCopyToast} />
+    </MotionPage>
   );
 }

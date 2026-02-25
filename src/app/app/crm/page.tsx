@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { AnimatePresence } from "framer-motion";
 import {
   Plus, X, Loader2, Search, Upload, Download,
   User, Building2, Phone, Mail,
 } from "lucide-react";
 import { useToast } from "@/components/Toast";
+import { MotionList, MotionListItem, MotionPage, MotionTabs } from "@/components/motion-system";
 
 // ── Types ─────────────────────────────────────────────────────
 interface Contact {
@@ -232,7 +234,7 @@ export default function CrmPage() {
   );
 
   return (
-    <div className="space-y-6">
+    <MotionPage className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -265,21 +267,19 @@ export default function CrmPage() {
       </div>
 
       {/* Tabs */}
-      <div className="tabs-list">
-        {(["contacts", "pipeline"] as CrmTab[]).map(t => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`tab-trigger ${tab === t ? "active" : ""}`}
-          >
-            {t === "contacts" ? "Contactos" : "Pipeline"}
-          </button>
-        ))}
-      </div>
+      <MotionTabs
+        items={[
+          { id: "contacts", label: "Contactos" },
+          { id: "pipeline", label: "Pipeline" },
+        ] as const}
+        active={tab}
+        onChange={(next) => setTab(next as CrmTab)}
+      />
 
       {/* Contacts tab */}
-      {tab === "contacts" && (
-        <div className="space-y-4">
+      <AnimatePresence mode="wait">
+        {tab === "contacts" ? (
+          <MotionList key="crm-contacts-mode" className="space-y-4">
           {showAddContact && (
             <div className="card space-y-3">
               <div className="flex items-center justify-between">
@@ -314,9 +314,9 @@ export default function CrmPage() {
           </div>
 
           {/* Contact grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          <MotionList className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {filteredContacts.map(c => (
-              <div key={c.id} className="card card-hover">
+              <MotionListItem key={c.id} className="card card-hover">
                 <div className="flex items-start gap-3">
                   <div
                     className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold shrink-0"
@@ -359,7 +359,7 @@ export default function CrmPage() {
                     ))}
                   </div>
                 )}
-              </div>
+              </MotionListItem>
             ))}
             {filteredContacts.length === 0 && (
               <div className="col-span-full empty-state">
@@ -367,13 +367,13 @@ export default function CrmPage() {
                 <p className="empty-title">{search ? "Sem resultados" : "Nenhum contacto ainda."}</p>
               </div>
             )}
-          </div>
-        </div>
-      )}
+          </MotionList>
+          </MotionList>
+        ) : null}
 
       {/* Pipeline tab */}
-      {tab === "pipeline" && (
-        <div className="space-y-4">
+        {tab === "pipeline" ? (
+          <MotionList key="crm-pipeline-mode" className="space-y-4">
           {/* Stats */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div className="card-pastel-blue">
@@ -416,12 +416,12 @@ export default function CrmPage() {
           )}
 
           {/* Kanban pipeline */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          <MotionList className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
             {STAGES.map(stage => {
               const stageDeals = deals.filter(d => d.stage === stage.id);
               const stageValue = stageDeals.reduce((s, d) => s + (d.value ?? 0), 0);
               return (
-                <div
+                <MotionListItem
                   key={stage.id}
                   style={{
                     background: stage.bg,
@@ -439,7 +439,7 @@ export default function CrmPage() {
                   </div>
                   <div className="space-y-2">
                     {stageDeals.map(deal => (
-                      <div
+                      <MotionListItem
                         key={deal.id}
                         className="rounded-xl p-2.5"
                         style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
@@ -461,15 +461,16 @@ export default function CrmPage() {
                             </button>
                           ))}
                         </div>
-                      </div>
+                      </MotionListItem>
                     ))}
                   </div>
-                </div>
+                </MotionListItem>
               );
             })}
-          </div>
-        </div>
-      )}
-    </div>
+          </MotionList>
+          </MotionList>
+        ) : null}
+      </AnimatePresence>
+    </MotionPage>
   );
 }

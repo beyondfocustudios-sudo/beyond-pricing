@@ -29,6 +29,10 @@ export async function GET() {
 
   return NextResponse.json({
     enabled: settings.enableHqAssistant,
+    motion: {
+      enableCelebrations: settings.enableCelebrations,
+      enableSmoothScroll: settings.enableSmoothScroll,
+    },
     role,
     ai: {
       enabled: settings.enableAiAssistant && aiAllowedForRole && aiConfigured,

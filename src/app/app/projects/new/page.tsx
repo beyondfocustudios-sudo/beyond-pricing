@@ -3,9 +3,12 @@ import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { createClient } from "@/lib/supabase";
 import { DEFAULT_PREFERENCES } from "@/lib/types";
+import { useMotionConfig } from "@/lib/motion-config";
+import { fireCelebration } from "@/lib/celebration";
 
 export default function NewProjectPage() {
   const router = useRouter();
+  const { enableCelebrations } = useMotionConfig();
 
   useEffect(() => {
     const create = async () => {
@@ -53,10 +56,11 @@ export default function NewProjectPage() {
         router.push("/app/projects");
         return;
       }
+      await fireCelebration("project_created", enableCelebrations);
       router.replace(`/app/projects/${data.id}`);
     };
     create();
-  }, [router]);
+  }, [enableCelebrations, router]);
 
   return (
     <div className="flex min-h-[50vh] items-center justify-center">

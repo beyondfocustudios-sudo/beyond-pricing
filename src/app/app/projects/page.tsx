@@ -2,13 +2,13 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import Link from "next/link";
-import { motion } from "framer-motion";
 import { createClient } from "@/lib/supabase";
 import { fmtEur, formatDateShort } from "@/lib/utils";
 import { PROJECT_STATUS, type ProjectStatus } from "@/lib/types";
 import { Plus, Search } from "lucide-react";
 import { useToast } from "@/components/Toast";
 import { EmptyState, Pill, PillButton, PillInput, SkeletonCard } from "@/components/ui-kit";
+import { MotionList, MotionListItem, MotionPage } from "@/components/motion-system";
 
 interface ProjectRow {
   id: string;
@@ -79,7 +79,7 @@ export default function ProjectsPage() {
   }, [page, totalPages]);
 
   return (
-    <div className="space-y-6 pb-8">
+    <MotionPage className="space-y-6 pb-8">
       <section className="surface p-6 md:p-8">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -161,16 +161,14 @@ export default function ProjectsPage() {
         </section>
       ) : (
         <>
-          <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <MotionList className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {pagedProjects.map((project, index) => {
               const statusInfo = PROJECT_STATUS.find((status) => status.value === project.status);
               const value = project.calc?.preco_recomendado ?? 0;
               return (
-                <motion.div
+                <MotionListItem
                   key={project.id}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.24, delay: index * 0.04 }}
+                  transition={{ delay: index * 0.02 }}
                 >
                   <Link href={`/app/projects/${project.id}`} className="card card-hover block p-5">
                     <div className="mb-4 flex items-start justify-between gap-2">
@@ -203,10 +201,10 @@ export default function ProjectsPage() {
                       </p>
                     </div>
                   </Link>
-                </motion.div>
+                </MotionListItem>
               );
             })}
-          </section>
+          </MotionList>
 
           <section className="card flex flex-wrap items-center justify-between gap-3 px-4 py-3">
             <p className="text-xs" style={{ color: "var(--text-3)" }}>
@@ -231,6 +229,6 @@ export default function ProjectsPage() {
           </section>
         </>
       )}
-    </div>
+    </MotionPage>
   );
 }

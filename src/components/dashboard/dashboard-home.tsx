@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { motion } from "framer-motion";
+import { LayoutGroup } from "framer-motion";
 import { createClient } from "@/lib/supabase";
 import { formatDateShort } from "@/lib/utils";
 import { EmptyState, PillButton } from "@/components/ui-kit";
 import { useTheme } from "@/components/ThemeProvider";
+import { MotionList, MotionListItem, MotionPage } from "@/components/motion-system";
 import {
   ChartCard,
   CompactKpiCard,
@@ -491,16 +492,12 @@ export default function DashboardHome() {
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.32, ease: "easeOut" }}
-      className="space-y-6"
-    >
-      <DashboardShell header={header}>
-        {dashboardMode === "ceo" ? (
-          <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-12">
-            <div className="md:col-span-1 xl:col-span-8">
+    <MotionPage className="space-y-6">
+      <LayoutGroup id="dashboard-mode-layout">
+        <DashboardShell header={header}>
+          {dashboardMode === "ceo" ? (
+            <MotionList className="grid gap-6 md:grid-cols-2 xl:grid-cols-12">
+              <MotionListItem className="md:col-span-1 xl:col-span-8">
               <HeroSummaryCard
                 greeting={`Hi, ${greetingName}!`}
                 subtitle="Resumo de hoje com foco em pipeline, risco e execução sem ruído operacional."
@@ -513,46 +510,46 @@ export default function DashboardHome() {
                 primaryCta={{ href: "/app/projects/new", label: "Novo Projeto" }}
                 secondaryCta={{ href: "/app/projects/new", label: "Novo Orçamento" }}
               />
-            </div>
+              </MotionListItem>
 
-            <div className="md:col-span-1 xl:col-span-4">
+              <MotionListItem className="md:col-span-1 xl:col-span-4">
               <DarkCalendarCard events={scheduleItems} feedHref="/api/calendar/feed.ics" />
-            </div>
+              </MotionListItem>
 
-            <div className="md:col-span-1 xl:col-span-4">
+              <MotionListItem className="md:col-span-1 xl:col-span-4">
               <ChartCard title="Forecast" subtitle="Receita projetada">
                 <ForecastLine data={forecastData} />
               </ChartCard>
-            </div>
+              </MotionListItem>
 
-            <div className="md:col-span-1 xl:col-span-3">
+              <MotionListItem className="md:col-span-1 xl:col-span-3">
               <ListCard title="Pipeline" subtitle="Hot / Follow-up / Waiting" rows={pipelineRows} />
-            </div>
+              </MotionListItem>
 
-            <div className="md:col-span-2 xl:col-span-5">
+              <MotionListItem className="md:col-span-2 xl:col-span-5">
               <ListCard title="Inbox / Updates" subtitle="5 itens mais recentes" rows={inboxRows} />
-            </div>
+              </MotionListItem>
 
-            <div className="md:col-span-1 xl:col-span-7">
+              <MotionListItem className="md:col-span-1 xl:col-span-7">
               <ScheduleCard items={scheduleItems.slice(0, 5)} />
-            </div>
+              </MotionListItem>
 
-            <div className="md:col-span-1 xl:col-span-5">
+              <MotionListItem className="md:col-span-1 xl:col-span-5">
               <DarkInsightCard alerts={alerts} />
-            </div>
+              </MotionListItem>
 
-            <div className="md:col-span-1 xl:col-span-6">
+              <MotionListItem className="md:col-span-1 xl:col-span-6">
               <ChartCard title="Composição de Custos" subtitle="Distribuição por categoria">
                 <CostDonut data={donutData} />
               </ChartCard>
-            </div>
+              </MotionListItem>
 
-            <div className="md:col-span-1 xl:col-span-6">
+              <MotionListItem className="md:col-span-1 xl:col-span-6">
               <ListCard title="Tarefas do dia" subtitle="Top 5 por prioridade de prazo" rows={tasksTodayRows} />
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-6">
+              </MotionListItem>
+            </MotionList>
+          ) : (
+            <div className="space-y-6">
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <CompactKpiCard label="Projetos ativos" value={String(stats.activeProjects)} hint="Operação em curso" />
               <CompactKpiCard label="Entregas semana" value={String(callsheetsCount)} hint="Call sheets e entregas" />
@@ -560,42 +557,43 @@ export default function DashboardHome() {
               <CompactKpiCard label="Margem média" value={`${stats.avgMargin.toFixed(1)}%`} hint="Projetos recentes" />
             </div>
 
-            <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-12">
-              <div className="md:col-span-1 xl:col-span-4">
+              <MotionList className="grid gap-6 md:grid-cols-2 xl:grid-cols-12">
+                <MotionListItem className="md:col-span-1 xl:col-span-4">
                 <ListCard title="Callsheets recentes" subtitle="Últimas operações" rows={callsheetRows} />
-              </div>
+                </MotionListItem>
 
-              <div className="md:col-span-1 xl:col-span-4">
+                <MotionListItem className="md:col-span-1 xl:col-span-4">
                 <ListCard title="Logística / Weather" subtitle="Estado técnico" rows={companyOpsRows} />
-              </div>
+                </MotionListItem>
 
-              <div className="md:col-span-2 xl:col-span-4">
+                <MotionListItem className="md:col-span-2 xl:col-span-4">
                 <DarkInsightCard alerts={alerts} />
-              </div>
+                </MotionListItem>
 
-              <div className="md:col-span-2 xl:col-span-7">
+                <MotionListItem className="md:col-span-2 xl:col-span-7">
                 <CompactTableCard rows={tableRows} />
-              </div>
+                </MotionListItem>
 
-              <div className="md:col-span-1 xl:col-span-5">
+                <MotionListItem className="md:col-span-1 xl:col-span-5">
                 <ChartCard title="Forecast operacional" subtitle="Volume mensal">
                   <ForecastLine data={forecastData} />
                 </ChartCard>
-              </div>
+                </MotionListItem>
 
-              <div className="md:col-span-1 xl:col-span-5">
+                <MotionListItem className="md:col-span-1 xl:col-span-5">
                 <ChartCard title="Mix de custos" subtitle="Custos dos projetos ativos">
                   <CostDonut data={donutData} />
                 </ChartCard>
-              </div>
+                </MotionListItem>
 
-              <div className="md:col-span-1 xl:col-span-7">
+                <MotionListItem className="md:col-span-1 xl:col-span-7">
                 <ListCard title="Aprovações e conversas" subtitle="Follow-up em progresso" rows={inboxRows} />
-              </div>
+                </MotionListItem>
+              </MotionList>
             </div>
-          </div>
-        )}
-      </DashboardShell>
-    </motion.div>
+          )}
+        </DashboardShell>
+      </LayoutGroup>
+    </MotionPage>
   );
 }

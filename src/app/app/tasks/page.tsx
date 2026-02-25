@@ -1,12 +1,14 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
+import { AnimatePresence } from "framer-motion";
 import {
   Plus, X, Loader2, Mic,
   Flag, Calendar, GripVertical,
 } from "lucide-react";
 import { VoiceButton } from "@/components/VoiceButton";
 import { useToast } from "@/components/Toast";
+import { MotionList, MotionListItem, MotionPage } from "@/components/motion-system";
 
 interface Task {
   id: string;
@@ -214,7 +216,7 @@ export default function TasksPage() {
   );
 
   return (
-    <div className="space-y-6">
+    <MotionPage className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="page-title">Tarefas</h1>
@@ -254,7 +256,7 @@ export default function TasksPage() {
       )}
 
       {/* Kanban columns */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <MotionList className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {COLUMNS.map(col => {
           const colTasks = tasks
             .filter(t => t.status === col.id)
@@ -272,7 +274,7 @@ export default function TasksPage() {
             : "var(--border)";
 
           return (
-            <div
+            <MotionListItem
               key={col.id}
               onDragOver={e => handleDragOver(e, col.id)}
               onDrop={e => handleDrop(e, col.id)}
@@ -346,11 +348,12 @@ export default function TasksPage() {
 
               {/* Task cards */}
               <div className="space-y-2">
-                {colTasks.map(task => (
-                  <div
-                    key={task.id}
-                    className="relative overflow-hidden rounded-xl"
-                  >
+                <AnimatePresence initial={false}>
+                  {colTasks.map(task => (
+                    <MotionListItem
+                      key={task.id}
+                      className="relative overflow-hidden rounded-xl"
+                    >
                     {/* Swipe delete background */}
                     <div
                       className="absolute inset-y-0 right-0 flex items-center justify-center w-20 rounded-r-xl"
@@ -404,13 +407,14 @@ export default function TasksPage() {
                       </button>
                     </div>
                   </div>
-                  </div>
-                ))}
+                    </MotionListItem>
+                  ))}
+                </AnimatePresence>
               </div>
-            </div>
+            </MotionListItem>
           );
         })}
-      </div>
-    </div>
+      </MotionList>
+    </MotionPage>
   );
 }

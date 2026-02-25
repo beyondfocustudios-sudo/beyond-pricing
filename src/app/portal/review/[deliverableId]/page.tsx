@@ -3,7 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
-import { motion } from "framer-motion";
+import { AnimatePresence, LayoutGroup } from "framer-motion";
 import {
   AlertCircle,
   Check,
@@ -22,7 +22,11 @@ import {
   Sparkles,
   XCircle,
 } from "lucide-react";
-import { buttonMotionProps, transitions, useMotionEnabled, variants } from "@/lib/motion";
+import { buttonMotionProps, useMotionEnabled } from "@/lib/motion";
+import { CopyToast, MotionList, MotionListItem, MotionPage, SavedCheckmark } from "@/components/motion-system";
+import { useMotionConfig } from "@/lib/motion-config";
+import { fireCelebration } from "@/lib/celebration";
+import { useOptionalSmoothScroll } from "@/lib/smooth-scroll";
 
 type Version = {
   id: string;
@@ -113,6 +117,7 @@ export default function PortalReviewPage() {
   const searchParams = useSearchParams();
   const initialVersionId = searchParams.get("v") ?? "";
   const motionEnabled = useMotionEnabled();
+  const { enableCelebrations, enableSmoothScroll } = useMotionConfig();
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
@@ -139,12 +144,16 @@ export default function PortalReviewPage() {
   const [compareEnabled, setCompareEnabled] = useState(false);
   const [compareVersionId, setCompareVersionId] = useState<string>("");
   const [approvalSigner, setApprovalSigner] = useState("");
+  const [approvalSaved, setApprovalSaved] = useState(false);
+  const [showCopyToast, setShowCopyToast] = useState(false);
   const [approvalChecklist, setApprovalChecklist] = useState({
     sound: false,
     color: false,
     text: false,
     branding: false,
   });
+
+  useOptionalSmoothScroll(enableSmoothScroll);
 
   const loadThreads = useCallback(async (versionId: string) => {
     const res = await fetch(`/api/review/threads?versionId=${encodeURIComponent(versionId)}`, { cache: "no-store" });
@@ -392,6 +401,11 @@ export default function PortalReviewPage() {
       setApprovalSigner("");
       setApprovalChecklist({ sound: false, color: false, text: false, branding: false });
       setMessage(decision === "approved" ? "Versão aprovada." : "Pedido de alterações enviado.");
+      setApprovalSaved(decision === "approved");
+      if (decision === "approved") {
+        await fireCelebration("deliverable_approved", enableCelebrations);
+        window.setTimeout(() => setApprovalSaved(false), 2200);
+      }
       await loadDeliverable(selectedVersionId);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Falha ao registar aprovação.");
@@ -452,6 +466,8 @@ export default function PortalReviewPage() {
   const copyShareLink = async () => {
     if (!shareUrl) return;
     await navigator.clipboard.writeText(shareUrl);
+    setShowCopyToast(true);
+    window.setTimeout(() => setShowCopyToast(false), 1500);
     setMessage("Link copiado para a área de transferência.");
   };
 
@@ -520,13 +536,8 @@ export default function PortalReviewPage() {
   }
 
   return (
-    <motion.div
-      initial={motionEnabled ? "initial" : false}
-      animate={motionEnabled ? "animate" : undefined}
-      variants={variants.page}
-      transition={transitions.page}
-      className="space-y-5"
-    >
+    <MotionPage className="space-y-5">
+      <LayoutGroup id="portal-review-layout">
       <header className="card-glass rounded-[28px] border px-5 py-4 md:px-6" style={{ borderColor: "var(--border-soft)" }}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -738,6 +749,9 @@ export default function PortalReviewPage() {
                   Pedir alterações
                 </button>
               </div>
+              <div className="mt-2">
+                <SavedCheckmark show={approvalSaved} label="Approval guardada" />
+              </div>
 
               {payload.approvals.length > 0 ? (
                 <div className="mt-4 space-y-2">
@@ -787,25 +801,22 @@ export default function PortalReviewPage() {
               </div>
             </div>
 
-            <div className="mt-3 max-h-[52vh] space-y-3 overflow-y-auto pr-1">
+            <MotionList className="mt-3 max-h-[52vh] space-y-3 overflow-y-auto pr-1">
               {threads.length === 0 ? (
                 <div className="rounded-2xl border p-4 text-sm" style={{ borderColor: "var(--border)", color: "var(--text-2)" }}>
                   Sem comentários nesta versão.
                 </div>
               ) : (
-                threads.map((thread) => {
+                <AnimatePresence initial={false}>
+                {threads.map((thread) => {
                   const firstComment = thread.review_comments[0];
                   const isSelected = selectedThreadId === thread.id;
                   const resolving = busyAction === `thread-${thread.id}`;
                   const replying = busyAction === `reply-${thread.id}`;
 
                   return (
-                    <motion.div
+                    <MotionListItem
                       key={thread.id}
-                      layout
-                      initial={motionEnabled ? { opacity: 0, y: 6 } : false}
-                      animate={motionEnabled ? { opacity: 1, y: 0 } : undefined}
-                      transition={transitions.smooth}
                       className="rounded-2xl border p-3"
                       style={{ borderColor: isSelected ? "var(--accent-primary)" : "var(--border)" }}
                     >
@@ -863,11 +874,12 @@ export default function PortalReviewPage() {
                           {replying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MessageSquare className="h-3.5 w-3.5" />}
                         </button>
                       </div>
-                    </motion.div>
+                    </MotionListItem>
                   );
-                })
+                })}
+                </AnimatePresence>
               )}
-            </div>
+            </MotionList>
           </div>
 
           {payload.access.canWrite ? (
@@ -944,6 +956,8 @@ export default function PortalReviewPage() {
       <div className="text-xs" style={{ color: "var(--text-3)" }}>
         <span className="inline-flex items-center gap-1"><PauseCircle className="h-3.5 w-3.5" /> Estado estável: loading/error/empty tratados.</span>
       </div>
-    </motion.div>
+      <CopyToast show={showCopyToast} />
+      </LayoutGroup>
+    </MotionPage>
   );
 }

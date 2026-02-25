@@ -13,6 +13,8 @@ export type AssistantSettings = {
   enableHqAssistant: boolean;
   enableAiAssistant: boolean;
   aiWeeklyLimit: number;
+  enableCelebrations: boolean;
+  enableSmoothScroll: boolean;
 };
 
 export type AudienceRole = "owner" | "admin" | "member" | "client" | "collaborator" | "unknown";
@@ -28,7 +30,7 @@ export function weekStartISO(date = new Date()) {
 export async function getAssistantSettings(supabase: SupabaseClient): Promise<AssistantSettings> {
   const { data } = await supabase
     .from("org_settings")
-    .select("enable_hq_assistant, enable_ai_assistant, ai_weekly_limit")
+    .select("enable_hq_assistant, enable_ai_assistant, ai_weekly_limit, enable_celebrations, enable_smooth_scroll")
     .limit(1)
     .maybeSingle();
 
@@ -36,6 +38,8 @@ export async function getAssistantSettings(supabase: SupabaseClient): Promise<As
     enableHqAssistant: data?.enable_hq_assistant !== false,
     enableAiAssistant: data?.enable_ai_assistant === true,
     aiWeeklyLimit: Number(data?.ai_weekly_limit ?? 50) > 0 ? Number(data?.ai_weekly_limit ?? 50) : 50,
+    enableCelebrations: data?.enable_celebrations !== false,
+    enableSmoothScroll: data?.enable_smooth_scroll === true,
   };
 }
 
