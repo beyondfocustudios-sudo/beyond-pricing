@@ -16,28 +16,52 @@ export async function GET(req: NextRequest) {
     return new Response("Not authenticated", { status: 401 });
   }
 
-  const source = req.nextUrl.searchParams.get("source");
   const id = req.nextUrl.searchParams.get("id");
   let event: IcsEvent | null = null;
 
-  if (source === "task" && id) {
-    const { data: task } = await sb
-      .from("tasks")
-      .select("id, title, due_date")
+  if (id) {
+    const calendarRes = await sb
+      .from("calendar_events")
+      .select("id, title, description, location, starts_at, ends_at")
       .eq("id", id)
       .eq("user_id", user.id)
-      .single();
+      .is("deleted_at", null)
+      .maybeSingle();
 
-    if (task?.due_date) {
-      const start = parseDate(task.due_date);
-      if (start) {
+    if (!calendarRes.error && calendarRes.data) {
+      const startsAt = parseDate(calendarRes.data.starts_at);
+      const endsAt = parseDate(calendarRes.data.ends_at);
+      if (startsAt && endsAt) {
         event = {
-          uid: `task-${task.id}@beyond-pricing`,
-          summary: `Task: ${task.title}`,
-          description: "Evento exportado do Beyond Pricing",
-          start,
-          end: new Date(start.getTime() + 45 * 60 * 1000),
+          uid: `calendar-event-${calendarRes.data.id}@beyond-pricing`,
+          summary: calendarRes.data.title,
+          description: calendarRes.data.description ?? "Evento exportado do Beyond Pricing",
+          location: calendarRes.data.location ?? undefined,
+          start: startsAt,
+          end: endsAt,
         };
+      }
+    }
+
+    if (!event) {
+      const { data: task } = await sb
+        .from("tasks")
+        .select("id, title, due_date")
+        .eq("id", id)
+        .eq("user_id", user.id)
+        .single();
+
+      if (task?.due_date) {
+        const start = parseDate(task.due_date);
+        if (start) {
+          event = {
+            uid: `task-${task.id}@beyond-pricing`,
+            summary: `Task: ${task.title}`,
+            description: "Evento exportado do Beyond Pricing",
+            start,
+            end: new Date(start.getTime() + 45 * 60 * 1000),
+          };
+        }
       }
     }
   } else {
@@ -68,7 +92,7 @@ export async function GET(req: NextRequest) {
     status: 200,
     headers: {
       "Content-Type": "text/calendar; charset=utf-8",
-      "Content-Disposition": "attachment; filename=\"beyond-event.ics\"",
+      "Content-Disposition": "attachment; filename=\"event.ics\"",
       "Cache-Control": "no-store",
     },
   });
