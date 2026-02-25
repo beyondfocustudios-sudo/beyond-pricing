@@ -13,5 +13,5 @@ export default async function AppOnboardingPage() {
     redirect("/portal/login?mismatch=1");
   }
 
-  return <OnboardingWizard scope={access.isCollaborator && !access.isTeam ? "collaborator" : "team"} />;
+  return <OnboardingWizard scope={access.isCollaborator && !access.isTeam ? "app_collab" : "app_team"} />;
 }

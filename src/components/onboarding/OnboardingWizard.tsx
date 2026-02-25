@@ -7,7 +7,12 @@ import confetti from "canvas-confetti";
 import { CheckCircle2, ChevronLeft, ChevronRight, ShieldCheck, Sparkles, Users } from "lucide-react";
 import { MotionCard, MotionPage, Pressable } from "@/components/motion-system";
 import { transitions, variants } from "@/lib/motion";
-import { onboardingDonePathForScope, ONBOARDING_TOTAL_STEPS, type OnboardingScope } from "@/lib/onboarding";
+import {
+  onboardingDonePathForScope,
+  onboardingLocalDoneKey,
+  ONBOARDING_TOTAL_STEPS,
+  type OnboardingScope,
+} from "@/lib/onboarding";
 import { cn } from "@/lib/utils";
 
 type TeamDirectoryMember = {
@@ -49,18 +54,18 @@ const DIRECTORY: TeamDirectoryMember[] = [
 ];
 
 const CHECKLIST_BY_SCOPE: Record<OnboardingScope, Array<{ id: string; label: string; href?: string }>> = {
-  team: [
+  app_team: [
     { id: "open_dashboard", label: "Abrir dashboard CEO/Empresa", href: "/app/dashboard" },
     { id: "create_project", label: "Criar o primeiro projeto", href: "/app/projects/new" },
     { id: "open_inbox", label: "Confirmar inbox operacional", href: "/app/inbox" },
     { id: "review_tasks", label: "Validar board de tarefas", href: "/app/tasks" },
   ],
-  collaborator: [
+  app_collab: [
     { id: "open_assigned_projects", label: "Ver projetos atribuídos", href: "/app/projects" },
     { id: "open_tasks", label: "Rever tarefas atribuídas", href: "/app/tasks" },
     { id: "open_inbox", label: "Confirmar inbox do projeto", href: "/app/inbox" },
   ],
-  client: [
+  portal_client: [
     { id: "open_portal_projects", label: "Ver projetos no portal", href: "/portal" },
     { id: "open_review", label: "Abrir área de aprovações" },
     { id: "send_feedback", label: "Comentar uma versão com timestamp" },
@@ -85,34 +90,36 @@ export function OnboardingWizard({ scope }: { scope: OnboardingScope }) {
   const [activeValue, setActiveValue] = useState(VALUES[0].id);
   const celebrationFired = useRef(false);
 
+  const isClientScope = scope === "portal_client";
+  const isCollaboratorScope = scope === "app_collab";
   const checklistItems = CHECKLIST_BY_SCOPE[scope];
   const checklistDone = checklistItems.filter((item) => checklist[item.id]).length;
   const checklistPct = checklistItems.length > 0 ? Math.round((checklistDone / checklistItems.length) * 100) : 0;
 
-  const welcomeTitle = scope === "client"
+  const welcomeTitle = isClientScope
     ? "Bem-vindo ao Portal Beyond"
-    : scope === "collaborator"
+    : isCollaboratorScope
       ? "Bem-vindo à Equipa Beyond"
       : "Bem-vindo ao HQ Beyond";
 
-  const subtitle = scope === "client"
+  const subtitle = isClientScope
     ? "Vamos configurar o teu fluxo de aprovações e feedback sem fricção."
-    : scope === "collaborator"
+    : isCollaboratorScope
       ? "Configura o teu espaço de colaboração e entrega."
       : "Prepara o ambiente da equipa para execução com contexto completo.";
 
   const directoryAreas = useMemo(() => {
-    if (scope === "client") return [];
-    if (scope === "collaborator") return ["Produção"];
+    if (isClientScope) return [];
+    if (isCollaboratorScope) return ["Produção"];
     return ["Produção", "Criativo", "Operações"] as const;
-  }, [scope]);
+  }, [isClientScope, isCollaboratorScope]);
   const [activeArea, setActiveArea] = useState<string>(directoryAreas[0] ?? "Produção");
 
   const filteredDirectory = useMemo(() => {
-    if (scope === "client") return [];
-    if (scope === "collaborator") return DIRECTORY.filter((m) => m.area === "Produção");
+    if (isClientScope) return [];
+    if (isCollaboratorScope) return DIRECTORY.filter((m) => m.area === "Produção");
     return DIRECTORY.filter((m) => m.area === activeArea);
-  }, [activeArea, scope]);
+  }, [activeArea, isClientScope, isCollaboratorScope]);
 
   const persist = async (payload: {
     currentStep?: number;
@@ -120,7 +127,7 @@ export function OnboardingWizard({ scope }: { scope: OnboardingScope }) {
     policiesSeen?: string[];
     checklist?: Record<string, boolean>;
     complete?: boolean;
-  }) => {
+  }): Promise<boolean> => {
     setSaving(true);
     setError(null);
     try {
@@ -140,8 +147,10 @@ export function OnboardingWizard({ scope }: { scope: OnboardingScope }) {
         const data = await res.json().catch(() => ({} as { error?: string }));
         throw new Error(data.error ?? "Falha ao guardar progresso");
       }
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao guardar progresso");
+      return false;
     } finally {
       setSaving(false);
     }
@@ -150,10 +159,17 @@ export function OnboardingWizard({ scope }: { scope: OnboardingScope }) {
   useEffect(() => {
     let active = true;
 
+    const fetchSession = async (attempt = 0): Promise<Response> => {
+      const response = await fetch(`/api/onboarding/session?scope=${scope}&mode=${scope}`, { cache: "no-store" });
+      if (response.ok || attempt >= 1) return response;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      return fetchSession(attempt + 1);
+    };
+
     const load = async () => {
       setLoading(true);
       setError(null);
-      const res = await fetch(`/api/onboarding/session?scope=${scope}&mode=${scope}`, { cache: "no-store" });
+      const res = await fetchSession();
       if (!active) return;
       if (!res.ok) {
         const data = await res.json().catch(() => ({} as { error?: string }));
@@ -163,6 +179,11 @@ export function OnboardingWizard({ scope }: { scope: OnboardingScope }) {
       }
       const data = await res.json();
       if (!active) return;
+      if (data?.available === false) {
+        setError(data.warningMessage ?? "Onboarding indisponível neste momento.");
+        setLoading(false);
+        return;
+      }
       setStep(Math.max(1, Number(data?.session?.currentStep ?? 1)));
       setEnableCelebrations(data?.enableCelebrations !== false);
       setValuesSeen(Array.isArray(data?.progress?.values_seen) ? data.progress.values_seen : []);
@@ -195,13 +216,17 @@ export function OnboardingWizard({ scope }: { scope: OnboardingScope }) {
   };
 
   const completeOnboarding = async () => {
-    await persist({
+    const ok = await persist({
       currentStep: ONBOARDING_TOTAL_STEPS,
       valuesSeen,
       policiesSeen,
       checklist,
       complete: true,
     });
+    if (!ok) return;
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(onboardingLocalDoneKey(scope), String(Date.now()));
+    }
     router.push(onboardingDonePathForScope(scope));
     router.refresh();
   };
@@ -316,7 +341,7 @@ export function OnboardingWizard({ scope }: { scope: OnboardingScope }) {
             <div className="space-y-3">
               <h2 className="text-xl font-semibold" style={{ color: "var(--text)" }}>Policies</h2>
               {POLICIES
-                .filter((policy) => scope !== "collaborator" || policy.id !== "security")
+                .filter((policy) => !isCollaboratorScope || policy.id !== "security")
                 .map((policy) => {
                   const open = policiesSeen.includes(policy.id);
                   return (
@@ -344,7 +369,7 @@ export function OnboardingWizard({ scope }: { scope: OnboardingScope }) {
           {step === 4 ? (
             <div className="space-y-3">
               <h2 className="text-xl font-semibold" style={{ color: "var(--text)" }}>Meet the Team</h2>
-              {scope !== "client" ? (
+              {!isClientScope ? (
                 <>
                   <div className="flex flex-wrap gap-2">
                     {directoryAreas.map((area) => (

@@ -13,5 +13,5 @@ export default async function PortalOnboardingPage() {
     redirect(access.isCollaborator ? "/app/collaborator" : "/app/dashboard");
   }
 
-  return <OnboardingWizard scope="client" />;
+  return <OnboardingWizard scope="portal_client" />;
 }

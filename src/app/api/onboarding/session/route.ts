@@ -17,6 +17,27 @@ type SessionBody = {
   checklist?: Record<string, boolean>;
 };
 
+type DbErrorLike = {
+  code?: string;
+  message?: string;
+  details?: string;
+} | null;
+
+function isSchemaCacheError(error: DbErrorLike) {
+  const text = `${error?.message ?? ""} ${error?.details ?? ""}`.toLowerCase();
+  return error?.code === "PGRST205"
+    || error?.code === "42P01"
+    || text.includes("schema cache")
+    || text.includes("could not find the table");
+}
+
+function devLog(message: string, error?: DbErrorLike) {
+  if (process.env.NODE_ENV !== "production") {
+    // Keep detailed logs in dev only.
+    console.warn("[api/onboarding/session]", message, error ?? "");
+  }
+}
+
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -44,6 +65,34 @@ export async function GET(request: NextRequest) {
       .maybeSingle(),
   ]);
 
+  const onboardingError = sessionRes.error ?? progressRes.error;
+  if (onboardingError) {
+    const schemaUnavailable = isSchemaCacheError(onboardingError);
+    devLog("onboarding read degraded to non-blocking mode", onboardingError);
+    return NextResponse.json({
+      ok: true,
+      available: false,
+      scope,
+      required: false,
+      targetPath: onboardingPathForScope(scope),
+      forceOnboarding: false,
+      enableCelebrations: settingsRes.data?.enable_celebrations !== false,
+      warningCode: schemaUnavailable ? "schema_unavailable" : "read_error",
+      warningMessage: "Onboarding indisponível. Acesso normal à plataforma permitido.",
+      session: {
+        currentStep: 1,
+        completedAt: null,
+      },
+      progress: {
+        ...createDefaultProgress(),
+      },
+    });
+  }
+
+  if (settingsRes.error) {
+    devLog("org_settings read failed, using safe defaults", settingsRes.error);
+  }
+
   const currentStep = Math.max(1, Math.min(ONBOARDING_TOTAL_STEPS, Number(sessionRes.data?.current_step ?? 1)));
   const completedAt = sessionRes.data?.completed_at ?? null;
   const forceOnboarding = settingsRes.data?.force_onboarding === true;
@@ -52,6 +101,7 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     ok: true,
+    available: true,
     scope,
     required,
     targetPath: onboardingPathForScope(scope),
@@ -96,6 +146,20 @@ export async function POST(request: NextRequest) {
       .eq("scope", scope)
       .maybeSingle(),
   ]);
+
+  const existingError = existingSessionRes.error ?? existingProgressRes.error;
+  if (existingError) {
+    const schemaUnavailable = isSchemaCacheError(existingError);
+    devLog("onboarding write prefetch failed", existingError);
+    return NextResponse.json(
+      {
+        error: "Onboarding indisponível de momento. Continua a navegar e tenta novamente.",
+        warningCode: schemaUnavailable ? "schema_unavailable" : "read_error",
+      },
+      { status: 503 },
+    );
+  }
+
   const existingProgress = existingProgressRes.data;
 
   const mergedSteps = {
@@ -145,10 +209,30 @@ export async function POST(request: NextRequest) {
   ]);
 
   if (sessionUpsert.error) {
-    return NextResponse.json({ error: sessionUpsert.error.message }, { status: 400 });
+    const schemaUnavailable = isSchemaCacheError(sessionUpsert.error);
+    devLog("session upsert failed", sessionUpsert.error);
+    return NextResponse.json(
+      {
+        error: schemaUnavailable
+          ? "Onboarding indisponível de momento. Continua a navegar e tenta novamente."
+          : sessionUpsert.error.message,
+        warningCode: schemaUnavailable ? "schema_unavailable" : "write_error",
+      },
+      { status: schemaUnavailable ? 503 : 400 },
+    );
   }
   if (progressUpsert.error) {
-    return NextResponse.json({ error: progressUpsert.error.message }, { status: 400 });
+    const schemaUnavailable = isSchemaCacheError(progressUpsert.error);
+    devLog("progress upsert failed", progressUpsert.error);
+    return NextResponse.json(
+      {
+        error: schemaUnavailable
+          ? "Onboarding indisponível de momento. Continua a navegar e tenta novamente."
+          : progressUpsert.error.message,
+        warningCode: schemaUnavailable ? "schema_unavailable" : "write_error",
+      },
+      { status: schemaUnavailable ? 503 : 400 },
+    );
   }
 
   return NextResponse.json({
