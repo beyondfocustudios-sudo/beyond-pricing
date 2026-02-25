@@ -101,6 +101,16 @@ export async function POST(request: NextRequest) {
   const expiresAt = new Date(Date.now() + Math.max(1, Math.min(30, expiresInDays)) * 24 * 60 * 60 * 1000).toISOString();
 
   const admin = createServiceClient();
+  const { data: clientRow } = await admin
+    .from("clients")
+    .select("id, deleted_at")
+    .eq("id", clientId)
+    .maybeSingle();
+
+  if (!clientRow || clientRow.deleted_at) {
+    return NextResponse.json({ error: "Cliente não encontrado ou inativo." }, { status: 404 });
+  }
+
   const { error: inviteError } = await admin.from("client_invites").insert({
     client_id: clientId,
     email,

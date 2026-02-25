@@ -112,8 +112,12 @@ export async function middleware(request: NextRequest) {
   if (user && (pathname.startsWith("/app") || pathname.startsWith("/portal"))) {
     const access = await resolveAccess();
     if (!access) return supabaseResponse;
+    const impersonationToken = request.nextUrl.searchParams.get("impersonate");
 
     if (pathname.startsWith("/portal")) {
+      if (impersonationToken && access.isTeam) {
+        return supabaseResponse;
+      }
       if (!access.isClient) {
         const url = request.nextUrl.clone();
         url.pathname = defaultAppPathForRole(access.role);
