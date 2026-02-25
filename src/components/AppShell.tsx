@@ -17,6 +17,7 @@ import {
   Building2,
 } from "lucide-react";
 import { useState } from "react";
+import { BuildStamp } from "@/components/BuildStamp";
 
 const NAV_ITEMS = [
   {
@@ -235,7 +236,10 @@ export function AppShell({
 
         {/* Main content */}
         <main className="flex-1 overflow-auto pb-20">
-          <div className="px-4 py-5 md:px-8 md:py-8">{children}</div>
+          <div className="px-4 py-5 md:px-8 md:py-8">
+            {children}
+            <BuildStamp className="mt-6 text-center" />
+          </div>
         </main>
 
         {/* Mobile bottom nav */}
@@ -282,7 +286,10 @@ export function AppShell({
 
       {/* ── Desktop main content ─────────────────────── */}
       <main className="hidden md:flex flex-1 flex-col min-w-0 overflow-auto">
-        <div className="flex-1 px-8 py-8">{children}</div>
+        <div className="flex min-h-full flex-col px-8 py-8">
+          <div className="flex-1">{children}</div>
+          <BuildStamp className="mt-8 text-right" />
+        </div>
       </main>
     </div>
   );

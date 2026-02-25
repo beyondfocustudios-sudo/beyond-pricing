@@ -9,6 +9,7 @@ import {
   Mail, Lock, Eye, EyeOff, ArrowRight, CheckCircle,
   AlertCircle, Zap, Hash, RefreshCw,
 } from "lucide-react";
+import { BuildStamp } from "@/components/BuildStamp";
 
 // ── Spinner ───────────────────────────────────────────────────
 function Spinner() {
@@ -576,6 +577,8 @@ function LoginPageInner() {
             : "Código de uso único. Sessão expira em 1 hora."}
         </p>
       </motion.div>
+
+      <BuildStamp className="mt-6 text-center" />
     </div>
   );
 }

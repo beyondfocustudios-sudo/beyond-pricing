@@ -32,6 +32,14 @@ export async function middleware(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
 
+  // ── Hard-disable legacy gateway routes ──────────────────────
+  const legacyLoginPaths = ["/login-gateway", "/gateway", "/role-gateway"];
+  if (legacyLoginPaths.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/login";
+    return NextResponse.redirect(url);
+  }
+
   // ── Public paths — always allow ─────────────────────────────
   const publicPaths = [
     "/auth/callback",
@@ -90,5 +98,15 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/app/:path*", "/login", "/portal/:path*", "/reset-password", "/auth/:path*"],
+  matcher: [
+    "/",
+    "/app/:path*",
+    "/login",
+    "/login-gateway/:path*",
+    "/gateway/:path*",
+    "/role-gateway/:path*",
+    "/portal/:path*",
+    "/reset-password",
+    "/auth/:path*",
+  ],
 };
