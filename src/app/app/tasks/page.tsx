@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { AnimatePresence } from "framer-motion";
 import {
   Plus, X, Loader2, Mic,
@@ -43,12 +43,93 @@ const PRIORITY_LABELS: Record<Task["priority"], string> = {
   urgent: "Urgente",
 };
 
+type TaskCardProps = {
+  task: Task;
+  draggedId: string | null;
+  swipeX: number;
+  onDelete: (id: string) => void;
+  onDragStart: (e: React.DragEvent, id: string) => void;
+  onTouchStart: (id: string, e: React.TouchEvent) => void;
+  onTouchMove: (id: string, e: React.TouchEvent) => void;
+  onTouchEnd: (id: string) => void;
+};
+
+const TaskCard = React.memo(function TaskCard({
+  task,
+  draggedId,
+  swipeX,
+  onDelete,
+  onDragStart,
+  onTouchStart,
+  onTouchMove,
+  onTouchEnd,
+}: TaskCardProps) {
+  return (
+    <MotionListItem className="relative overflow-hidden rounded-xl">
+      <div
+        className="absolute inset-y-0 right-0 flex items-center justify-center w-20 rounded-r-xl"
+        style={{ background: "var(--error)" }}
+        aria-hidden="true"
+      >
+        <X className="w-5 h-5 text-white" />
+      </div>
+      <div
+        draggable
+        onDragStart={(e) => onDragStart(e, task.id)}
+        onTouchStart={(e) => onTouchStart(task.id, e)}
+        onTouchMove={(e) => onTouchMove(task.id, e)}
+        onTouchEnd={() => onTouchEnd(task.id)}
+        style={{
+          transform: `translateX(${swipeX}px)`,
+          transition: swipeX ? "none" : "transform 0.2s ease",
+          background: "var(--surface)",
+          border: "1px solid var(--border)",
+          borderRadius: "var(--r-lg)",
+          opacity: draggedId === task.id ? 0.4 : 1,
+        }}
+        className="group relative p-3 cursor-grab active:cursor-grabbing transition-colors"
+        onMouseEnter={(e) => (e.currentTarget.style.borderColor = "var(--border-2)")}
+        onMouseLeave={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+      >
+        <div className="flex items-start gap-2">
+          <GripVertical className="w-3.5 h-3.5 mt-0.5 shrink-0" style={{ color: "var(--text-3)" }} />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm leading-snug truncate" style={{ color: "var(--text)" }}>{task.title}</p>
+            {task.description ? <p className="text-xs mt-0.5 line-clamp-2" style={{ color: "var(--text-3)" }}>{task.description}</p> : null}
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+              <span className="text-xs flex items-center gap-0.5" style={{ color: PRIORITY_COLORS[task.priority] }}>
+                <Flag className="w-3 h-3" />
+                {PRIORITY_LABELS[task.priority]}
+              </span>
+              {task.due_date ? (
+                <span className="text-xs flex items-center gap-0.5" style={{ color: "var(--text-3)" }}>
+                  <Calendar className="w-3 h-3" />
+                  {new Date(task.due_date).toLocaleDateString("pt-PT", { day: "2-digit", month: "short" })}
+                </span>
+              ) : null}
+            </div>
+          </div>
+          <button
+            onClick={() => onDelete(task.id)}
+            className="btn btn-ghost btn-icon-sm opacity-0 group-hover:opacity-100 shrink-0"
+            style={{ color: "var(--error)" }}
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+    </MotionListItem>
+  );
+});
+
 export default function TasksPage() {
   const toast = useToast();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState<Task["status"] | null>(null);
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [newTask, setNewTask] = useState({ title: "", description: "", priority: "medium" as Task["priority"], due_date: "" });
   const [saving, setSaving] = useState(false);
   const [voiceOpen, setVoiceOpen] = useState(false);
@@ -59,10 +140,16 @@ export default function TasksPage() {
   const [swipeX, setSwipeX] = useState<Record<string, number>>({});
   const touchStartX = React.useRef<Record<string, number>>({});
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim().toLowerCase()), 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
   const loadTasks = useCallback(async () => {
+    setLoading(true);
     setLoadError(null);
     try {
-      const res = await fetch("/api/tasks?limit=200");
+      const res = await fetch("/api/tasks?limit=80", { cache: "no-store" });
       if (res.ok) {
         const data = await res.json() as { tasks?: Task[] };
         setTasks(data.tasks ?? []);
@@ -72,44 +159,75 @@ export default function TasksPage() {
       }
     } catch {
       setLoadError("Sem ligação — não foi possível carregar tarefas");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
-  useEffect(() => { loadTasks(); }, [loadTasks]);
+  useEffect(() => { void loadTasks(); }, [loadTasks]);
+
+  const visibleTasks = useMemo(() => {
+    if (!debouncedSearch) return tasks;
+    return tasks.filter((task) =>
+      task.title.toLowerCase().includes(debouncedSearch)
+      || (task.description ?? "").toLowerCase().includes(debouncedSearch)
+    );
+  }, [tasks, debouncedSearch]);
 
   const addTask = async () => {
     if (!newTask.title.trim() || saving) return;
     setSaving(true);
-    const colTasks = tasks.filter(t => t.status === (showAdd ?? "todo"));
+
+    const status = showAdd ?? "todo";
+    const colTasks = tasks.filter((t) => t.status === status);
+    const optimisticId = `optimistic-${Date.now()}`;
+    const optimisticTask: Task = {
+      id: optimisticId,
+      title: newTask.title.trim(),
+      description: newTask.description.trim() || undefined,
+      status,
+      priority: newTask.priority,
+      due_date: newTask.due_date || undefined,
+      position: colTasks.length,
+    };
+
+    setTasks((prev) => [optimisticTask, ...prev]);
+    setNewTask({ title: "", description: "", priority: "medium", due_date: "" });
+    setShowAdd(null);
+
     const res = await fetch("/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        title: newTask.title,
-        description: newTask.description,
-        status: showAdd ?? "todo",
-        priority: newTask.priority,
-        due_date: newTask.due_date || null,
-        position: colTasks.length,
+        title: optimisticTask.title,
+        description: optimisticTask.description,
+        status,
+        priority: optimisticTask.priority,
+        due_date: optimisticTask.due_date ?? null,
+        position: optimisticTask.position,
       }),
     });
+
     if (!res.ok) {
       const err = await res.json().catch(() => ({})) as { error?: string };
+      setTasks((prev) => prev.filter((task) => task.id !== optimisticId));
       toast.error(err.error ?? "Erro ao criar tarefa");
       setSaving(false);
       return;
     }
-    setNewTask({ title: "", description: "", priority: "medium", due_date: "" });
-    setShowAdd(null);
+
+    const payload = await res.json() as { task?: Task };
+    if (payload.task) {
+      setTasks((prev) => prev.map((task) => (task.id === optimisticId ? payload.task! : task)));
+    }
+
     setSaving(false);
-    await loadTasks();
     toast.success("Tarefa criada");
   };
 
   const moveTask = async (taskId: string, newStatus: Task["status"]) => {
     const previous = tasks;
-    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
+    setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: newStatus } : t)));
     const res = await fetch("/api/tasks", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -126,7 +244,7 @@ export default function TasksPage() {
 
   const deleteTask = async (taskId: string) => {
     const previous = tasks;
-    setTasks(prev => prev.filter(t => t.id !== taskId));
+    setTasks((prev) => prev.filter((t) => t.id !== taskId));
     const res = await fetch(`/api/tasks?id=${taskId}`, { method: "DELETE" });
     if (!res.ok) {
       const err = await res.json().catch(() => ({})) as { error?: string };
@@ -147,21 +265,26 @@ export default function TasksPage() {
     });
     if (res.ok) {
       const { tasks: newTasks } = await res.json() as { tasks: Array<{ title: string; priority?: string }> };
-      for (const t of newTasks) {
+      const created: Task[] = [];
+      for (const parsed of newTasks) {
         const createRes = await fetch("/api/tasks", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: t.title, status: "todo", priority: t.priority ?? "medium", position: 0 }),
+          body: JSON.stringify({ title: parsed.title, status: "todo", priority: parsed.priority ?? "medium", position: 0 }),
         });
         if (!createRes.ok) {
           const err = await createRes.json().catch(() => ({})) as { error?: string };
           toast.error(err.error ?? "Erro ao criar tarefa por voz");
           break;
         }
+        const payload = await createRes.json() as { task?: Task };
+        if (payload.task) created.push(payload.task);
+      }
+      if (created.length > 0) {
+        setTasks((prev) => [...created, ...prev]);
       }
       setParseText("");
       setVoiceOpen(false);
-      await loadTasks();
       toast.success("Tarefas criadas a partir do texto");
     } else {
       const err = await res.json().catch(() => ({})) as { error?: string };
@@ -170,34 +293,36 @@ export default function TasksPage() {
     setParsing(false);
   };
 
-  // Swipe-to-delete (mobile)
   const handleTouchStart = (id: string, e: React.TouchEvent) => {
     touchStartX.current[id] = e.touches[0].clientX;
   };
+
   const handleTouchMove = (id: string, e: React.TouchEvent) => {
     const dx = e.touches[0].clientX - (touchStartX.current[id] ?? e.touches[0].clientX);
     if (dx < 0) setSwipeX((prev) => ({ ...prev, [id]: Math.max(dx, -80) }));
   };
+
   const handleTouchEnd = (id: string) => {
     const dx = swipeX[id] ?? 0;
     if (dx <= -60) {
-      deleteTask(id);
+      void deleteTask(id);
     }
     setSwipeX((prev) => ({ ...prev, [id]: 0 }));
   };
 
-  // Drag and drop handlers
   const handleDragStart = (e: React.DragEvent, id: string) => {
     setDraggedId(id);
     e.dataTransfer.effectAllowed = "move";
   };
+
   const handleDragOver = (e: React.DragEvent, col: Task["status"]) => {
     e.preventDefault();
     setDragOverCol(col);
   };
+
   const handleDrop = (e: React.DragEvent, col: Task["status"]) => {
     e.preventDefault();
-    if (draggedId) moveTask(draggedId, col);
+    if (draggedId) void moveTask(draggedId, col);
     setDraggedId(null);
     setDragOverCol(null);
   };
@@ -217,30 +342,40 @@ export default function TasksPage() {
 
   return (
     <MotionPage className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="page-title">Tarefas</h1>
           <p className="page-subtitle">{tasks.length} tarefa{tasks.length !== 1 ? "s" : ""}</p>
         </div>
-        <button
-          onClick={() => setVoiceOpen(o => !o)}
-          className="btn btn-secondary btn-sm"
-        >
-          <Mic className="w-4 h-4" />
-          Ditar tarefas
-        </button>
+
+        <div className="flex items-center gap-2">
+          <label className="table-search-pill w-[13rem]">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Pesquisar tarefa"
+              aria-label="Pesquisar tarefa"
+            />
+          </label>
+          <button
+            onClick={() => setVoiceOpen((open) => !open)}
+            className="btn btn-secondary btn-sm"
+          >
+            <Mic className="w-4 h-4" />
+            Ditar tarefas
+          </button>
+        </div>
       </div>
 
-      {/* Voice / parse panel */}
-      {voiceOpen && (
+      {voiceOpen ? (
         <div className="card space-y-3">
           <p className="text-sm" style={{ color: "var(--text-2)" }}>Dita ou escreve as tuas tarefas — uma por linha.</p>
           <VoiceButton
-            onInsert={text => setParseText(t => t ? t + " " + text : text)}
+            onInsert={(text) => setParseText((current) => (current ? `${current} ${text}` : text))}
           />
           <textarea
             value={parseText}
-            onChange={e => setParseText(e.target.value)}
+            onChange={(e) => setParseText(e.target.value)}
             placeholder={"Exemplo: Editar vídeo de Lisboa\nEnviar orçamento ao cliente\nPreparar call sheet"}
             rows={4}
             className="input w-full"
@@ -253,31 +388,30 @@ export default function TasksPage() {
             {parsing ? "A processar…" : "Criar tarefas"}
           </button>
         </div>
-      )}
+      ) : null}
 
-      {/* Kanban columns */}
       <MotionList className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {COLUMNS.map(col => {
-          const colTasks = tasks
-            .filter(t => t.status === col.id)
+        {COLUMNS.map((col) => {
+          const colTasks = visibleTasks
+            .filter((task) => task.status === col.id)
             .sort((a, b) => a.position - b.position);
 
           const colBg = col.id === "in_progress"
             ? "var(--pastel-blue)"
             : col.id === "done"
-            ? "var(--pastel-green)"
-            : "var(--surface-2)";
+              ? "var(--pastel-green)"
+              : "var(--surface-2)";
           const colBorder = col.id === "in_progress"
             ? "var(--pastel-blue-border)"
             : col.id === "done"
-            ? "var(--pastel-green-border)"
-            : "var(--border)";
+              ? "var(--pastel-green-border)"
+              : "var(--border)";
 
           return (
             <MotionListItem
               key={col.id}
-              onDragOver={e => handleDragOver(e, col.id)}
-              onDrop={e => handleDrop(e, col.id)}
+              onDragOver={(e) => handleDragOver(e, col.id)}
+              onDrop={(e) => handleDrop(e, col.id)}
               style={{
                 background: colBg,
                 border: `1px solid ${colBorder}`,
@@ -298,22 +432,21 @@ export default function TasksPage() {
                     {colTasks.length}
                   </span>
                 </div>
-                <button
-                  onClick={() => setShowAdd(col.id)}
-                  className="btn btn-ghost btn-icon-sm"
-                >
+                <button onClick={() => setShowAdd(col.id)} className="btn btn-ghost btn-icon-sm">
                   <Plus className="w-4 h-4" />
                 </button>
               </div>
 
-              {/* Add task form */}
-              {showAdd === col.id && (
+              {showAdd === col.id ? (
                 <div className="mb-3 rounded-xl p-3 space-y-2" style={{ background: "var(--surface)", border: "1px solid var(--border-2)" }}>
                   <input
                     autoFocus
                     value={newTask.title}
-                    onChange={e => setNewTask(n => ({ ...n, title: e.target.value }))}
-                    onKeyDown={e => { if (e.key === "Enter") addTask(); if (e.key === "Escape") setShowAdd(null); }}
+                    onChange={(e) => setNewTask((current) => ({ ...current, title: e.target.value }))}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void addTask();
+                      if (e.key === "Escape") setShowAdd(null);
+                    }}
                     placeholder="Título da tarefa…"
                     className="w-full bg-transparent text-sm focus:outline-none"
                     style={{ color: "var(--text)" }}
@@ -321,7 +454,7 @@ export default function TasksPage() {
                   <div className="flex gap-2">
                     <select
                       value={newTask.priority}
-                      onChange={e => setNewTask(n => ({ ...n, priority: e.target.value as Task["priority"] }))}
+                      onChange={(e) => setNewTask((current) => ({ ...current, priority: e.target.value as Task["priority"] }))}
                       className="input input-sm flex-1"
                     >
                       {Object.entries(PRIORITY_LABELS).map(([k, v]) => (
@@ -331,12 +464,12 @@ export default function TasksPage() {
                     <input
                       type="date"
                       value={newTask.due_date}
-                      onChange={e => setNewTask(n => ({ ...n, due_date: e.target.value }))}
+                      onChange={(e) => setNewTask((current) => ({ ...current, due_date: e.target.value }))}
                       className="input input-sm flex-1"
                     />
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={addTask} disabled={saving} className="btn btn-primary btn-sm flex-1">
+                    <button onClick={() => void addTask()} disabled={saving} className="btn btn-primary btn-sm flex-1">
                       {saving ? "…" : "Adicionar"}
                     </button>
                     <button onClick={() => setShowAdd(null)} className="btn btn-ghost btn-icon-sm">
@@ -344,70 +477,22 @@ export default function TasksPage() {
                     </button>
                   </div>
                 </div>
-              )}
+              ) : null}
 
-              {/* Task cards */}
               <div className="space-y-2">
                 <AnimatePresence initial={false}>
-                  {colTasks.map(task => (
-                    <MotionListItem
+                  {colTasks.map((task) => (
+                    <TaskCard
                       key={task.id}
-                      className="relative overflow-hidden rounded-xl"
-                    >
-                    {/* Swipe delete background */}
-                    <div
-                      className="absolute inset-y-0 right-0 flex items-center justify-center w-20 rounded-r-xl"
-                      style={{ background: "var(--error)" }}
-                      aria-hidden="true"
-                    >
-                      <X className="w-5 h-5 text-white" />
-                    </div>
-                  <div
-                    draggable
-                    onDragStart={e => handleDragStart(e, task.id)}
-                    onTouchStart={e => handleTouchStart(task.id, e)}
-                    onTouchMove={e => handleTouchMove(task.id, e)}
-                    onTouchEnd={() => handleTouchEnd(task.id)}
-                    style={{
-                      transform: `translateX(${swipeX[task.id] ?? 0}px)`,
-                      transition: swipeX[task.id] ? "none" : "transform 0.2s ease",
-                      background: "var(--surface)",
-                      border: "1px solid var(--border)",
-                      borderRadius: "var(--r-lg)",
-                      opacity: draggedId === task.id ? 0.4 : 1,
-                    }}
-                    className="group relative p-3 cursor-grab active:cursor-grabbing transition-colors"
-                    onMouseEnter={e => (e.currentTarget.style.borderColor = "var(--border-2)")}
-                    onMouseLeave={e => (e.currentTarget.style.borderColor = "var(--border)")}
-                  >
-                    <div className="flex items-start gap-2">
-                      <GripVertical className="w-3.5 h-3.5 mt-0.5 shrink-0" style={{ color: "var(--text-3)" }} />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm leading-snug" style={{ color: "var(--text)" }}>{task.title}</p>
-                        {task.description && <p className="text-xs mt-0.5 line-clamp-2" style={{ color: "var(--text-3)" }}>{task.description}</p>}
-                        <div className="flex items-center gap-2 mt-2 flex-wrap">
-                          <span className="text-xs flex items-center gap-0.5" style={{ color: PRIORITY_COLORS[task.priority] }}>
-                            <Flag className="w-3 h-3" />
-                            {PRIORITY_LABELS[task.priority]}
-                          </span>
-                          {task.due_date && (
-                            <span className="text-xs flex items-center gap-0.5" style={{ color: "var(--text-3)" }}>
-                              <Calendar className="w-3 h-3" />
-                              {new Date(task.due_date).toLocaleDateString("pt-PT", { day: "2-digit", month: "short" })}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => deleteTask(task.id)}
-                        className="btn btn-ghost btn-icon-sm opacity-0 group-hover:opacity-100 shrink-0"
-                        style={{ color: "var(--error)" }}
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                    </MotionListItem>
+                      task={task}
+                      draggedId={draggedId}
+                      swipeX={swipeX[task.id] ?? 0}
+                      onDelete={deleteTask}
+                      onDragStart={handleDragStart}
+                      onTouchStart={handleTouchStart}
+                      onTouchMove={handleTouchMove}
+                      onTouchEnd={handleTouchEnd}
+                    />
                   ))}
                 </AnimatePresence>
               </div>

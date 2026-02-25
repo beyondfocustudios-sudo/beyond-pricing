@@ -40,40 +40,95 @@ export default function PreferencesPage() {
   const [notifSaving, setNotifSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [notifSaved, setNotifSaved] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [cleanupLoading, setCleanupLoading] = useState(false);
+  const [cleanupResult, setCleanupResult] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
     const load = async () => {
-      const sb = createClient();
-      const { data: { user } } = await sb.auth.getUser();
-      if (!user) return;
-      const [{ data }, { data: userPrefs }] = await Promise.all([
-        sb.from("preferences").select("*").eq("user_id", user.id).single(),
-        sb.from("user_preferences").select("notification_prefs").eq("user_id", user.id).maybeSingle(),
-      ]);
-      if (data) {
+      try {
+        const sb = createClient();
+        const { data: { user } } = await sb.auth.getUser();
+        if (!user) {
+          setLoading(false);
+          return;
+        }
+
+        const [{ data, error: prefError }, { data: userPrefs }, roleRes] = await Promise.all([
+          sb.from("preferences").select("*").eq("user_id", user.id).maybeSingle(),
+          sb.from("user_preferences").select("notification_prefs").eq("user_id", user.id).maybeSingle(),
+          fetch("/api/admin/org-role").catch(() => null),
+        ]);
+
+        if (!data && !prefError) {
+          await sb.from("preferences").upsert(
+            { user_id: user.id, ...DEFAULT_PREFERENCES, updated_at: new Date().toISOString() },
+            { onConflict: "user_id" },
+          );
+        }
+
+        const source = data ?? DEFAULT_PREFERENCES;
         setPrefs({
-          iva_regime: data.iva_regime ?? DEFAULT_PREFERENCES.iva_regime,
-          overhead_pct: data.overhead_pct ?? DEFAULT_PREFERENCES.overhead_pct,
-          contingencia_pct: data.contingencia_pct ?? DEFAULT_PREFERENCES.contingencia_pct,
-          margem_alvo_pct: data.margem_alvo_pct ?? DEFAULT_PREFERENCES.margem_alvo_pct,
-          margem_minima_pct: data.margem_minima_pct ?? DEFAULT_PREFERENCES.margem_minima_pct,
-          investimento_pct: data.investimento_pct ?? DEFAULT_PREFERENCES.investimento_pct,
-          moeda: data.moeda ?? DEFAULT_PREFERENCES.moeda,
-          ai_tagging_enabled: (data as Record<string, unknown>).ai_tagging_enabled as boolean ?? false,
+          iva_regime: (source.iva_regime as IvaRegime | undefined) ?? DEFAULT_PREFERENCES.iva_regime,
+          overhead_pct: Number(source.overhead_pct ?? DEFAULT_PREFERENCES.overhead_pct),
+          contingencia_pct: Number(source.contingencia_pct ?? DEFAULT_PREFERENCES.contingencia_pct),
+          margem_alvo_pct: Number(source.margem_alvo_pct ?? DEFAULT_PREFERENCES.margem_alvo_pct),
+          margem_minima_pct: Number(source.margem_minima_pct ?? DEFAULT_PREFERENCES.margem_minima_pct),
+          investimento_pct: Number(source.investimento_pct ?? DEFAULT_PREFERENCES.investimento_pct),
+          moeda: String(source.moeda ?? DEFAULT_PREFERENCES.moeda),
+          ai_tagging_enabled: Boolean((source as Record<string, unknown>).ai_tagging_enabled ?? false),
         });
+
+        const rawPrefs = (userPrefs as { notification_prefs?: unknown } | null)?.notification_prefs;
+        if (rawPrefs && typeof rawPrefs === "object") {
+          setNotificationPrefs({
+            ...DEFAULT_NOTIFICATION_PREFS,
+            ...(rawPrefs as Partial<NotificationPrefs>),
+          });
+        } else {
+          await sb.from("user_preferences").upsert(
+            { user_id: user.id, notification_prefs: DEFAULT_NOTIFICATION_PREFS, updated_at: new Date().toISOString() },
+            { onConflict: "user_id" },
+          );
+        }
+
+        if (roleRes?.ok) {
+          const roleData = await roleRes.json() as { isAdmin?: boolean };
+          setIsAdmin(Boolean(roleData.isAdmin));
+        }
+      } catch {
+        setError("Falha ao carregar preferências.");
+      } finally {
+        setLoading(false);
       }
-      const rawPrefs = (userPrefs as { notification_prefs?: unknown } | null)?.notification_prefs;
-      if (rawPrefs && typeof rawPrefs === "object") {
-        setNotificationPrefs({
-          ...DEFAULT_NOTIFICATION_PREFS,
-          ...(rawPrefs as Partial<NotificationPrefs>),
-        });
-      }
-      setLoading(false);
     };
     load();
   }, []);
+
+  const handleCleanupTestProjects = async () => {
+    const confirmed = window.confirm("Confirmas a limpeza de projetos de teste (Novo Projeto / sem cliente e valor 0)?");
+    if (!confirmed) return;
+    setCleanupLoading(true);
+    setCleanupResult(null);
+    try {
+      const response = await fetch("/api/admin/cleanup-test-projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: true }),
+      });
+      const payload = await response.json().catch(() => ({})) as { message?: string; error?: string; affected?: number };
+      if (!response.ok) {
+        setError(payload.error ?? "Falha ao limpar projetos de teste");
+      } else {
+        setCleanupResult(payload.message ?? `Limpeza concluída (${payload.affected ?? 0} projetos).`);
+      }
+    } catch {
+      setError("Erro de rede durante limpeza de projetos de teste");
+    } finally {
+      setCleanupLoading(false);
+    }
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -232,6 +287,21 @@ export default function PreferencesPage() {
           Tags guardadas em metadata.tags — ficheiros Dropbox nunca são renomeados.
         </p>
       </div>
+
+      {isAdmin ? (
+        <div className="card space-y-3">
+          <div>
+            <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>Ferramentas Admin (CEO)</p>
+            <p className="text-xs mt-1" style={{ color: "var(--text-3)" }}>
+              Limpa projetos de teste com nome “Novo Projeto” e projetos vazios sem cliente/valor.
+            </p>
+          </div>
+          {cleanupResult ? <div className="alert alert-success">{cleanupResult}</div> : null}
+          <button onClick={handleCleanupTestProjects} disabled={cleanupLoading} className="btn btn-secondary">
+            {cleanupLoading ? "A limpar..." : "Limpar projetos de teste"}
+          </button>
+        </div>
+      ) : null}
 
       <div className="card space-y-4">
         <div className="flex items-center gap-2">

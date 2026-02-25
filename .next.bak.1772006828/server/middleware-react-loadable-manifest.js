@@ -1,0 +1,1 @@
+self.__REACT_LOADABLE_MANIFEST='{"app/app/projects/[id]/page.tsx -> @/lib/pdf":{"id":3558,"files":["static/chunks/3394.a6241cb5eaadabd2.js","static/chunks/3558.a70511d86c83665e.js"]}}';

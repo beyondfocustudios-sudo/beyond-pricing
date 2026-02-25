@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import {
   AlertTriangle,
@@ -40,6 +41,11 @@ const toneClasses: Record<Tone, string> = {
 
 const DONUT_COLORS = ["var(--accent-blue)", "var(--accent-yellow)", "var(--accent-mint)", "var(--accent-lilac)"];
 
+function shouldSkipCardNavigation(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  return Boolean(target.closest("a, button, input, textarea, select, [role='button'], [data-no-card-nav='true']"));
+}
+
 export type ScheduleItem = {
   id: string;
   time: string;
@@ -48,6 +54,7 @@ export type ScheduleItem = {
   startsAt?: string;
   endsAt?: string;
   calendarHref?: string;
+  googleHref?: string;
   active?: boolean;
 };
 
@@ -171,7 +178,7 @@ export function DashboardShell({
   children: ReactNode;
 }) {
   return (
-    <div className="dashboard-shell">
+    <div className={cn("dashboard-shell", !sidebar && "dashboard-shell--no-sidebar")}>
       {sidebar ? <aside className="dashboard-shell__sidebar">{sidebar}</aside> : null}
       <section className="dashboard-shell__content">
         <div className="dashboard-head">{header}</div>
@@ -212,8 +219,8 @@ export function HeroSummaryCard({
   greeting: string;
   subtitle: string;
   metrics: Array<{ id: string; label: string; value: string; hint: string; tone: Tone }>;
-  primaryCta: { href: string; label: string };
-  secondaryCta: { href: string; label: string };
+  primaryCta?: { href: string; label: string };
+  secondaryCta?: { href: string; label: string };
 }) {
   const desktopHover = useDesktopHoverMotion();
 
@@ -222,7 +229,7 @@ export function HeroSummaryCard({
       <div className="hero-summary-card__blob" />
       <div className="hero-summary-card__blob hero-summary-card__blob--2" />
 
-      <div className="relative z-[2]">
+      <div className="relative">
         <p className="text-[0.72rem] uppercase tracking-[0.11em]" style={{ color: "var(--text-3)" }}>
           CEO View
         </p>
@@ -243,15 +250,19 @@ export function HeroSummaryCard({
           ))}
         </div>
 
-        <div className="mt-5 flex flex-wrap items-center gap-2.5">
-          <Link href={primaryCta.href} className="btn btn-primary btn-sm">
-            <Plus className="h-3.5 w-3.5" />
-            {primaryCta.label}
-          </Link>
-          <Link href={secondaryCta.href} className="btn btn-secondary btn-sm">
-            {secondaryCta.label}
-          </Link>
-        </div>
+        {primaryCta ? (
+          <div className="mt-5 flex flex-wrap items-center gap-2.5">
+            <Link href={primaryCta.href} className="btn btn-primary btn-sm">
+              <Plus className="h-3.5 w-3.5" />
+              {primaryCta.label}
+            </Link>
+            {secondaryCta ? (
+              <Link href={secondaryCta.href} className="btn btn-secondary btn-sm">
+                {secondaryCta.label}
+              </Link>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </motion.section>
   );
@@ -260,20 +271,49 @@ export function HeroSummaryCard({
 export function DarkCalendarCard({
   events,
   feedHref,
+  href,
+  onCreateEvent,
 }: {
   events: ScheduleItem[];
   feedHref?: string;
+  href?: string;
+  onCreateEvent?: () => void;
 }) {
   const desktopHover = useDesktopHoverMotion();
+  const router = useRouter();
   const day = new Date().toLocaleDateString("pt-PT", { weekday: "long", day: "2-digit", month: "short" });
   return (
-    <motion.section className="super-card dark-insight-card dark-calendar-card card-hover" {...cardHoverProps(desktopHover)}>
+    <motion.section
+      className={cn("super-card dark-insight-card dark-calendar-card card-hover", href && "card-clickable")}
+      {...cardHoverProps(desktopHover)}
+      onClick={(event) => {
+        if (!href || shouldSkipCardNavigation(event.target)) return;
+        router.push(href);
+      }}
+      onKeyDown={(event) => {
+        if (!href) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          router.push(href);
+        }
+      }}
+      role={href ? "link" : undefined}
+      tabIndex={href ? 0 : undefined}
+      aria-label={href ? "Abrir calendário" : undefined}
+    >
       <header className="super-card__header">
         <div>
           <h3>Calendário</h3>
-          <p className="super-card__subtitle" style={{ color: "rgba(233, 240, 255, 0.68)" }}>{day}</p>
+          <p className="super-card__subtitle">{day}</p>
         </div>
-        <CalendarClock className="h-4 w-4" />
+        <div className="flex items-center gap-1.5">
+          {onCreateEvent ? (
+            <button type="button" className="pill-tab text-[0.68rem]" onClick={onCreateEvent}>
+              + Novo evento
+            </button>
+          ) : null}
+          <CalendarClock className="h-4 w-4" />
+        </div>
       </header>
       <ol className="dark-calendar-list">
         {events.slice(0, 4).map((event) => (
@@ -282,18 +322,30 @@ export function DarkCalendarCard({
             <div className="min-w-0">
               <p className="dark-calendar-title">{event.title}</p>
               <p className="dark-calendar-subtitle">{event.subtitle}</p>
-              {event.calendarHref ? (
-                <a href={event.calendarHref} className="dark-calendar-add" download>
-                  Add to calendar
-                </a>
-              ) : null}
+              <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                {event.calendarHref ? (
+                  <a href={event.calendarHref} className="dark-calendar-add" download>
+                    Adicionar ao calendário
+                  </a>
+                ) : null}
+                {event.googleHref ? (
+                  <a
+                    href={event.googleHref}
+                    className="dark-calendar-add"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Google Calendar
+                  </a>
+                ) : null}
+              </div>
             </div>
           </li>
         ))}
       </ol>
       {feedHref ? (
         <div className="dark-calendar-feed">
-          <p>Feed ICS para Apple/Outlook/Google:</p>
+          <p>Feed ICS para Apple Calendar e Outlook:</p>
           <a href={feedHref} className="dark-calendar-feed-link">
             {feedHref}
           </a>
@@ -331,17 +383,37 @@ export function ListCard({
   subtitle,
   rows,
   className,
+  href,
 }: {
   title: string;
   subtitle?: string;
   rows: ListRow[];
   className?: string;
+  href?: string;
 }) {
   const desktopHover = useDesktopHoverMotion();
   const motionEnabled = useMotionEnabled();
+  const router = useRouter();
 
   return (
-    <motion.section className={cn("super-card list-card card-hover", className)} {...cardHoverProps(desktopHover)}>
+    <motion.section
+      className={cn("super-card list-card card-hover", className, href && "card-clickable")}
+      {...cardHoverProps(desktopHover)}
+      onClick={(event) => {
+        if (!href || shouldSkipCardNavigation(event.target)) return;
+        router.push(href);
+      }}
+      onKeyDown={(event) => {
+        if (!href) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          router.push(href);
+        }
+      }}
+      role={href ? "link" : undefined}
+      tabIndex={href ? 0 : undefined}
+      aria-label={href ? `Abrir ${title}` : undefined}
+    >
       <header className="super-card__header">
         <div>
           <h3>{title}</h3>
@@ -436,8 +508,25 @@ export function ScheduleCard({ items }: { items: ScheduleItem[] }) {
 
 export function DarkInsightCard({ alerts }: { alerts: Array<{ level: "ok" | "warn"; text: string }> }) {
   const desktopHover = useDesktopHoverMotion();
+  const router = useRouter();
   return (
-    <motion.section className="super-card dark-insight-card card-hover" {...cardHoverProps(desktopHover)}>
+    <motion.section
+      className="super-card dark-insight-card card-hover card-clickable"
+      {...cardHoverProps(desktopHover)}
+      onClick={(event) => {
+        if (shouldSkipCardNavigation(event.target)) return;
+        router.push("/app/insights");
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          router.push("/app/insights");
+        }
+      }}
+      role="link"
+      tabIndex={0}
+      aria-label="Abrir guardrails"
+    >
       <header className="super-card__header">
         <h3>Guardrails</h3>
         <TrendingUp className="h-4 w-4" />
@@ -462,9 +551,10 @@ export function DarkInsightCard({ alerts }: { alerts: Array<{ level: "ok" | "war
   );
 }
 
-export function CompactTableCard({ rows }: { rows: CompactProjectRow[] }) {
+export function CompactTableCard({ rows, href }: { rows: CompactProjectRow[]; href?: string }) {
   const [query, setQuery] = useState("");
   const desktopHover = useDesktopHoverMotion();
+  const router = useRouter();
   const filteredRows = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return rows;
@@ -472,7 +562,24 @@ export function CompactTableCard({ rows }: { rows: CompactProjectRow[] }) {
   }, [query, rows]);
 
   return (
-    <motion.section className="super-card table-card card-hover" {...cardHoverProps(desktopHover)}>
+    <motion.section
+      className={cn("super-card table-card card-hover", href && "card-clickable")}
+      {...cardHoverProps(desktopHover)}
+      onClick={(event) => {
+        if (!href || shouldSkipCardNavigation(event.target)) return;
+        router.push(href);
+      }}
+      onKeyDown={(event) => {
+        if (!href) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          router.push(href);
+        }
+      }}
+      role={href ? "link" : undefined}
+      tabIndex={href ? 0 : undefined}
+      aria-label={href ? "Abrir projetos" : undefined}
+    >
       <header className="super-card__header">
         <h3>Projects</h3>
         <SearchPill value={query} onChange={setQuery} placeholder="Search" />

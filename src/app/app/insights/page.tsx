@@ -53,7 +53,7 @@ interface GuardrailAlert {
 }
 
 type AdminAction = "recalc" | "cleanup" | null;
-const EXCLUDED_STATUSES = new Set(["archived", "deleted", "arquivado", "apagado"]);
+const EXCLUDED_STATUSES = new Set(["archived", "deleted", "arquivado", "apagado", "cancelled", "cancelado"]);
 
 function shouldExcludeProject(project: ProjectRow) {
   const normalized = (project.status ?? "").trim().toLowerCase();
@@ -135,8 +135,8 @@ export default function InsightsPage() {
   const avgPrice = withCalc.length > 0 ? totalRevenue / withCalc.length : 0;
 
   const approved = projects.filter((project) => ["aprovado", "approved"].includes((project.status ?? "").toLowerCase())).length;
-  const sent = projects.filter((project) => ["enviado", "sent"].includes((project.status ?? "").toLowerCase())).length;
-  const approvalRate = sent + approved > 0 ? Math.round((approved / (sent + approved)) * 100) : 0;
+  const sentOrReview = projects.filter((project) => ["enviado", "sent", "in_review"].includes((project.status ?? "").toLowerCase())).length;
+  const approvalRate = sentOrReview + approved > 0 ? Math.round((approved / (sentOrReview + approved)) * 100) : 0;
 
   const monthlyData = useMemo(() => {
     const now = new Date();
@@ -207,7 +207,7 @@ export default function InsightsPage() {
           project: project.project_name,
         });
       }
-      if (["enviado", "sent"].includes((project.status ?? "").toLowerCase()) && price > 0 && margin >= 20) {
+      if (["enviado", "sent", "in_review"].includes((project.status ?? "").toLowerCase()) && price > 0 && margin >= 20) {
         next.push({
           type: "ok",
           message: `Orçamento saudável (margem ${margin}%)`,
@@ -272,8 +272,8 @@ export default function InsightsPage() {
     },
     {
       label: "Em Pipeline",
-      value: String(sent),
-      sub: "orçamentos enviados",
+      value: String(sentOrReview),
+      sub: "enviados / em revisão",
       icon: TrendingUp,
       color: "#7c3aed",
     },
@@ -336,7 +336,10 @@ export default function InsightsPage() {
 
           <div className="grid gap-4 lg:grid-cols-2">
             <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-              <ChartCard title="Receita por Mês (últimos 6 meses)">
+              <ChartCard title="Forecast">
+                <p className="mb-3 text-xs" style={{ color: "var(--text-3)" }}>
+                  Receita mensal (últimos 6 meses)
+                </p>
                 <div className="h-48">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={monthlyData} barSize={28}>
@@ -366,7 +369,7 @@ export default function InsightsPage() {
 
             {categoryData.length > 0 && (
               <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
-                <ChartCard title="Distribuição por Categoria">
+                <ChartCard title="Composição de custos">
                   <div className="space-y-3">
                     {categoryData.map((category) => {
                       const maxVal = categoryData[0]?.value ?? 1;

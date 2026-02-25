@@ -30,9 +30,9 @@ export function audienceLabel(audience: LoginAudience): string {
 }
 
 export function audienceLoginPath(audience: LoginAudience): string {
-  if (audience === "client") return "/portal/login?mode=client";
-  if (audience === "collaborator") return "/login?mode=team";
-  return "/login?mode=team";
+  if (audience === "client") return "/portal/login";
+  if (audience === "collaborator") return "/login";
+  return "/login";
 }
 
 export async function resolveAudienceMembership(

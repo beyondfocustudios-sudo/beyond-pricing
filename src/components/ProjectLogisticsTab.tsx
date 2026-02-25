@@ -1,9 +1,20 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { MapPin, Clock, Truck, AlertCircle, Loader2, RefreshCw } from "lucide-react";
-import { z } from "zod";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowDown, ArrowUp, Loader2, MapPin, Plus, Route, Save, Trash2, Truck } from "lucide-react";
 import { useToast } from "./Toast";
+
+type RouteResult = {
+  km_total: number;
+  duration_total_min: number;
+  fuel_cost_estimate: number;
+  fuel_liters: number;
+  fuel_price_per_l: number;
+  cost_per_km_fallback: number | null;
+  tolls_estimate: number;
+  source?: string;
+  fuel_source?: string;
+};
 
 interface LogisticsTabProps {
   projectId: string;
@@ -25,578 +36,482 @@ interface LogisticsTabProps {
   }) => Promise<void>;
 }
 
-interface WeatherDay {
-  date: string;
-  temp_max: number;
-  temp_min: number;
-  precipitation_sum: number;
-  weather_code: number;
-  weather_label?: string;
+const DEFAULT_BASE = "Setúbal, Portugal";
+
+function parseNumber(value: string) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  return parsed;
 }
 
-const weatherDaySchema = z.object({
-  date: z.string(),
-  temp_max: z.coerce.number(),
-  temp_min: z.coerce.number(),
-  precipitation_sum: z.coerce.number(),
-  weather_code: z.coerce.number(),
-  weather_label: z.string().optional(),
-});
-
-const weatherPluginResponseSchema = z.object({
-  days: z.array(weatherDaySchema).optional(),
-  warning: z.string().optional(),
-  stale: z.boolean().optional(),
-  source: z.string().optional(),
-  error: z.string().optional(),
-}).passthrough();
-
-const routePluginResponseSchema = z.object({
-  travel_km: z.coerce.number(),
-  travel_minutes: z.coerce.number(),
-  warning: z.string().optional(),
-  source: z.string().optional(),
-}).passthrough();
-
-const fuelPluginResponseSchema = z.object({
-  price_per_liter: z.coerce.number().optional(),
-  fallback_price: z.coerce.number().optional(),
-  source: z.string().optional(),
-  warning: z.string().optional(),
-  error: z.string().optional(),
-}).passthrough();
-
-const geocodeResponseSchema = z.object({
-  lat: z.coerce.number(),
-  lng: z.coerce.number(),
-  address: z.string(),
-  name: z.string(),
-});
-
-const WMO_CONDITIONS: Record<number, { emoji: string; label: string }> = {
-  0: { emoji: "☀️", label: "Céu limpo" },
-  1: { emoji: "🌤️", label: "Principalmente limpo" },
-  2: { emoji: "⛅", label: "Parcialmente nublado" },
-  3: { emoji: "☁️", label: "Nublado" },
-  45: { emoji: "🌫️", label: "Nevoeiro" },
-  61: { emoji: "🌧️", label: "Chuva leve" },
-  63: { emoji: "🌧️", label: "Chuva" },
-  65: { emoji: "⛈️", label: "Chuva forte" },
-  80: { emoji: "🌦️", label: "Aguaceiros" },
-};
-
-const BEYOND_BASE = { lat: 38.5243, lng: -8.8926 };
-const DEFAULT_CONSUMPTION_PER_100KM = 7.5;
+function minutesToLabel(value: number) {
+  const hours = Math.floor(value / 60);
+  const minutes = value % 60;
+  if (hours <= 0) return `${minutes} min`;
+  return `${hours}h ${minutes.toString().padStart(2, "0")}m`;
+}
 
 export function ProjectLogisticsTab(props: LogisticsTabProps) {
   const toast = useToast();
-  const [locationInput, setLocationInput] = useState(props.locationText || "");
-  const [searching, setSearching] = useState(false);
 
-  const [weatherData, setWeatherData] = useState<WeatherDay[]>([]);
-  const [loadingWeather, setLoadingWeather] = useState(false);
-  const [weatherError, setWeatherError] = useState<string | null>(null);
-  const [manualWeatherNote, setManualWeatherNote] = useState("");
+  const [baseText, setBaseText] = useState(props.locationText || DEFAULT_BASE);
+  const [waypoints, setWaypoints] = useState<string[]>(props.locationText ? [props.locationText] : [""]);
+  const [roundtrip, setRoundtrip] = useState(true);
 
-  const [fuelPrice, setFuelPrice] = useState<number | null>(null);
-  const [fuelSource, setFuelSource] = useState<string | null>(null);
-  const [fuelLoading, setFuelLoading] = useState(false);
-  const [fuelError, setFuelError] = useState<string | null>(null);
+  const [loadingStored, setLoadingStored] = useState(true);
+  const [calculating, setCalculating] = useState(false);
+  const [savingManual, setSavingManual] = useState(false);
+  const [result, setResult] = useState<RouteResult | null>(null);
+  const [routeError, setRouteError] = useState<string | null>(null);
 
-  const [manualTravelKm, setManualTravelKm] = useState(props.travelKm ? String(props.travelKm) : "");
-  const [manualTravelMinutes, setManualTravelMinutes] = useState(props.travelMinutes ? String(props.travelMinutes) : "");
+  const [manualKm, setManualKm] = useState(props.travelKm != null ? String(props.travelKm) : "");
+  const [manualMin, setManualMin] = useState(props.travelMinutes != null ? String(props.travelMinutes) : "");
   const [manualFuelPrice, setManualFuelPrice] = useState("");
+  const [manualCostKm, setManualCostKm] = useState("");
+  const [manualTolls, setManualTolls] = useState("");
+  const [fuelUpdatedAt, setFuelUpdatedAt] = useState<string | null>(null);
+  const [fuelSourceLabel, setFuelSourceLabel] = useState<string | null>(null);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+
+  const cleanedWaypoints = useMemo(
+    () => waypoints.map((value) => value.trim()).filter((value) => value.length > 0),
+    [waypoints],
+  );
 
   useEffect(() => {
-    setLocationInput(props.locationText ?? "");
-  }, [props.locationText]);
+    const loadStoredRoute = async () => {
+      setLoadingStored(true);
+      try {
+        const res = await fetch(`/api/logistics?projectId=${encodeURIComponent(props.projectId)}`, { cache: "no-store" });
+        if (!res.ok) return;
 
-  useEffect(() => {
-    setManualTravelKm(props.travelKm != null ? String(props.travelKm) : "");
-  }, [props.travelKm]);
+        const payload = (await res.json().catch(() => ({}))) as {
+          routes?: Array<Record<string, unknown>>;
+        };
+        const latest = payload.routes?.[0];
+        if (!latest) return;
 
-  useEffect(() => {
-    setManualTravelMinutes(props.travelMinutes != null ? String(props.travelMinutes) : "");
-  }, [props.travelMinutes]);
+        const loadedBase = String(latest.base_text ?? latest.origin ?? props.locationText ?? DEFAULT_BASE);
+        const loadedWaypoints = Array.isArray(latest.waypoints)
+          ? latest.waypoints.map((value) => String(value))
+          : props.locationText
+            ? [props.locationText]
+            : [""];
 
-  const effectiveTravelKm = props.travelKm ?? (Number(manualTravelKm) > 0 ? Number(manualTravelKm) : null);
+        setBaseText(loadedBase);
+        setWaypoints(loadedWaypoints.length > 0 ? loadedWaypoints : [""]);
+        setRoundtrip(Boolean(latest.roundtrip ?? true));
 
-  const fetchWeather = useCallback(async () => {
-    if (!props.locationLat || !props.locationLng) {
-      setWeatherData([]);
-      setWeatherError(null);
-      return;
-    }
+        const km = Number(latest.km_total ?? latest.distance_km ?? props.travelKm ?? NaN);
+        const min = Number(latest.duration_total_min ?? latest.duration_min ?? props.travelMinutes ?? NaN);
+        const fuelPrice = Number(latest.fuel_price_per_l ?? latest.fuel_price_per_liter ?? NaN);
+        const fuelLiters = Number(latest.fuel_liters ?? NaN);
+        const fuelCost = Number(latest.fuel_cost_estimate ?? latest.fuel_cost ?? NaN);
 
-    setLoadingWeather(true);
-    setWeatherError(null);
-    try {
-      const res = await fetch(`/api/plugins/weather?lat=${props.locationLat}&lng=${props.locationLng}`);
-      const raw = await res.json().catch(() => ({}));
-      const parsed = weatherPluginResponseSchema.safeParse(raw);
-      if (!parsed.success) {
-        throw new Error("Resposta inválida do serviço de weather");
-      }
-      if (!res.ok) {
-        throw new Error(parsed.data.error || "Falha a carregar weather");
-      }
+        if (Number.isFinite(km)) setManualKm(String(km));
+        if (Number.isFinite(min)) setManualMin(String(min));
+        if (Number.isFinite(fuelPrice)) setManualFuelPrice(String(fuelPrice));
 
-      const days = (parsed.data.days ?? []).map((day) => ({
-        date: day.date,
-        temp_max: day.temp_max,
-        temp_min: day.temp_min,
-        precipitation_sum: day.precipitation_sum,
-        weather_code: day.weather_code,
-        weather_label: day.weather_label,
-      }));
-      setWeatherData(days.slice(0, 7));
-
-      if (parsed.data.warning) {
-        setWeatherError(parsed.data.warning);
-      }
-    } catch (err) {
-      setWeatherData([]);
-      setWeatherError(err instanceof Error ? err.message : "Não foi possível carregar previsão");
-    } finally {
-      setLoadingWeather(false);
-    }
-  }, [props.locationLat, props.locationLng]);
-
-  const fetchFuel = useCallback(async () => {
-    if (!effectiveTravelKm || effectiveTravelKm <= 0) {
-      setFuelPrice(null);
-      setFuelSource(null);
-      setFuelError(null);
-      return;
-    }
-
-    setFuelLoading(true);
-    setFuelError(null);
-    try {
-      const res = await fetch("/api/plugins/fuel?country=PT&type=diesel");
-      const raw = await res.json().catch(() => ({}));
-      const parsed = fuelPluginResponseSchema.safeParse(raw);
-      if (!parsed.success) {
-        throw new Error("Resposta inválida do serviço de combustível");
-      }
-
-      if (!res.ok) {
-        if (typeof parsed.data.fallback_price === "number") {
-          setFuelPrice(parsed.data.fallback_price);
-          setFuelSource("fallback_manual");
-          setFuelError(parsed.data.error ?? "API indisponível — a usar fallback.");
-          return;
+        if (Number.isFinite(km) && Number.isFinite(min)) {
+          setResult({
+            km_total: km,
+            duration_total_min: min,
+            fuel_cost_estimate: Number.isFinite(fuelCost) ? fuelCost : 0,
+            fuel_liters: Number.isFinite(fuelLiters) ? fuelLiters : 0,
+            fuel_price_per_l: Number.isFinite(fuelPrice) ? fuelPrice : 0,
+            cost_per_km_fallback: Number.isFinite(Number(latest.cost_per_km_fallback ?? NaN))
+              ? Number(latest.cost_per_km_fallback)
+              : null,
+            tolls_estimate: Number.isFinite(Number(latest.tolls_estimate ?? NaN))
+              ? Number(latest.tolls_estimate)
+              : 0,
+            source: String(latest.raw_response ? "stored" : "manual"),
+            fuel_source: "stored",
+          });
         }
-        throw new Error(parsed.data.error || "Sem preço de combustível");
+      } finally {
+        setLoadingStored(false);
       }
+    };
 
-      if (typeof parsed.data.price_per_liter !== "number") {
-        throw new Error("Sem preço válido no payload");
-      }
-      setFuelPrice(parsed.data.price_per_liter);
-      setFuelSource(parsed.data.source ?? "fallback");
-      if (parsed.data.warning) setFuelError(parsed.data.warning);
-    } catch (err) {
-      setFuelPrice(null);
-      setFuelSource(null);
-      setFuelError(err instanceof Error ? err.message : "Sem preço de combustível");
-    } finally {
-      setFuelLoading(false);
-    }
-  }, [effectiveTravelKm]);
+    void loadStoredRoute();
+  }, [props.locationText, props.projectId, props.travelKm, props.travelMinutes]);
 
   useEffect(() => {
-    void fetchWeather();
-  }, [fetchWeather]);
+    const loadFuel = async () => {
+      try {
+        const res = await fetch("/api/plugins/fuel?country=PT&type=diesel", { cache: "no-store" });
+        const json = (await res.json().catch(() => ({}))) as { price_per_liter?: number; updated_at?: string; source?: string };
+        if (!res.ok) return;
+        if ((manualFuelPrice ?? "").trim() === "" && Number.isFinite(Number(json.price_per_liter ?? NaN))) {
+          setManualFuelPrice(String(json.price_per_liter));
+        }
+        setFuelUpdatedAt(json.updated_at ?? null);
+        setFuelSourceLabel(json.source ?? null);
+      } catch {
+        // optional
+      }
+    };
+    void loadFuel();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  useEffect(() => {
-    void fetchFuel();
-  }, [fetchFuel]);
+  const updateWaypoint = (index: number, value: string) => {
+    setWaypoints((prev) => prev.map((item, idx) => (idx === index ? value : item)));
+  };
 
-  const handleGeocode = async () => {
-    if (!locationInput.trim()) {
-      toast.error("Introduz um local");
+  const addWaypoint = () => setWaypoints((prev) => [...prev, ""]);
+
+  const removeWaypoint = (index: number) => {
+    setWaypoints((prev) => {
+      const next = prev.filter((_, idx) => idx !== index);
+      return next.length > 0 ? next : [""];
+    });
+  };
+
+  const moveWaypoint = (index: number, direction: -1 | 1) => {
+    setWaypoints((prev) => {
+      const target = index + direction;
+      if (target < 0 || target >= prev.length) return prev;
+      const next = [...prev];
+      const current = next[index];
+      next[index] = next[target];
+      next[target] = current;
+      return next;
+    });
+  };
+
+  const moveWaypointToIndex = (fromIndex: number, toIndex: number) => {
+    setWaypoints((prev) => {
+      if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= prev.length || toIndex >= prev.length) {
+        return prev;
+      }
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next;
+    });
+  };
+
+  const calculateRoute = async () => {
+    if (!baseText.trim() || cleanedWaypoints.length === 0 || calculating) {
+      toast.error("Define base e pelo menos um destino.");
       return;
     }
 
-    setSearching(true);
+    setCalculating(true);
+    setRouteError(null);
+
     try {
-      const res = await fetch(`/api/geo/geocode?q=${encodeURIComponent(locationInput)}`);
-      const raw = await res.json().catch(() => ({}));
+      const res = await fetch("/api/logistics/route-calc", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: props.projectId,
+          baseText: baseText.trim(),
+          waypoints: cleanedWaypoints,
+          roundtrip,
+          fuelPricePerL: parseNumber(manualFuelPrice) ?? undefined,
+          costPerKmFallback: parseNumber(manualCostKm) ?? undefined,
+          tollsEstimate: parseNumber(manualTolls) ?? undefined,
+        }),
+      });
+
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        km_total?: number;
+        duration_total_min?: number;
+        fuel_cost_estimate?: number;
+        fuel_liters?: number;
+        fuel_price_per_l?: number;
+        cost_per_km_fallback?: number | null;
+        tolls_estimate?: number;
+        source?: string;
+        fuel_source?: string;
+      };
+
       if (!res.ok) {
-        const message = typeof (raw as { error?: unknown }).error === "string"
-          ? (raw as { error: string }).error
-          : "Geocoding failed";
-        throw new Error(message);
+        throw new Error(json.error ?? "Falha ao calcular rota");
       }
 
-      const geocodeParsed = geocodeResponseSchema.safeParse(raw);
-      if (!geocodeParsed.success) {
-        throw new Error("Resposta inválida de geocoding");
-      }
-      const { lat, lng, address, name } = geocodeParsed.data;
+      const computed: RouteResult = {
+        km_total: Number(json.km_total ?? 0),
+        duration_total_min: Number(json.duration_total_min ?? 0),
+        fuel_cost_estimate: Number(json.fuel_cost_estimate ?? 0),
+        fuel_liters: Number(json.fuel_liters ?? 0),
+        fuel_price_per_l: Number(json.fuel_price_per_l ?? 0),
+        cost_per_km_fallback: json.cost_per_km_fallback ?? null,
+        tolls_estimate: Number(json.tolls_estimate ?? 0),
+        source: json.source,
+        fuel_source: json.fuel_source,
+      };
 
-      const routeRes = await fetch(
-        `/api/plugins/route?from=Setubal&fromLat=${BEYOND_BASE.lat}&fromLng=${BEYOND_BASE.lng}&to=${encodeURIComponent(name)}&toLat=${lat}&toLng=${lng}`,
-      );
-      const routeRaw = await routeRes.json().catch(() => ({}));
-      const routeParsed = routePluginResponseSchema.safeParse(routeRaw);
-
-      let travelKm: number | null = null;
-      let travelMin: number | null = null;
-
-      if (routeParsed.success) {
-        travelKm = routeParsed.data.travel_km;
-        travelMin = routeParsed.data.travel_minutes;
-        if (routeParsed.data.warning) {
-          toast.info(routeParsed.data.warning);
-        }
+      setResult(computed);
+      setManualKm(String(computed.km_total));
+      setManualMin(String(computed.duration_total_min));
+      if (Number.isFinite(computed.fuel_price_per_l) && computed.fuel_price_per_l > 0) {
+        setManualFuelPrice(String(computed.fuel_price_per_l));
       }
 
       await props.onUpdate({
-        location_text: name,
-        location_lat: lat,
-        location_lng: lng,
-        location_address: address,
-        travel_km: travelKm,
-        travel_minutes: travelMin,
+        location_text: cleanedWaypoints[0] ?? baseText.trim(),
+        location_lat: props.locationLat ?? null,
+        location_lng: props.locationLng ?? null,
+        location_address: cleanedWaypoints.join(" → "),
+        travel_km: computed.km_total,
+        travel_minutes: computed.duration_total_min,
       });
 
-      setManualTravelKm(travelKm != null ? String(travelKm) : "");
-      setManualTravelMinutes(travelMin != null ? String(travelMin) : "");
-
-      toast.success(
-        travelKm != null && travelMin != null
-          ? `Local: ${name} (${travelKm}km, ${travelMin}min)`
-          : `Local definido: ${name}. Sem rota automática, usa estimativa manual.`,
-      );
-      void fetchWeather();
-      void fetchFuel();
+      toast.success("Rota calculada e guardada.");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Erro ao geocodificar");
+      const message = err instanceof Error ? err.message : "Falha ao calcular rota";
+      setRouteError(message);
+      toast.error(message);
     } finally {
-      setSearching(false);
+      setCalculating(false);
     }
   };
 
-  const handleSaveManualRoute = async () => {
-    const km = Number(manualTravelKm);
-    const minutes = Number(manualTravelMinutes);
-
-    if (!Number.isFinite(km) || km <= 0 || !Number.isFinite(minutes) || minutes <= 0) {
-      toast.error("Define km e minutos válidos para guardar estimativa manual.");
+  const saveManual = async () => {
+    const km = parseNumber(manualKm);
+    const minutes = parseNumber(manualMin);
+    if (!km || km <= 0 || !minutes || minutes <= 0) {
+      toast.error("Define km e minutos válidos.");
       return;
     }
 
-    await props.onUpdate({
-      location_text: props.locationText ?? null,
-      location_lat: props.locationLat ?? null,
-      location_lng: props.locationLng ?? null,
-      location_address: props.locationAddress ?? null,
-      travel_km: Math.round(km * 10) / 10,
-      travel_minutes: Math.round(minutes),
-    });
+    setSavingManual(true);
+    try {
+      await props.onUpdate({
+        location_text: cleanedWaypoints[0] ?? baseText.trim(),
+        location_lat: props.locationLat ?? null,
+        location_lng: props.locationLng ?? null,
+        location_address: cleanedWaypoints.join(" → "),
+        travel_km: km,
+        travel_minutes: Math.round(minutes),
+      });
 
-    toast.success("Estimativa manual guardada.");
-    void fetchFuel();
+      setResult((prev) => ({
+        km_total: km,
+        duration_total_min: Math.round(minutes),
+        fuel_cost_estimate: prev?.fuel_cost_estimate ?? 0,
+        fuel_liters: prev?.fuel_liters ?? 0,
+        fuel_price_per_l: parseNumber(manualFuelPrice) ?? prev?.fuel_price_per_l ?? 0,
+        cost_per_km_fallback: parseNumber(manualCostKm),
+        tolls_estimate: parseNumber(manualTolls) ?? 0,
+        source: "manual",
+        fuel_source: prev?.fuel_source ?? "manual",
+      }));
+
+      toast.success("Estimativa manual guardada.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Falha ao guardar estimativa manual.");
+    } finally {
+      setSavingManual(false);
+    }
   };
-
-  const handleClear = async () => {
-    await props.onUpdate({
-      location_text: null,
-      location_lat: null,
-      location_lng: null,
-      location_address: null,
-      travel_km: null,
-      travel_minutes: null,
-    });
-    setLocationInput("");
-    setWeatherData([]);
-    setWeatherError(null);
-    setFuelPrice(null);
-    setFuelSource(null);
-    setFuelError(null);
-    setManualTravelKm("");
-    setManualTravelMinutes("");
-    setManualFuelPrice("");
-    setManualWeatherNote("");
-    toast.success("Local removido");
-  };
-
-  const parsedManualFuel = Number(manualFuelPrice);
-  const effectiveFuelPrice = fuelPrice ?? (Number.isFinite(parsedManualFuel) && parsedManualFuel > 0 ? parsedManualFuel : null);
-  const estimatedFuelCost = effectiveTravelKm && effectiveFuelPrice
-    ? (((effectiveTravelKm * 2) * DEFAULT_CONSUMPTION_PER_100KM) / 100) * effectiveFuelPrice
-    : null;
 
   return (
     <div className="space-y-4">
       <div className="card space-y-3">
         <div>
-          <label className="section-title">Local de Produção</label>
+          <p className="section-title">Rota multi-ponto</p>
           <p className="text-xs" style={{ color: "var(--text-3)" }}>
-            Introduz uma cidade ou morada para calcular distância e ver previsão
+            Origem base + vários destinos. Reordena e calcula km/minutos com fallback manual.
           </p>
         </div>
 
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={locationInput}
-            onChange={(e) => setLocationInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleGeocode()}
-            placeholder="Ex: Lisboa, Porto, ou rua..."
-            className="input flex-1"
-            disabled={searching}
-          />
-          <button
-            onClick={handleGeocode}
-            disabled={searching || !locationInput.trim()}
-            className="btn btn-primary"
-          >
-            {searching ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <MapPin className="w-4 h-4" />
-            )}
-          </button>
+        <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+          <div>
+            <label className="label">Base (origem)</label>
+            <input
+              className="input"
+              value={baseText}
+              onChange={(event) => setBaseText(event.target.value)}
+              placeholder={DEFAULT_BASE}
+            />
+          </div>
+          <label className="inline-flex items-center gap-2 text-sm" style={{ color: "var(--text-2)" }}>
+            <input
+              type="checkbox"
+              checked={roundtrip}
+              onChange={(event) => setRoundtrip(event.target.checked)}
+            />
+            Regressar à base (ida e volta)
+          </label>
         </div>
 
-        {props.locationText && (
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 dark:bg-blue-950 dark:border-blue-800">
-            <div className="space-y-2">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="font-medium text-sm truncate">{props.locationText}</p>
-                  <p className="text-xs" style={{ color: "var(--text-3)" }}>
-                    {props.locationAddress}
-                  </p>
-                </div>
-                <button
-                  onClick={handleClear}
-                  className="text-xs underline"
-                  style={{ color: "var(--error)" }}
-                >
-                  Remover
-                </button>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="label !mb-0">Destinos</p>
+            <button className="btn btn-ghost btn-sm" onClick={addWaypoint}>
+              <Plus className="h-3.5 w-3.5" />
+              Adicionar destino
+            </button>
+          </div>
+
+          {waypoints.map((waypoint, index) => (
+            <div
+              key={`${index}-${waypoint}`}
+              className="grid gap-2 sm:grid-cols-[1fr_auto]"
+              draggable
+              onDragStart={() => setDragIndex(index)}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={() => {
+                if (dragIndex == null) return;
+                moveWaypointToIndex(dragIndex, index);
+                setDragIndex(null);
+              }}
+              onDragEnd={() => setDragIndex(null)}
+            >
+              <div className="flex items-center gap-2">
+                <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-xs font-semibold" style={{ background: "var(--surface-2)", color: "var(--text-2)" }}>
+                  {index + 1}
+                </span>
+                <input
+                  className="input"
+                  value={waypoint}
+                  onChange={(event) => updateWaypoint(index, event.target.value)}
+                  placeholder={`Destino ${index + 1}`}
+                />
               </div>
 
-              {(props.travelKm || props.travelMinutes) && (
-                <div className="flex gap-4 text-sm">
-                  {props.travelKm ? (
-                    <div className="flex items-center gap-1">
-                      <Truck className="w-4 h-4" style={{ color: "var(--accent)" }} />
-                      <span>{props.travelKm} km</span>
-                    </div>
-                  ) : null}
-                  {props.travelMinutes ? (
-                    <div className="flex items-center gap-1">
-                      <Clock className="w-4 h-4" style={{ color: "var(--accent)" }} />
-                      <span>{props.travelMinutes} min</span>
-                    </div>
-                  ) : null}
-                </div>
-              )}
+              <div className="flex items-center gap-1">
+                <button className="btn btn-ghost btn-icon-sm" onClick={() => moveWaypoint(index, -1)} title="Subir">
+                  <ArrowUp className="h-3.5 w-3.5" />
+                </button>
+                <button className="btn btn-ghost btn-icon-sm" onClick={() => moveWaypoint(index, 1)} title="Descer">
+                  <ArrowDown className="h-3.5 w-3.5" />
+                </button>
+                <button className="btn btn-ghost btn-icon-sm" onClick={() => removeWaypoint(index)} title="Remover">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
             </div>
-          </div>
-        )}
+          ))}
+        </div>
 
-        <div className="rounded-lg border p-3 space-y-2" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
-          <p className="text-xs font-medium" style={{ color: "var(--text-2)" }}>
-            Fallback manual (se rota/API falhar)
-          </p>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <input
-              type="number"
-              min={0}
-              step={0.1}
-              value={manualTravelKm}
-              onChange={(event) => setManualTravelKm(event.target.value)}
-              className="input"
-              placeholder="Distância (km)"
-            />
-            <input
-              type="number"
-              min={0}
-              step={1}
-              value={manualTravelMinutes}
-              onChange={(event) => setManualTravelMinutes(event.target.value)}
-              className="input"
-              placeholder="Tempo (min)"
-            />
-          </div>
-          <button onClick={() => void handleSaveManualRoute()} className="btn btn-secondary btn-sm">
-            Guardar estimativa manual
+        <div className="grid gap-2 sm:grid-cols-3">
+          <input
+            className="input"
+            type="number"
+            min={0}
+            step={0.001}
+            value={manualFuelPrice}
+            onChange={(event) => setManualFuelPrice(event.target.value)}
+            placeholder="Preço combustível €/L"
+          />
+          <input
+            className="input"
+            type="number"
+            min={0}
+            step={0.01}
+            value={manualCostKm}
+            onChange={(event) => setManualCostKm(event.target.value)}
+            placeholder="Custo/km fallback"
+          />
+          <input
+            className="input"
+            type="number"
+            min={0}
+            step={0.01}
+            value={manualTolls}
+            onChange={(event) => setManualTolls(event.target.value)}
+            placeholder="Portagens (€)"
+          />
+        </div>
+
+        <div className="text-xs" style={{ color: "var(--text-3)" }}>
+          Preço semanal combustível: <strong style={{ color: "var(--text)" }}>{manualFuelPrice || "—"} €/L</strong>
+          {fuelUpdatedAt ? <> · atualizado em {new Date(fuelUpdatedAt).toLocaleDateString("pt-PT", { day: "2-digit", month: "short", year: "numeric" })}</> : null}
+          {fuelSourceLabel ? <> · fonte {fuelSourceLabel}</> : null}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button className="btn btn-primary btn-sm" onClick={() => void calculateRoute()} disabled={calculating || loadingStored}>
+            {calculating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Route className="h-3.5 w-3.5" />}
+            Calcular rota
           </button>
+          {loadingStored ? (
+            <span className="text-xs" style={{ color: "var(--text-3)" }}>A carregar rota guardada…</span>
+          ) : null}
         </div>
       </div>
 
-      {props.locationLat && props.locationLng ? (
-        <div className="card space-y-3">
-          <div className="flex items-center justify-between">
-            <label className="section-title">Previsão Meteorológica</label>
-            <div className="flex items-center gap-2">
-              {loadingWeather ? <Loader2 className="w-4 h-4 animate-spin" style={{ color: "var(--text-3)" }} /> : null}
-              <button onClick={() => void fetchWeather()} className="btn btn-ghost btn-sm text-xs" disabled={loadingWeather}>
-                <RefreshCw className="h-3.5 w-3.5" />
-                Atualizar agora
-              </button>
-            </div>
-          </div>
-
-          {weatherData.length > 0 ? (
-            <div className="grid grid-cols-2 md:grid-cols-7 gap-2">
-              {weatherData.map((day) => {
-                const condition = WMO_CONDITIONS[day.weather_code] || {
-                  emoji: "❓",
-                  label: day.weather_label || `Código ${day.weather_code}`,
-                };
-
-                return (
-                  <div
-                    key={day.date}
-                    className="p-2 rounded-lg"
-                    style={{
-                      background: "var(--surface-2)",
-                      border: "1px solid var(--border)",
-                    }}
-                  >
-                    <p className="text-xs font-medium mb-1">
-                      {new Date(day.date).toLocaleDateString("pt-PT", {
-                        weekday: "short",
-                        month: "short",
-                        day: "numeric",
-                      })}
-                    </p>
-                    <p className="text-2xl mb-1">{condition.emoji}</p>
-                    <p className="text-xs mb-1.5" style={{ color: "var(--text-3)" }}>
-                      {condition.label}
-                    </p>
-                    <div className="space-y-0.5 text-xs">
-                      <p>
-                        <span style={{ color: "var(--text)" }}>
-                          {Math.round(day.temp_max)}°
-                        </span>
-                        <span style={{ color: "var(--text-3)" }}>
-                          {" /"} {Math.round(day.temp_min)}°
-                        </span>
-                      </p>
-                      {day.precipitation_sum > 0 ? (
-                        <p style={{ color: "var(--warning)" }}>
-                          💧 {day.precipitation_sum}mm
-                        </p>
-                      ) : null}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : loadingWeather ? (
-            <div className="flex items-center justify-center py-4">
-              <Loader2 className="w-4 h-4 animate-spin" style={{ color: "var(--text-3)" }} />
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <div
-                className="flex items-center gap-2 p-3 rounded-lg"
-                style={{
-                  background: "var(--warning-bg)",
-                  border: "1px solid var(--warning-border)",
-                }}
-              >
-                <AlertCircle className="w-4 h-4 shrink-0" style={{ color: "var(--warning)" }} />
-                <p className="text-sm" style={{ color: "var(--warning)" }}>
-                  {weatherError ?? "Não foi possível carregar previsão"}
-                </p>
-              </div>
-              <textarea
-                value={manualWeatherNote}
-                onChange={(event) => setManualWeatherNote(event.target.value)}
-                className="input w-full"
-                rows={2}
-                placeholder="Nota manual (ex.: confirmar risco de chuva e plano B indoor)"
-              />
-            </div>
-          )}
+      <div className="card space-y-3">
+        <div className="flex items-center gap-2">
+          <Truck className="h-4 w-4" style={{ color: "var(--accent-primary)" }} />
+          <p className="section-title">Resultado de logística</p>
         </div>
-      ) : null}
 
-      {(effectiveTravelKm && effectiveTravelKm > 0) ? (
-        <div className="card space-y-2">
-          <p className="section-title">Estimativa de Custo de Combustível</p>
-          <div
-            className="p-3 rounded-lg space-y-1.5"
-            style={{
-              background: "var(--surface-2)",
-              border: "1px solid var(--border)",
-            }}
-          >
-            <p className="text-sm">
-              <span style={{ color: "var(--text-3)" }}>Ida e volta:</span>
-              <span className="ml-2 font-medium">
-                {(effectiveTravelKm * 2).toFixed(1)} km
-              </span>
+        {routeError ? (
+          <div className="rounded-xl border p-3 text-sm" style={{ borderColor: "var(--warning-border)", background: "var(--warning-bg)", color: "var(--warning)" }}>
+            {routeError}
+          </div>
+        ) : null}
+
+        <div className="grid gap-3 md:grid-cols-4">
+          <div className="rounded-xl border p-3" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
+            <p className="text-xs" style={{ color: "var(--text-3)" }}>Distância total</p>
+            <p className="text-lg font-semibold" style={{ color: "var(--text)" }}>{result?.km_total ?? parseNumber(manualKm) ?? 0} km</p>
+          </div>
+          <div className="rounded-xl border p-3" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
+            <p className="text-xs" style={{ color: "var(--text-3)" }}>Tempo total</p>
+            <p className="text-lg font-semibold" style={{ color: "var(--text)" }}>
+              {minutesToLabel(result?.duration_total_min ?? Math.round(parseNumber(manualMin) ?? 0))}
             </p>
-
-            {fuelLoading ? (
-              <p className="text-xs" style={{ color: "var(--text-3)" }}>
-                A carregar preço de combustível...
-              </p>
-            ) : null}
-
-            {fuelError ? (
-              <div className="flex items-center justify-between gap-2 rounded-lg border px-2.5 py-2" style={{ borderColor: "var(--warning-border)", background: "var(--warning-bg)" }}>
-                <span className="text-xs" style={{ color: "var(--warning)" }}>{fuelError}</span>
-                <button className="btn btn-ghost btn-sm" onClick={() => void fetchFuel()} disabled={fuelLoading}>
-                  Retry
-                </button>
-              </div>
-            ) : null}
-
-            <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-center">
-              <div>
-                <label className="text-xs" style={{ color: "var(--text-3)" }}>
-                  Preço manual (€/L) caso API falhe
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  step={0.001}
-                  className="input mt-1"
-                  placeholder="Ex: 1.620"
-                  value={manualFuelPrice}
-                  onChange={(event) => setManualFuelPrice(event.target.value)}
-                />
-              </div>
-              {effectiveFuelPrice ? (
-                <p className="text-xs" style={{ color: "var(--text-3)" }}>
-                  Fonte: {fuelPrice ? (fuelSource ?? "api") : "manual"}
-                </p>
-              ) : null}
-            </div>
-
-            {estimatedFuelCost != null && effectiveFuelPrice != null ? (
-              <p className="text-sm">
-                <span style={{ color: "var(--text-3)" }}>Combustível estimado:</span>
-                <span className="ml-2 font-medium">
-                  {estimatedFuelCost.toFixed(2)} €
-                </span>
-                <span className="ml-2 text-xs" style={{ color: "var(--text-3)" }}>
-                  ({effectiveFuelPrice.toFixed(3)} €/L)
-                </span>
-              </p>
-            ) : (
-              <p className="text-xs" style={{ color: "var(--text-3)" }}>
-                Sem preço automático disponível. Define preço manual para calcular.
-              </p>
-            )}
-
-            <p className="text-xs" style={{ color: "var(--text-3)" }}>
-              (Cache 24h + fallback manual)
+          </div>
+          <div className="rounded-xl border p-3" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
+            <p className="text-xs" style={{ color: "var(--text-3)" }}>Combustível</p>
+            <p className="text-lg font-semibold" style={{ color: "var(--text)" }}>{(result?.fuel_liters ?? 0).toFixed(2)} L</p>
+          </div>
+          <div className="rounded-xl border p-3" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
+            <p className="text-xs" style={{ color: "var(--text-3)" }}>Custo estimado</p>
+            <p className="text-lg font-semibold" style={{ color: "var(--text)" }}>
+              {(result?.fuel_cost_estimate ?? 0).toLocaleString("pt-PT", { style: "currency", currency: "EUR" })}
             </p>
           </div>
         </div>
-      ) : null}
+
+        {result ? (
+          <div className="rounded-xl border p-3 text-xs" style={{ borderColor: "var(--border)", background: "var(--surface-2)", color: "var(--text-2)" }}>
+            Origem: <strong style={{ color: "var(--text)" }}>{baseText}</strong> <span style={{ color: "var(--text-3)" }}>·</span> Fonte rota: {result.source ?? "-"} <span style={{ color: "var(--text-3)" }}>·</span> Fonte combustível: {result.fuel_source ?? "-"}
+          </div>
+        ) : null}
+
+        <div className="rounded-xl border p-3 space-y-2" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
+          <p className="text-xs font-medium" style={{ color: "var(--text-2)" }}>Fallback manual (sem APIs)</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <input
+              className="input"
+              type="number"
+              min={0}
+              step={0.1}
+              value={manualKm}
+              onChange={(event) => setManualKm(event.target.value)}
+              placeholder="KM total"
+            />
+            <input
+              className="input"
+              type="number"
+              min={0}
+              step={1}
+              value={manualMin}
+              onChange={(event) => setManualMin(event.target.value)}
+              placeholder="Minutos totais"
+            />
+          </div>
+          <button className="btn btn-secondary btn-sm" onClick={() => void saveManual()} disabled={savingManual}>
+            {savingManual ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+            Guardar estimativa manual
+          </button>
+        </div>
+
+        <div className="rounded-xl border p-3 text-xs" style={{ borderColor: "var(--border)", background: "var(--surface-2)", color: "var(--text-2)" }}>
+          <MapPin className="mr-1 inline h-3.5 w-3.5" />
+          Base default sugerida: <strong style={{ color: "var(--text)" }}>Setúbal, Portugal</strong>
+        </div>
+      </div>
     </div>
   );
 }

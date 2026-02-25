@@ -41,6 +41,20 @@ async function archiveCurrentProject(page: Page, projectId: string) {
   await page.waitForURL(/\/app\/projects$/, { timeout: 30_000 });
 }
 
+test("auth page does not render role gateway copy", async ({ page }) => {
+  await page.goto("/login");
+  const content = await page.content();
+  expect(content).not.toContain("Seleciona o teu acesso");
+  expect(content.toLowerCase()).not.toContain("role gateway");
+});
+
+test("version probe is non-cacheable", async ({ request }) => {
+  const res = await request.get("/api/version");
+  expect(res.ok()).toBeTruthy();
+  const cacheControl = res.headers()["cache-control"] ?? "";
+  expect(cacheControl.toLowerCase()).toContain("no-store");
+});
+
 test.describe("Beyond Pricing smoke", () => {
   test.skip(!email || !password, "Set E2E_EMAIL and E2E_PASSWORD to run smoke tests.");
 
@@ -82,6 +96,46 @@ test.describe("Beyond Pricing smoke", () => {
     await page.goto("/portal");
     await page.waitForURL(/\/app\//, { timeout: 30_000 });
     await expect(page.getByText("Application error")).toHaveCount(0);
+  });
+
+  test("layout sanity: edge-to-edge shell and no overlapping dashboard cards", async ({ page }) => {
+    test.setTimeout(120_000);
+    await loginTeam(page);
+
+    await page.goto("/app/dashboard");
+    await page.waitForURL(/\/app\/dashboard|\/app$/, { timeout: 30_000 });
+
+    const viewport = page.viewportSize();
+    expect(viewport).toBeTruthy();
+
+    const shell = page.locator(".super-app-surface").first();
+    const shellBox = await shell.boundingBox();
+    expect(shellBox).toBeTruthy();
+    if (shellBox && viewport) {
+      expect(shellBox.width).toBeGreaterThanOrEqual(viewport.width * 0.95);
+    }
+
+    const cards = page.locator(".dashboard-grid > *");
+    const count = await cards.count();
+    const boxes: Array<{ x: number; y: number; width: number; height: number }> = [];
+    for (let i = 0; i < Math.min(count, 10); i += 1) {
+      const box = await cards.nth(i).boundingBox();
+      if (!box) continue;
+      if (box.width < 40 || box.height < 40) continue;
+      boxes.push(box);
+    }
+
+    const intersects = (a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }) => {
+      const xOverlap = Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x));
+      const yOverlap = Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
+      return xOverlap * yOverlap > 16;
+    };
+
+    for (let i = 0; i < boxes.length; i += 1) {
+      for (let j = i + 1; j < boxes.length; j += 1) {
+        expect(intersects(boxes[i], boxes[j])).toBeFalsy();
+      }
+    }
   });
 
   test("collaborator mode restrictions", async ({ page }) => {

@@ -63,8 +63,7 @@ export async function middleware(request: NextRequest) {
 
       if (access.isClient) {
         const url = request.nextUrl.clone();
-        url.pathname = "/portal/login";
-        url.searchParams.set("mode", "client");
+        url.pathname = "/portal";
         return NextResponse.redirect(url);
       }
 

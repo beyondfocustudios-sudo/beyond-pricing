@@ -16,7 +16,6 @@ import { Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import { clearSessionCookieClient, setSessionCookieClient, SESSION_TTL } from "@/lib/session";
-import { parseAudience } from "@/lib/login-audience";
 
 function SetSessionInner() {
   const router = useRouter();
@@ -26,7 +25,7 @@ function SetSessionInner() {
     const run = async () => {
       const ttlParam = searchParams.get("ttl") ?? "24h";
       const rawNext = searchParams.get("next") ?? "/app";
-      const audience = parseAudience(searchParams.get("audience"));
+      const method = searchParams.get("method");
 
       // Validate next to prevent open redirect
       const next =
@@ -43,32 +42,34 @@ function SetSessionInner() {
       setSessionCookieClient(ttlSeconds);
 
       let finalNext = next;
-      if (audience) {
-        const res = await fetch(`/api/auth/validate-audience?audience=${audience}`, { cache: "no-store" });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({} as { suggestedPath?: string }));
-          const suggestedPath = typeof data?.suggestedPath === "string"
-            ? data.suggestedPath
-            : audience === "client"
-              ? "/portal/login?mode=client"
-              : "/login?mode=team";
-
-          try {
-            const sb = createClient();
-            await sb.auth.signOut();
-          } catch {
-            // Keep redirect fallback.
-          }
-          clearSessionCookieClient();
-          const mismatchPath = suggestedPath.includes("?")
-            ? `${suggestedPath}&mismatch=1`
-            : `${suggestedPath}?mismatch=1`;
-          router.replace(mismatchPath);
-          return;
+      const res = await fetch("/api/auth/resolve-access", { cache: "no-store" });
+      if (!res.ok) {
+        try {
+          const sb = createClient();
+          await sb.auth.signOut();
+        } catch {
+          // Keep redirect fallback.
         }
-        const data = await res.json().catch(() => ({} as { redirectPath?: string }));
-        if (typeof data.redirectPath === "string" && data.redirectPath.startsWith("/")) {
-          finalNext = data.redirectPath;
+        clearSessionCookieClient();
+        router.replace("/login?mismatch=1");
+        return;
+      }
+
+      const data = await res.json().catch(() => ({} as { redirectPath?: string }));
+      if (typeof data.redirectPath === "string" && data.redirectPath.startsWith("/")) {
+        finalNext = data.redirectPath;
+      }
+
+      if (typeof window !== "undefined" && method) {
+        try {
+          window.localStorage.setItem("bp_last_login_method", method);
+          const sb = createClient();
+          const { data: authData } = await sb.auth.getUser();
+          if (authData.user?.email) {
+            window.localStorage.setItem("bp_last_login_email", authData.user.email.toLowerCase());
+          }
+        } catch {
+          // Ignore localStorage/write failures.
         }
       }
 

@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "NEXT_PUBLIC_BUILD_TIME=$(node -e \"process.stdout.write(new Date().toISOString())\") next build",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",

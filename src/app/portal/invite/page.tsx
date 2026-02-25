@@ -200,7 +200,7 @@ function PortalInviteInner() {
                   <CheckCircle2 className="h-4 w-4 shrink-0" />
                   <span className="text-sm">
                     {invite?.kind === "collaborator"
-                      ? "Conta criada. Faz login em `/login?mode=team`."
+                      ? "Conta criada. Faz login em `/login`."
                       : "Conta criada. Faz login em `/portal/login`."}
                   </span>
                 </div>

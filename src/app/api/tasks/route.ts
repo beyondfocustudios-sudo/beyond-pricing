@@ -14,16 +14,28 @@ export async function GET(req: NextRequest) {
 
   const projectId = req.nextUrl.searchParams.get("projectId");
   const status = req.nextUrl.searchParams.get("status");
+  const q = req.nextUrl.searchParams.get("q")?.trim();
+  const limitParam = Number(req.nextUrl.searchParams.get("limit") ?? 120);
+  const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1), 300) : 120;
 
-  let q = sb.from("tasks").select("*").eq("user_id", user.id).is("deleted_at", null).order("position").order("created_at");
-  if (projectId) q = q.eq("project_id", projectId);
-  if (status) q = q.eq("status", status);
+  let query = sb
+    .from("tasks")
+    .select("*")
+    .eq("user_id", user.id)
+    .is("deleted_at", null)
+    .order("position")
+    .order("created_at")
+    .limit(limit);
+  if (projectId) query = query.eq("project_id", projectId);
+  if (status) query = query.eq("status", status);
+  if (q) query = query.or(`title.ilike.%${q}%,description.ilike.%${q}%`);
 
-  let { data, error } = await q;
+  let { data, error } = await query;
   if (isMissingDeletedAt(error)) {
-    let fallback = sb.from("tasks").select("*").eq("user_id", user.id).order("position").order("created_at");
+    let fallback = sb.from("tasks").select("*").eq("user_id", user.id).order("position").order("created_at").limit(limit);
     if (projectId) fallback = fallback.eq("project_id", projectId);
     if (status) fallback = fallback.eq("status", status);
+    if (q) fallback = fallback.or(`title.ilike.%${q}%,description.ilike.%${q}%`);
     ({ data, error } = await fallback);
   }
 

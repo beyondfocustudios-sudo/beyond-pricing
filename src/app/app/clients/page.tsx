@@ -101,7 +101,8 @@ export default function ClientsPage() {
         const { count: projCount } = await sb
           .from("projects")
           .select("id", { count: "exact", head: true })
-          .eq("client_id", c.id);
+          .eq("client_id", c.id)
+          .is("deleted_at", null);
         const { count: memberCount } = await sb
           .from("client_users")
           .select("id", { count: "exact", head: true })

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import {
@@ -25,6 +25,7 @@ import {
   Sun,
   Zap,
   UserRound,
+  Search,
 } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
 import NotificationBell from "@/components/NotificationBell";
@@ -33,6 +34,7 @@ import { PillTabs } from "@/components/dashboard/super-dashboard";
 import { buttonMotionProps, transitions, variants } from "@/lib/motion";
 import HQAssistantWidget from "@/components/HQAssistantWidget";
 import { OnboardingGate } from "@/components/onboarding/OnboardingGate";
+import DebugBuildStamp from "@/components/DebugBuildStamp";
 
 type NavItem = {
   href: string;
@@ -64,9 +66,7 @@ const PRIMARY_NAV_COLLABORATOR: NavItem[] = [
 ];
 
 const SECONDARY_NAV: NavItem[] = [
-  { href: "/app/checklists", label: "Checklists", icon: CheckSquare },
   { href: "/app/templates", label: "Templates", icon: FileText },
-  { href: "/app/journal", label: "Journal", icon: BookOpen },
   { href: "/app/tasks", label: "Tasks", icon: ListTodo },
   { href: "/app/crm", label: "CRM", icon: Users2 },
   { href: "/app/callsheets", label: "Call Sheets", icon: ClipboardList },
@@ -76,8 +76,10 @@ const SECONDARY_NAV: NavItem[] = [
 
 const CEO_RAIL: NavItem[] = [
   { href: "/app/tasks", label: "My Tasks", icon: ListTodo },
-  { href: "/app/callsheets", label: "Calendar", icon: CalendarDays },
+  { href: "/app/calendar", label: "Calendar", icon: CalendarDays },
   { href: "/app/inbox", label: "Inbox", icon: MessageSquare },
+  { href: "/app/checklists", label: "Checklists", icon: CheckSquare },
+  { href: "/app/journal", label: "Journal", icon: BookOpen },
 ];
 
 const COLLABORATOR_RAIL: NavItem[] = [
@@ -123,12 +125,15 @@ export function AppShell({
   children,
   userEmail,
   userRole,
+  buildStamp,
 }: {
   children: ReactNode;
   userEmail: string;
   userRole: "owner" | "admin" | "member" | "collaborator" | "client" | "unknown";
+  buildStamp: string;
 }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const router = useRouter();
   const [signingOut, setSigningOut] = useState(false);
   const { theme, toggleTheme, dashboardMode } = useTheme();
@@ -144,6 +149,21 @@ export function AppShell({
   const activePrimary = useMemo(() => resolvePrimaryActive(pathname, primaryNav), [pathname, primaryNav]);
   const isCeoMode = dashboardMode === "ceo";
   const railItems = isCollaborator ? COLLABORATOR_RAIL : isCeoMode ? CEO_RAIL : SECONDARY_NAV;
+  const isDashboardRoute = pathname === "/app" || pathname.startsWith("/app/dashboard");
+  const dashboardSearch = searchParams.get("q") ?? "";
+
+  const updateDashboardSearch = (value: string) => {
+    if (!isDashboardRoute) return;
+    const params = new URLSearchParams(searchParams.toString());
+    const nextValue = value.trim();
+    if (nextValue.length > 0) {
+      params.set("q", nextValue);
+    } else {
+      params.delete("q");
+    }
+    const nextUrl = params.toString().length > 0 ? `${pathname}?${params.toString()}` : pathname;
+    router.replace(nextUrl, { scroll: false });
+  };
 
   const handleLogout = async () => {
     setSigningOut(true);
@@ -178,6 +198,18 @@ export function AppShell({
             </div>
 
             <div className="flex items-center gap-1.5">
+              {isDashboardRoute ? (
+                <label className="table-search-pill hidden w-56 md:flex">
+                  <Search className="h-3.5 w-3.5" />
+                  <input
+                    value={dashboardSearch}
+                    onChange={(event) => updateDashboardSearch(event.target.value)}
+                    placeholder="Pesquisar updates"
+                    aria-label="Pesquisar updates"
+                  />
+                </label>
+              ) : null}
+
               <NotificationBell />
 
               <motion.button
@@ -246,9 +278,16 @@ export function AppShell({
             </section>
           </motion.div>
         </main>
+
+        <footer className="border-t" style={{ borderColor: "var(--border-soft)" }}>
+          <div className="shell-inner py-2 text-[0.68rem]" style={{ color: "var(--text-3)" }}>
+            Build: {buildStamp}
+          </div>
+        </footer>
       </div>
 
       <HQAssistantWidget />
+      <DebugBuildStamp />
 
       <nav
         className="fixed bottom-0 left-0 right-0 z-40 border-t backdrop-blur-md md:hidden"

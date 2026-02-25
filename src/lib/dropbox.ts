@@ -113,6 +113,73 @@ export async function getTemporaryLink(accessToken: string, path: string): Promi
   return data.link;
 }
 
+// ── Create folder ───────────────────────────────────────────────────────────
+export async function createFolder(accessToken: string, path: string): Promise<{
+  id: string;
+  path_display: string;
+  path_lower: string;
+}> {
+  const resp = await fetch(`${DROPBOX_API}/files/create_folder_v2`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      path,
+      autorename: false,
+    }),
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`create_folder_v2 failed: ${text}`);
+  }
+
+  const json = (await resp.json()) as {
+    metadata?: { id: string; path_display: string; path_lower: string };
+  };
+  if (!json.metadata?.id) {
+    throw new Error("create_folder_v2 returned invalid payload");
+  }
+  return json.metadata;
+}
+
+// ── Create shared link ──────────────────────────────────────────────────────
+export async function createSharedLink(accessToken: string, path: string): Promise<string | null> {
+  const resp = await fetch(`${DROPBOX_API}/sharing/create_shared_link_with_settings`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      path,
+      settings: {
+        requested_visibility: "public",
+      },
+    }),
+  });
+
+  if (resp.ok) {
+    const json = (await resp.json()) as { url?: string };
+    return json.url ?? null;
+  }
+
+  // If link already exists, fetch existing.
+  const listResp = await fetch(`${DROPBOX_API}/sharing/list_shared_links`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ path, direct_only: true }),
+  });
+  if (!listResp.ok) return null;
+  const listJson = (await listResp.json()) as { links?: Array<{ url?: string }> };
+  return listJson.links?.[0]?.url ?? null;
+}
+
 // ── Smart categorization ──────────────────────────────────────────────────
 export function categorizeFile(name: string, path: string): {
   category: string;
