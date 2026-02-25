@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "crypto";
+import { createHash, createHmac, randomBytes } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
@@ -21,12 +21,51 @@ type TokenRow = {
   revoked_at: string | null;
 };
 
+const STATELESS_PREFIX = "stl.";
+
 export function createPortalImpersonationToken() {
   return randomBytes(32).toString("base64url");
 }
 
 export function hashPortalImpersonationToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
+}
+
+function statelessSecret() {
+  return process.env.PORTAL_IMPERSONATION_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+}
+
+export function createStatelessImpersonationToken(payload: {
+  adminUserId: string;
+  clientId: string;
+  expiresAt: string;
+}) {
+  const secret = statelessSecret();
+  if (!secret) return null;
+  const rawPayload = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = createHmac("sha256", secret).update(rawPayload).digest("base64url");
+  return `${STATELESS_PREFIX}${rawPayload}.${signature}`;
+}
+
+function parseStatelessImpersonationToken(token: string) {
+  if (!token.startsWith(STATELESS_PREFIX)) return null;
+  const secret = statelessSecret();
+  if (!secret) return null;
+  const raw = token.slice(STATELESS_PREFIX.length);
+  const [payloadB64, signature] = raw.split(".");
+  if (!payloadB64 || !signature) return null;
+
+  const expected = createHmac("sha256", secret).update(payloadB64).digest("base64url");
+  if (expected !== signature) return null;
+
+  const parsed = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf8")) as {
+    adminUserId?: string;
+    clientId?: string;
+    expiresAt?: string;
+  };
+  if (!parsed.adminUserId || !parsed.clientId || !parsed.expiresAt) return null;
+  if (new Date(parsed.expiresAt).getTime() <= Date.now()) return null;
+  return parsed as { adminUserId: string; clientId: string; expiresAt: string };
 }
 
 export async function requireOwnerAdminUser() {
@@ -60,6 +99,34 @@ export async function resolvePortalImpersonationContext(
   const safeToken = String(token ?? "").trim();
   if (!safeToken) {
     return { context: null, error: "Token em falta.", status: 400 };
+  }
+
+  const stateless = parseStatelessImpersonationToken(safeToken);
+  if (stateless) {
+    if (options.enforceAdminUserId && stateless.adminUserId !== options.enforceAdminUserId) {
+      return { context: null, error: "Token não pertence a esta sessão admin.", status: 403 };
+    }
+
+    const admin = createServiceClient();
+    const { data: clientRow, error: clientError } = await admin
+      .from("clients")
+      .select("id, name, deleted_at")
+      .eq("id", stateless.clientId)
+      .maybeSingle();
+
+    if (clientError || !clientRow || clientRow.deleted_at) {
+      return { context: null, error: "Cliente indisponível.", status: 404 };
+    }
+
+    return {
+      context: {
+        tokenRowId: "stateless",
+        adminUserId: stateless.adminUserId,
+        clientId: stateless.clientId,
+        clientName: String(clientRow.name ?? "Cliente"),
+        expiresAt: stateless.expiresAt,
+      },
+    };
   }
 
   const admin = createServiceClient();
