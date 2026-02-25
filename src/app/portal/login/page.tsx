@@ -154,7 +154,7 @@ function PortalLoginInner() {
   };
 
   return (
-    <AuthShell maxWidth={980}>
+    <AuthShell maxWidth={1320}>
       <motion.div
         initial={motionEnabled ? "initial" : false}
         animate={motionEnabled ? "animate" : undefined}

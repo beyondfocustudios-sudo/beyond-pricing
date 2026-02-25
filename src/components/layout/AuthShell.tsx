@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 
 export function AuthShell({
   children,
-  maxWidth = 1120,
+  maxWidth = 1440,
   className,
   contentClassName,
 }: {
@@ -15,16 +15,21 @@ export function AuthShell({
   contentClassName?: string;
 }) {
   return (
-    <div className={cn("super-theme super-shell-bg h-full min-h-full w-full", className)}>
+    <div className={cn("super-theme super-shell-bg h-full min-h-dvh w-full", className)}>
       <main
-        className="mx-auto h-full min-h-0 w-full overflow-y-auto"
-        style={{ padding: "clamp(16px, 2.5vw, 40px)" }}
+        className="h-full min-h-dvh w-full overflow-y-auto"
       >
-        <div className={cn("mx-auto w-full", contentClassName)} style={{ maxWidth }}>
+        <div
+          className={cn("w-full", contentClassName)}
+          style={{
+            maxWidth,
+            margin: "0 auto",
+            padding: "clamp(16px, 2.5vw, 32px)",
+          }}
+        >
           {children}
         </div>
       </main>
     </div>
   );
 }
-

@@ -8,7 +8,6 @@ import { LogOut, Moon, Sun, Zap } from "lucide-react";
 import { ThemeProvider, useTheme } from "@/components/ThemeProvider";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { TopScheduleBar } from "@/components/ui-kit";
-import { SuperShell } from "@/components/dashboard/super-dashboard";
 import HQAssistantWidget from "@/components/HQAssistantWidget";
 import { OnboardingGate } from "@/components/onboarding/OnboardingGate";
 
@@ -24,54 +23,55 @@ function PortalShell({
   const { theme, toggleTheme } = useTheme();
 
   return (
-    <div
-      className="super-theme super-shell-bg h-full min-h-full w-full"
-      style={{ padding: "clamp(16px, 2.5vw, 40px)" }}
-    >
+    <div className="super-theme super-shell-bg h-full min-h-dvh w-full">
       <OnboardingGate surface="portal" />
-      <SuperShell className="mx-auto flex h-full min-h-0 w-full max-w-[1440px] flex-col">
+      <div className="super-app-surface">
         <header className="super-topbar">
-          <Link href="/portal" className="inline-flex items-center gap-2.5">
-            <span
-              className="inline-flex h-8 w-8 items-center justify-center rounded-full"
-              style={{ background: "var(--accent-primary)", color: "#fff" }}
-            >
-              <Zap className="h-4 w-4" />
-            </span>
-            <span className="text-sm font-semibold tracking-tight" style={{ color: "var(--text)" }}>
-              Beyond Portal
-            </span>
-          </Link>
-
-          <div className="flex items-center gap-1.5">
-            {email ? (
-              <span className="hidden rounded-full border px-3 py-1 text-xs md:inline-flex" style={{ borderColor: "var(--border-soft)", color: "var(--text-2)" }}>
-                {email}
+          <div className="super-topbar__inner">
+            <Link href="/portal" className="inline-flex items-center gap-2.5">
+              <span
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full"
+                style={{ background: "var(--accent-primary)", color: "#fff" }}
+              >
+                <Zap className="h-4 w-4" />
               </span>
-            ) : null}
-            <button
-              onClick={toggleTheme}
-              className="icon-btn"
-              title={theme === "dark" ? "Modo claro" : "Modo escuro"}
-              aria-label={theme === "dark" ? "Modo claro" : "Modo escuro"}
-            >
-              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            </button>
-            <button onClick={() => void onLogout()} className="icon-btn" title="Sair" aria-label="Sair">
-              <LogOut className="h-4 w-4" />
-            </button>
+              <span className="text-sm font-semibold tracking-tight" style={{ color: "var(--text)" }}>
+                Beyond Portal
+              </span>
+            </Link>
+
+            <div className="flex items-center gap-1.5">
+              {email ? (
+                <span className="hidden rounded-full border px-3 py-1 text-xs md:inline-flex" style={{ borderColor: "var(--border-soft)", color: "var(--text-2)" }}>
+                  {email}
+                </span>
+              ) : null}
+              <button
+                onClick={toggleTheme}
+                className="icon-btn"
+                title={theme === "dark" ? "Modo claro" : "Modo escuro"}
+                aria-label={theme === "dark" ? "Modo claro" : "Modo escuro"}
+              >
+                {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              </button>
+              <button onClick={() => void onLogout()} className="icon-btn" title="Sair" aria-label="Sair">
+                <LogOut className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         </header>
 
-        <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-24 pt-5 md:px-6 md:pb-8 md:pt-6 xl:px-7">
+        <main className="min-h-0 flex-1 overflow-y-auto">
+          <div className="shell-inner pb-24 pt-5 md:pb-8 md:pt-6">
           <TopScheduleBar className="mb-4" avatars={email ? [email] : []} />
           <div className="surface p-4 sm:p-5">
             <ErrorBoundary label="portal">
               {children}
             </ErrorBoundary>
           </div>
+          </div>
         </main>
-      </SuperShell>
+      </div>
       <HQAssistantWidget />
     </div>
   );
@@ -137,7 +137,7 @@ export default function PortalLayout({
   if (loading) {
     return (
       <ThemeProvider>
-        <div className="h-full min-h-full flex items-center justify-center" style={{ background: "var(--bg)" }}>
+        <div className="flex min-h-dvh w-full items-center justify-center" style={{ background: "var(--bg)" }}>
           <div className="h-8 w-8 rounded-full border-2 animate-spin" style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }} />
         </div>
       </ThemeProvider>

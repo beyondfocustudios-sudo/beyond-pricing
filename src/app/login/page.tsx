@@ -294,7 +294,7 @@ function LoginPageInner() {
 
   if (!selectedAudience) {
     return (
-      <AuthShell maxWidth={980}>
+      <AuthShell maxWidth={1280}>
         <motion.div
           initial={motionEnabled ? "initial" : false}
           animate={motionEnabled ? "animate" : undefined}
@@ -369,7 +369,7 @@ function LoginPageInner() {
   }
 
   return (
-    <AuthShell maxWidth={1120}>
+    <AuthShell maxWidth={1400}>
       <motion.div
         initial={motionEnabled ? "initial" : false}
         animate={motionEnabled ? "animate" : undefined}

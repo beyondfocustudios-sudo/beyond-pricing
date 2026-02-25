@@ -29,7 +29,7 @@ import {
 import { type ReactNode, useMemo, useState } from "react";
 import NotificationBell from "@/components/NotificationBell";
 import { useTheme } from "@/components/ThemeProvider";
-import { PillTabs, SuperShell } from "@/components/dashboard/super-dashboard";
+import { PillTabs } from "@/components/dashboard/super-dashboard";
 import { buttonMotionProps, transitions, variants } from "@/lib/motion";
 import HQAssistantWidget from "@/components/HQAssistantWidget";
 import { OnboardingGate } from "@/components/onboarding/OnboardingGate";
@@ -156,80 +156,81 @@ export function AppShell({
   const userInitial = (userEmail?.[0] ?? "U").toUpperCase();
 
   return (
-    <div
-      className="super-theme super-shell-bg h-full min-h-full w-full"
-      style={{ padding: "clamp(16px, 2.5vw, 40px)" }}
-    >
+    <div className="super-theme super-shell-bg h-full min-h-dvh w-full">
       <OnboardingGate surface="app" collaboratorMode={isCollaborator} />
-      <SuperShell className="mx-auto flex h-full min-h-0 w-full max-w-[1440px] flex-col">
+      <div className="super-app-surface">
         <header className="super-topbar">
-          <Link href={isCollaborator ? "/app/collaborator" : "/app/dashboard"} className="inline-flex items-center gap-2.5">
-            <span
-              className="inline-flex h-8 w-8 items-center justify-center rounded-full"
-              style={{ background: "var(--accent-blue)", color: "#fff" }}
-            >
-              <Zap className="h-4 w-4" />
-            </span>
-            <span className="text-sm font-semibold tracking-tight" style={{ color: "var(--text)" }}>
-              Beyond Pricing
-            </span>
-          </Link>
+          <div className="super-topbar__inner">
+            <Link href={isCollaborator ? "/app/collaborator" : "/app/dashboard"} className="inline-flex items-center gap-2.5">
+              <span
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full"
+                style={{ background: "var(--accent-blue)", color: "#fff" }}
+              >
+                <Zap className="h-4 w-4" />
+              </span>
+              <span className="text-sm font-semibold tracking-tight" style={{ color: "var(--text)" }}>
+                Beyond Pricing
+              </span>
+            </Link>
 
-          <div className="hidden min-w-0 flex-1 justify-center px-5 md:flex">
-            <PillTabs tabs={primaryNav.map((tab) => ({ href: tab.href, label: tab.label }))} active={activePrimary} />
-          </div>
+            <div className="hidden min-w-0 flex-1 justify-center px-5 md:flex">
+              <PillTabs tabs={primaryNav.map((tab) => ({ href: tab.href, label: tab.label }))} active={activePrimary} />
+            </div>
 
-          <div className="flex items-center gap-1.5">
-            <NotificationBell />
+            <div className="flex items-center gap-1.5">
+              <NotificationBell />
 
-            <motion.button
-              onClick={toggleTheme}
-              className="icon-btn"
-              title={theme === "dark" ? "Modo claro" : "Modo escuro"}
-              aria-label={theme === "dark" ? "Modo claro" : "Modo escuro"}
-              {...buttonMotionProps({ enabled: !reduceMotion })}
-            >
-              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            </motion.button>
+              <motion.button
+                onClick={toggleTheme}
+                className="icon-btn"
+                title={theme === "dark" ? "Modo claro" : "Modo escuro"}
+                aria-label={theme === "dark" ? "Modo claro" : "Modo escuro"}
+                {...buttonMotionProps({ enabled: !reduceMotion })}
+              >
+                {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              </motion.button>
 
-            <motion.button
-              onClick={handleLogout}
-              disabled={signingOut}
-              className="icon-btn"
-              title="Terminar sessão"
-              aria-label="Terminar sessão"
-              {...buttonMotionProps({ enabled: !reduceMotion })}
-            >
-              <LogOut className="h-4 w-4" />
-            </motion.button>
+              <motion.button
+                onClick={handleLogout}
+                disabled={signingOut}
+                className="icon-btn"
+                title="Terminar sessão"
+                aria-label="Terminar sessão"
+                {...buttonMotionProps({ enabled: !reduceMotion })}
+              >
+                <LogOut className="h-4 w-4" />
+              </motion.button>
 
-            <span
-              className="hidden h-8 w-8 items-center justify-center rounded-full text-xs font-semibold md:inline-flex"
-              style={{
-                background: "rgba(26, 143, 163, 0.14)",
-                border: "1px solid rgba(26, 143, 163, 0.32)",
-                color: "var(--accent-blue)",
-              }}
-              title={userEmail}
-            >
-              {userInitial}
-            </span>
+              <span
+                className="hidden h-8 w-8 items-center justify-center rounded-full text-xs font-semibold md:inline-flex"
+                style={{
+                  background: "rgba(26, 143, 163, 0.14)",
+                  border: "1px solid rgba(26, 143, 163, 0.32)",
+                  color: "var(--accent-blue)",
+                }}
+                title={userEmail}
+              >
+                {userInitial}
+              </span>
+            </div>
           </div>
         </header>
 
-        <div className="border-b px-3 py-2 md:hidden" style={{ borderColor: "var(--border)" }}>
-          <PillTabs tabs={primaryNav.map((tab) => ({ href: tab.href, label: tab.label }))} active={activePrimary} />
+        <div className="border-b md:hidden" style={{ borderColor: "var(--border)" }}>
+          <div className="shell-inner py-2">
+            <PillTabs tabs={primaryNav.map((tab) => ({ href: tab.href, label: tab.label }))} active={activePrimary} />
+          </div>
         </div>
 
-        <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-24 pt-5 md:px-6 md:pb-8 md:pt-6 xl:px-7">
+        <main className="min-h-0 flex-1 overflow-y-auto">
           <motion.div
             initial={reduceMotion ? false : "initial"}
             animate={reduceMotion ? undefined : "animate"}
             variants={variants.page}
             transition={transitions.page}
-            className="mx-auto grid w-full grid-cols-1 items-start gap-5 2xl:grid-cols-[10rem_minmax(0,1fr)] 2xl:gap-7"
+            className="shell-inner app-main-grid items-start pb-24 pt-5 md:pb-8 md:pt-6"
           >
-            <aside className="quick-rail hidden 2xl:flex">
+            <aside className="quick-rail hidden xl:flex">
               {railItems.map((item) => {
                 const active = railIsActive(pathname, item.href);
                 return (
@@ -245,7 +246,7 @@ export function AppShell({
             </section>
           </motion.div>
         </main>
-      </SuperShell>
+      </div>
 
       <HQAssistantWidget />
 
@@ -257,7 +258,7 @@ export function AppShell({
           paddingBottom: "env(safe-area-inset-bottom)",
         }}
       >
-        <div className="mx-auto flex max-w-[1380px] items-stretch justify-around px-1 py-1.5">
+        <div className="flex items-stretch justify-around px-2 py-1.5">
           {mobileNav.map((item) => {
             const active = navIsActive(pathname, item.href);
             return (
