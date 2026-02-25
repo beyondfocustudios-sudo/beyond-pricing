@@ -14,10 +14,12 @@ import { OnboardingGate } from "@/components/onboarding/OnboardingGate";
 function PortalShell({
   children,
   email,
+  impersonation,
   onLogout,
 }: {
   children: React.ReactNode;
   email: string | null;
+  impersonation: { clientId: string; clientName: string; expiresAt: string } | null;
   onLogout: () => Promise<void>;
 }) {
   const { theme, toggleTheme } = useTheme();
@@ -63,6 +65,20 @@ function PortalShell({
 
         <main className="min-h-0 flex-1 overflow-y-auto">
           <div className="shell-inner pb-24 pt-5 md:pb-8 md:pt-6">
+          {impersonation ? (
+            <div
+              className="mb-4 rounded-xl border px-3 py-2 text-xs"
+              style={{
+                borderColor: "var(--border-soft)",
+                background: "var(--surface-2)",
+                color: "var(--text-2)",
+              }}
+            >
+              Modo visualização cliente ativo: <strong style={{ color: "var(--text)" }}>{impersonation.clientName}</strong>
+              {" · "}expira{" "}
+              {new Date(impersonation.expiresAt).toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" })}
+            </div>
+          ) : null}
           <TopScheduleBar className="mb-4" avatars={email ? [email] : []} />
           <div className="surface p-4 sm:p-5">
             <ErrorBoundary label="portal">
@@ -86,6 +102,7 @@ export default function PortalLayout({
   const pathname = usePathname();
   const [email, setEmail] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
+  const [impersonation, setImpersonation] = useState<{ clientId: string; clientName: string; expiresAt: string } | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -98,6 +115,33 @@ export default function PortalLayout({
     sb.auth.getUser().then(async ({ data }) => {
       if (!data.user) {
         router.replace("/portal/login");
+        return;
+      }
+
+      const impersonationToken = typeof window !== "undefined"
+        ? new URLSearchParams(window.location.search).get("impersonate")
+        : null;
+      if (impersonationToken) {
+        const teamRes = await fetch("/api/auth/validate-audience?audience=team", { cache: "no-store" });
+        if (!teamRes.ok) {
+          await sb.auth.signOut();
+          router.replace("/portal/login?mismatch=1");
+          return;
+        }
+
+        const impersonationRes = await fetch(`/api/portal/impersonation/resolve?token=${encodeURIComponent(impersonationToken)}`, {
+          cache: "no-store",
+        });
+        if (!impersonationRes.ok) {
+          router.replace("/app/clients");
+          return;
+        }
+
+        const payload = await impersonationRes.json().catch(() => ({} as { context?: { clientId: string; clientName: string; expiresAt: string } }));
+        setImpersonation(payload.context ?? null);
+        setUserId(data.user.id);
+        setEmail(data.user.email ?? null);
+        setLoading(false);
         return;
       }
 
@@ -118,6 +162,7 @@ export default function PortalLayout({
 
       setUserId(data.user.id);
       setEmail(data.user.email ?? null);
+      setImpersonation(null);
       setLoading(false);
     }).catch(() => {
       router.replace("/portal/login");
@@ -146,7 +191,7 @@ export default function PortalLayout({
 
   return (
     <ThemeProvider userId={userId ?? undefined}>
-      <PortalShell email={email} onLogout={handleLogout}>
+      <PortalShell email={email} impersonation={impersonation} onLogout={handleLogout}>
         {children}
       </PortalShell>
     </ThemeProvider>

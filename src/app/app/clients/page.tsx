@@ -10,7 +10,7 @@ import { transitions, variants } from "@/lib/motion";
 import {
   Plus, Users, X, Building2, User,
   Shield, FolderOpen, Check, Copy, Mail,
-  Loader2, Lock,
+  Loader2, Lock, Eye, Trash2,
 } from "lucide-react";
 
 interface Client {
@@ -18,6 +18,7 @@ interface Client {
   name: string;
   slug: string;
   created_at: string;
+  deleted_at?: string | null;
   _projectCount?: number;
   _memberCount?: number;
 }
@@ -41,7 +42,8 @@ type Modal =
   | { type: "create_user"; clientId: string; clientName: string }
   | { type: "invite_client"; clientId: string; clientName: string }
   | { type: "assign_project"; clientId: string; clientName: string }
-  | { type: "members"; clientId: string; clientName: string };
+  | { type: "members"; clientId: string; clientName: string }
+  | { type: "delete_client"; clientId: string; clientName: string };
 
 export default function ClientsPage() {
   const [clients, setClients] = useState<Client[]>([]);
@@ -69,6 +71,7 @@ export default function ClientsPage() {
   const [selectedMemberProjectId, setSelectedMemberProjectId] = useState("");
   const [allProjects, setAllProjects] = useState<Project[]>([]);
   const [showCopyToast, setShowCopyToast] = useState(false);
+  const [deleteWithPortalRevoke, setDeleteWithPortalRevoke] = useState(true);
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -86,7 +89,8 @@ export default function ClientsPage() {
 
     const { data: clientsData, error: clientsErr } = await sb
       .from("clients")
-      .select("id, name, slug, created_at")
+      .select("id, name, slug, created_at, deleted_at")
+      .is("deleted_at", null)
       .order("created_at", { ascending: false });
 
     if (clientsErr) {
@@ -232,6 +236,35 @@ export default function ClientsPage() {
       return;
     }
     toast.success("Acesso concedido ao projeto");
+  };
+
+  const openClientPortalView = async (clientId: string) => {
+    const res = await fetch(`/api/clients/${clientId}/impersonate`, { method: "POST" });
+    const data = await res.json().catch(() => ({} as { error?: string; portalUrl?: string }));
+    if (!res.ok || !data.portalUrl) {
+      toast.error(data.error ?? "Não foi possível abrir o portal do cliente.");
+      return;
+    }
+    window.open(data.portalUrl, "_blank", "noopener,noreferrer");
+  };
+
+  const deleteClient = async () => {
+    if (modal?.type !== "delete_client" || saving) return;
+    setSaving(true);
+    const res = await fetch(`/api/clients/${modal.clientId}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ revokePortal: deleteWithPortalRevoke }),
+    });
+    const payload = await res.json().catch(() => ({} as { error?: string }));
+    setSaving(false);
+    if (!res.ok) {
+      toast.error(payload.error ?? "Não foi possível apagar cliente");
+      return;
+    }
+    toast.success("Cliente removido com sucesso");
+    setModal(null);
+    load();
   };
 
   const copyToClipboard = (text: string) => {
@@ -423,6 +456,24 @@ export default function ClientsPage() {
                 >
                   <Shield className="w-3.5 h-3.5" /> Membros
                 </button>
+                <button
+                  onClick={() => {
+                    void openClientPortalView(client.id);
+                  }}
+                  className="btn btn-secondary btn-sm text-xs"
+                >
+                  <Eye className="w-3.5 h-3.5" /> Ver como cliente
+                </button>
+                <button
+                  onClick={() => {
+                    setDeleteWithPortalRevoke(true);
+                    setModal({ type: "delete_client", clientId: client.id, clientName: client.name });
+                  }}
+                  className="btn btn-secondary btn-sm text-xs"
+                  style={{ color: "var(--error)" }}
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Apagar cliente
+                </button>
               </div>
             )}
           </MotionListItem>
@@ -456,6 +507,7 @@ export default function ClientsPage() {
                   {modal.type === "invite_client" && `Convidar cliente para ${modal.clientName}`}
                   {modal.type === "assign_project" && `Associar Projeto a ${modal.clientName}`}
                   {modal.type === "members" && `Membros de ${modal.clientName}`}
+                  {modal.type === "delete_client" && `Apagar ${modal.clientName}`}
                 </h2>
                 <button onClick={() => setModal(null)} className="btn btn-ghost btn-icon-sm">
                   <X className="w-5 h-5" />
@@ -724,6 +776,36 @@ export default function ClientsPage() {
                   <button onClick={() => setModal(null)} className="btn btn-secondary w-full">
                     Fechar
                   </button>
+                </div>
+              )}
+
+              {modal.type === "delete_client" && (
+                <div className="space-y-4">
+                  <p className="text-sm" style={{ color: "var(--text-2)" }}>
+                    Esta ação remove o cliente da lista ativa. Os projetos mantêm-se, mas deixam de estar ligados ao cliente.
+                  </p>
+                  <label className="flex items-start gap-2 text-xs" style={{ color: "var(--text-2)" }}>
+                    <input
+                      type="checkbox"
+                      checked={deleteWithPortalRevoke}
+                      onChange={(event) => setDeleteWithPortalRevoke(event.target.checked)}
+                      className="mt-0.5"
+                    />
+                    Apagar portal também (revogar utilizadores cliente + convites pendentes)
+                  </label>
+                  <div className="flex gap-2">
+                    <button onClick={() => setModal(null)} className="btn btn-secondary flex-1">
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={deleteClient}
+                      disabled={saving}
+                      className="btn flex-1"
+                      style={{ background: "var(--error)", color: "white", borderRadius: "999px" }}
+                    >
+                      {saving ? "A apagar…" : "Confirmar apagar"}
+                    </button>
+                  </div>
                 </div>
               )}
             </motion.div>
