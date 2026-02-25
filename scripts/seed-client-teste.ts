@@ -24,7 +24,7 @@ function requiredEnv(name: string) {
   return value;
 }
 
-async function listAllUsers(admin: ReturnType<typeof createClient>) {
+async function listAllUsers(admin: any) {
   let page = 1;
   const perPage = 200;
   const all: Array<{ id: string; email?: string | null }> = [];
@@ -33,7 +33,7 @@ async function listAllUsers(admin: ReturnType<typeof createClient>) {
     const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
     if (error) throw error;
     const users = data.users ?? [];
-    all.push(...users.map((user) => ({ id: user.id, email: user.email })));
+    all.push(...users.map((user: any) => ({ id: user.id, email: user.email })));
     if (users.length < perPage) break;
     page += 1;
   }
