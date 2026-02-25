@@ -100,13 +100,15 @@ export default function PortalLayout({
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  const isAuthRoute = pathname === "/portal/login" || pathname === "/portal/invite";
+  const isPresentationRoute = pathname.startsWith("/portal/presentation/");
   const [email, setEmail] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [impersonation, setImpersonation] = useState<{ clientId: string; clientName: string; expiresAt: string } | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (pathname === "/portal/login" || pathname === "/portal/invite") {
+    if (isAuthRoute) {
       setLoading(false);
       return;
     }
@@ -167,7 +169,7 @@ export default function PortalLayout({
     }).catch(() => {
       router.replace("/portal/login");
     });
-  }, [pathname, router]);
+  }, [isAuthRoute, pathname, router]);
 
   const handleLogout = async () => {
     const sb = createClient();
@@ -175,7 +177,7 @@ export default function PortalLayout({
     router.push("/portal/login");
   };
 
-  if (pathname === "/portal/login" || pathname === "/portal/invite") {
+  if (isAuthRoute) {
     return <ThemeProvider>{children}</ThemeProvider>;
   }
 
@@ -185,6 +187,16 @@ export default function PortalLayout({
         <div className="flex min-h-dvh w-full items-center justify-center" style={{ background: "var(--bg)" }}>
           <div className="h-8 w-8 rounded-full border-2 animate-spin" style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }} />
         </div>
+      </ThemeProvider>
+    );
+  }
+
+  if (isPresentationRoute) {
+    return (
+      <ThemeProvider userId={userId ?? undefined}>
+        <ErrorBoundary label="portal-presentation">
+          {children}
+        </ErrorBoundary>
       </ThemeProvider>
     );
   }

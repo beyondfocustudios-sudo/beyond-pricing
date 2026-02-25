@@ -6,14 +6,12 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   AlertCircle,
   ArrowRight,
-  Building2,
   CheckCircle2,
   Eye,
   EyeOff,
   Lock,
   Mail,
   RefreshCw,
-  Users,
   ShieldCheck,
   Sparkles,
   Zap,
@@ -83,7 +81,7 @@ function LoginPageInner() {
   const searchParams = useSearchParams();
   const motionEnabled = useMotionEnabled();
   const expired = searchParams.get("expired") === "1";
-  const selectedAudience = parseAudience(searchParams.get("mode") ?? searchParams.get("role"));
+  const selectedAudience = parseAudience(searchParams.get("mode") ?? searchParams.get("role")) ?? "team";
   const expectedAudience = parseAudience(searchParams.get("expected"));
   const mismatch = searchParams.get("mismatch") === "1";
 
@@ -159,7 +157,7 @@ function LoginPageInner() {
 
   const handlePasswordLogin = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (pwLoading || !selectedAudience) return;
+    if (pwLoading) return;
     setPwError("");
     setGatewayError("");
     setPwLoading(true);
@@ -182,7 +180,7 @@ function LoginPageInner() {
 
   const handleSendOtp = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (otpLoading || otpCooldown > 0 || !selectedAudience) return;
+    if (otpLoading || otpCooldown > 0) return;
     setOtpError("");
     setGatewayError("");
     setOtpLoading(true);
@@ -210,7 +208,7 @@ function LoginPageInner() {
 
   const handleVerifyOtp = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (otpLoading || otpCode.length !== 6 || !selectedAudience) return;
+    if (otpLoading || otpCode.length !== 6) return;
     setOtpError("");
     setGatewayError("");
     setOtpLoading(true);
@@ -236,7 +234,7 @@ function LoginPageInner() {
   };
 
   const handleResendOtp = async () => {
-    if (otpCooldown > 0 || otpLoading || !selectedAudience) return;
+    if (otpCooldown > 0 || otpLoading) return;
     setOtpError("");
     setGatewayError("");
     setOtpLoading(true);
@@ -258,7 +256,6 @@ function LoginPageInner() {
   };
 
   const handleOAuth = async (provider: "google" | "azure") => {
-    if (!selectedAudience) return;
     const loadingState = provider === "azure" ? "microsoft" : "google";
     setOauthLoading(loadingState);
     setOauthError("");
@@ -291,58 +288,6 @@ function LoginPageInner() {
     { id: "otp", label: "Código" },
     { id: "oauth", label: "OAuth" },
   ];
-
-  if (!selectedAudience) {
-    return (
-      <AuthShell maxWidth={1280}>
-        <motion.div
-          initial={motionEnabled ? "initial" : false}
-          animate={motionEnabled ? "animate" : undefined}
-          variants={variants.page}
-          transition={transitions.page}
-          className="w-full"
-        >
-          <section className="card-glass rounded-[32px] border p-6 sm:p-8" style={{ borderColor: "var(--border-soft)" }}>
-            <div className="mb-6">
-              <p className="text-xs uppercase tracking-[0.11em]" style={{ color: "var(--text-3)" }}>
-                Role Gateway
-              </p>
-              <h1 className="mt-2 text-[2rem] font-[560] tracking-[-0.03em]" style={{ color: "var(--text)" }}>
-                Seleciona o teu acesso
-              </h1>
-              <p className="mt-2 text-sm" style={{ color: "var(--text-2)" }}>
-                Escolhe o perfil correto para entrar sem erros de permissões.
-              </p>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <motion.button
-                type="button"
-                className="card text-left p-4"
-                onClick={() => router.push("/login?mode=team")}
-                {...buttonMotionProps({ enabled: motionEnabled })}
-              >
-                <Users className="mb-2 h-5 w-5" style={{ color: "var(--accent-blue)" }} />
-                <p className="font-semibold" style={{ color: "var(--text)" }}>Equipa Beyond</p>
-                <p className="mt-1 text-xs" style={{ color: "var(--text-2)" }}>Owner, admin e membros internos.</p>
-              </motion.button>
-
-              <motion.button
-                type="button"
-                className="card text-left p-4"
-                onClick={() => router.push("/portal/login?mode=client")}
-                {...buttonMotionProps({ enabled: motionEnabled })}
-              >
-                <Building2 className="mb-2 h-5 w-5" style={{ color: "var(--accent-blue)" }} />
-                <p className="font-semibold" style={{ color: "var(--text)" }}>Cliente Beyond</p>
-                <p className="mt-1 text-xs" style={{ color: "var(--text-2)" }}>Acesso portal para projetos e entregas.</p>
-              </motion.button>
-            </div>
-          </section>
-        </motion.div>
-      </AuthShell>
-    );
-  }
 
   if (selectedAudience === "collaborator") return null;
 
@@ -427,9 +372,9 @@ function LoginPageInner() {
                     type="button"
                     className="text-xs"
                     style={{ color: "var(--text-3)" }}
-                    onClick={() => router.push("/login")}
+                    onClick={() => router.push("/portal/login")}
                   >
-                    Mudar acesso
+                    Portal Cliente
                   </button>
                   <motion.button
                     type="button"
