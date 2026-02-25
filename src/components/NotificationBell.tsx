@@ -43,11 +43,15 @@ export default function NotificationBell() {
   const supabase = useMemo(() => createClient(), []);
 
   const loadNotifications = useCallback(async () => {
-    const res = await fetch("/api/notifications?limit=20");
-    if (!res.ok) return;
-    const data = await res.json() as Notification[];
-    setNotifications(data);
-    setUnread(data.filter(n => !n.read_at).length);
+    try {
+      const res = await fetch("/api/notifications?limit=20");
+      if (!res.ok) return;
+      const data = await res.json() as Notification[];
+      setNotifications(data);
+      setUnread(data.filter(n => !n.read_at).length);
+    } catch {
+      // Network error — silently ignore, keep existing notifications
+    }
   }, []);
 
   useEffect(() => { loadNotifications(); }, [loadNotifications]);
@@ -65,6 +69,8 @@ export default function NotificationBell() {
           filter: `user_id=eq.${user.id}`,
         }, () => void loadNotifications())
         .subscribe();
+    }).catch(() => {
+      // Auth check failed — skip realtime subscription
     });
     return () => { if (channel) supabase.removeChannel(channel); };
   }, [loadNotifications, supabase]);
@@ -79,21 +85,29 @@ export default function NotificationBell() {
   }, [open]);
 
   const markAllRead = async () => {
-    await fetch("/api/notifications", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "markAllRead" }),
-    });
-    loadNotifications();
+    try {
+      await fetch("/api/notifications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "markAllRead" }),
+      });
+      void loadNotifications();
+    } catch {
+      // Silently fail — next load will sync state
+    }
   };
 
   const markRead = async (id: string) => {
-    await fetch("/api/notifications", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "markRead", id }),
-    });
-    loadNotifications();
+    try {
+      await fetch("/api/notifications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "markRead", id }),
+      });
+      void loadNotifications();
+    } catch {
+      // Silently fail
+    }
   };
 
   return (

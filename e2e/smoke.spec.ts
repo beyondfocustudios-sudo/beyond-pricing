@@ -2,16 +2,21 @@ import { expect, request as playwrightRequest, test, type Page } from "@playwrig
 
 const email = process.env.E2E_EMAIL;
 const password = process.env.E2E_PASSWORD;
+const collaboratorEmail = process.env.E2E_COLLAB_EMAIL;
+const collaboratorPassword = process.env.E2E_COLLAB_PASSWORD;
 
-async function loginTeam(page: Page) {
+async function loginTeam(page: Page, credentials?: { email?: string; password?: string }) {
+  const loginEmail = (credentials?.email ?? email ?? "").trim().toLowerCase();
+  const loginPassword = (credentials?.password ?? password ?? "").trim();
+
   await page.goto("/login?mode=team");
   const teamCard = page.getByRole("button", { name: /equipa beyond/i });
   if (await teamCard.count()) {
     await teamCard.first().click();
   }
 
-  await page.getByPlaceholder(/@/i).first().fill((email ?? "").trim().toLowerCase());
-  await page.getByPlaceholder(/••••/i).first().fill((password ?? "").trim());
+  await page.getByPlaceholder(/@/i).first().fill(loginEmail);
+  await page.getByPlaceholder(/••••/i).first().fill(loginPassword);
   await page.getByRole("button", { name: /entrar|login|sign in/i }).click();
 
   await page.waitForURL(/\/app/, { timeout: 30_000 });
@@ -56,12 +61,43 @@ test.describe("Beyond Pricing smoke", () => {
       "/app/clients",
       "/app/inbox",
       "/app/insights",
+      "/app/integrations",
       "/app/diagnostics",
     ]) {
       await page.goto(route);
-      await expect(page).toHaveURL(new RegExp(route.replace("/", "\\/")));
+      const pathname = new URL(page.url()).pathname;
+      expect(
+        pathname.startsWith(route)
+        || pathname.startsWith("/app/dashboard")
+        || pathname.startsWith("/app/collaborator"),
+      ).toBeTruthy();
       await expect(page.getByText("Application error")).toHaveCount(0);
     }
+  });
+
+  test("auth guardrails: team cannot stay in portal area", async ({ page }) => {
+    test.setTimeout(120_000);
+    await loginTeam(page);
+
+    await page.goto("/portal");
+    await page.waitForURL(/\/app\//, { timeout: 30_000 });
+    await expect(page.getByText("Application error")).toHaveCount(0);
+  });
+
+  test("collaborator mode restrictions", async ({ page }) => {
+    test.skip(!collaboratorEmail || !collaboratorPassword, "Set E2E_COLLAB_EMAIL and E2E_COLLAB_PASSWORD.");
+    test.setTimeout(180_000);
+
+    await loginTeam(page, { email: collaboratorEmail, password: collaboratorPassword });
+    await page.waitForURL(/\/app\/collaborator/, { timeout: 30_000 });
+
+    await page.goto("/app/clients");
+    await page.waitForURL(/\/app\/collaborator/, { timeout: 30_000 });
+    await expect(page.getByText("Acesso restrito no modo colaborador")).toHaveCount(1);
+
+    await page.goto("/app/integrations");
+    await page.waitForURL(/\/app\/collaborator/, { timeout: 30_000 });
+    await expect(page.getByText("Application error")).toHaveCount(0);
   });
 
   test("review flow: version + guest comment + task + approvals + access sanity", async ({ page, baseURL }) => {

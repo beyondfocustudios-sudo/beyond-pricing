@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { RefreshCw } from "lucide-react";
 
 interface WeatherDay {
@@ -36,6 +36,10 @@ export function WeatherWidget({ lat, lng, projectId, startDate, endDate, onSnaps
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Stable ref for onSnapshot to avoid re-triggering fetchWeather on every render
+  const onSnapshotRef = useRef(onSnapshot);
+  useEffect(() => { onSnapshotRef.current = onSnapshot; }, [onSnapshot]);
+
   const fetchWeather = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -49,13 +53,13 @@ export function WeatherWidget({ lat, lng, projectId, startDate, endDate, onSnaps
       if (!res.ok) throw new Error("Erro ao obter previsão");
       const json = await res.json() as WeatherData;
       setData(json);
-      onSnapshot?.(json);
+      onSnapshotRef.current?.(json);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erro desconhecido");
     } finally {
       setLoading(false);
     }
-  }, [lat, lng, projectId, startDate, endDate, onSnapshot]);
+  }, [lat, lng, projectId, startDate, endDate]);
 
   useEffect(() => {
     fetchWeather();

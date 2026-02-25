@@ -152,7 +152,11 @@ function InboxContent() {
         const data = await res.json() as { suggestion: string };
         if (data.suggestion) setInput(data.suggestion);
         else toast.info("Sugestão IA ainda não disponível");
+      } else {
+        toast.error("Não foi possível gerar sugestão");
       }
+    } catch {
+      toast.error("Sem ligação — sugestão indisponível");
     } finally {
       setSuggesting(false);
     }

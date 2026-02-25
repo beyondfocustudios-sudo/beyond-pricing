@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase";
 import Link from "next/link";
 import { LogOut, Moon, Sun, Zap } from "lucide-react";
 import { ThemeProvider, useTheme } from "@/components/ThemeProvider";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { TopScheduleBar } from "@/components/ui-kit";
 import { SuperShell } from "@/components/dashboard/super-dashboard";
 import HQAssistantWidget from "@/components/HQAssistantWidget";
@@ -64,7 +65,11 @@ function PortalShell({
 
         <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-24 pt-5 md:px-6 md:pb-8 md:pt-6 xl:px-7">
           <TopScheduleBar className="mb-4" avatars={email ? [email] : []} />
-          <div className="surface p-4 sm:p-5">{children}</div>
+          <div className="surface p-4 sm:p-5">
+            <ErrorBoundary label="portal">
+              {children}
+            </ErrorBoundary>
+          </div>
         </main>
       </SuperShell>
       <HQAssistantWidget />
@@ -114,6 +119,8 @@ export default function PortalLayout({
       setUserId(data.user.id);
       setEmail(data.user.email ?? null);
       setLoading(false);
+    }).catch(() => {
+      router.replace("/portal/login");
     });
   }, [pathname, router]);
 

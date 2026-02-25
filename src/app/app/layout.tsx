@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase-server";
 import { AppShell } from "@/components/AppShell";
 import { ToastProvider } from "@/components/Toast";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { resolveAccessRole } from "@/lib/access-role";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -40,7 +41,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </div>
       )}
       <AppShell userEmail={user.email ?? ""} userRole={access.role}>
-        {children}
+        <ErrorBoundary label="aplicação">
+          {children}
+        </ErrorBoundary>
       </AppShell>
     </ToastProvider>
     </ThemeProvider>

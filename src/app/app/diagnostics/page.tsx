@@ -13,6 +13,14 @@ interface Check {
   detail?: string;
 }
 
+interface PluginStatusRow {
+  plugin_key: string;
+  enabled: boolean;
+  last_success_at: string | null;
+  last_error_at: string | null;
+  last_error: string | null;
+}
+
 interface OrgRoleData {
   role: string | null;
   isAdmin: boolean;
@@ -179,6 +187,89 @@ export default function DiagnosticsPage() {
       });
     }
 
+    // 7. Plugin status + recent runs
+    try {
+      const { data: statuses, error: statusError } = await sb
+        .from("plugin_status")
+        .select("plugin_key, enabled, last_success_at, last_error_at, last_error")
+        .order("plugin_key", { ascending: true });
+
+      if (statusError) {
+        results.push({
+          label: "Plugin status (DB)",
+          status: "warn",
+          detail: `${statusError.code ?? ""} ${statusError.message}`,
+        });
+      } else {
+        const rows = (statuses ?? []) as PluginStatusRow[];
+        if (rows.length === 0) {
+          results.push({
+            label: "Plugin status (DB)",
+            status: "warn",
+            detail: "Sem registos em plugin_status ainda",
+          });
+        } else {
+          for (const row of rows) {
+            results.push({
+              label: `Plugin status: ${row.plugin_key}`,
+              status: row.last_error_at ? "warn" : row.enabled ? "ok" : "warn",
+              detail: row.last_error_at
+                ? `Último erro ${new Date(row.last_error_at).toLocaleString("pt-PT")} · ${row.last_error ?? "sem detalhe"}`
+                : row.last_success_at
+                  ? `Último sucesso ${new Date(row.last_success_at).toLocaleString("pt-PT")}`
+                  : "Sem sucesso registado ainda",
+            });
+          }
+        }
+      }
+
+      const { count: runErrors, error: runError } = await sb
+        .from("plugin_runs")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "error");
+      if (!runError) {
+        results.push({
+          label: "Plugin runs com erro",
+          status: (runErrors ?? 0) === 0 ? "ok" : "warn",
+          detail: `${runErrors ?? 0} registos com erro`,
+        });
+      }
+    } catch {
+      results.push({
+        label: "Plugin status (DB)",
+        status: "warn",
+        detail: "Falha ao verificar plugin_status/plugin_runs",
+      });
+    }
+
+    // 8. Support tickets recentes
+    try {
+      const [{ count: openTickets, error: openErr }, { count: totalTickets, error: totalErr }] = await Promise.all([
+        sb.from("support_tickets").select("id", { count: "exact", head: true }).eq("status", "open"),
+        sb.from("support_tickets").select("id", { count: "exact", head: true }),
+      ]);
+
+      if (!openErr && !totalErr) {
+        results.push({
+          label: "Support tickets (abertos)",
+          status: (openTickets ?? 0) === 0 ? "ok" : "warn",
+          detail: `${openTickets ?? 0} abertos / ${totalTickets ?? 0} total`,
+        });
+      } else {
+        results.push({
+          label: "Support tickets",
+          status: "warn",
+          detail: openErr?.message ?? totalErr?.message ?? "Falha ao consultar tickets",
+        });
+      }
+    } catch {
+      results.push({
+        label: "Support tickets",
+        status: "warn",
+        detail: "Falha ao consultar tickets",
+      });
+    }
+
     setChecks([...results]);
     setRunning(false);
   };
@@ -207,6 +298,7 @@ export default function DiagnosticsPage() {
     { label: "Base de Dados", icon: Database, items: checks.filter((c) => c.label.startsWith("Tabela:")) },
     { label: "RBAC & Admin", icon: User, items: checks.filter((c) => c.label.includes("Org Role") || c.label.includes("Bootstrap")) },
     { label: "Plugins & Cache", icon: Zap, items: checks.filter((c) => c.label.startsWith("Plugin") || c.label === "Plugins") },
+    { label: "Support & Logs", icon: AlertCircle, items: checks.filter((c) => c.label.startsWith("Support tickets")) },
   ];
 
   return (

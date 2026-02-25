@@ -19,18 +19,18 @@ async function safeProjects(
   try {
     let query = supabase
       .from("projects")
-      .select("id, project_name, name, client_name, status, updated_at")
+      .select("id, project_name, client_name, status, updated_at")
       .is("deleted_at", null)
       .order("updated_at", { ascending: false })
       .limit(limit);
 
     if (q) {
-      query = query.or(`project_name.ilike.%${q}%,name.ilike.%${q}%,client_name.ilike.%${q}%`);
+      query = query.or(`project_name.ilike.%${q}%,client_name.ilike.%${q}%`);
     }
 
     const { data } = await query;
     return (data ?? []).map((row) => {
-      const title = String((row as Record<string, unknown>).project_name ?? (row as Record<string, unknown>).name ?? "Projeto");
+      const title = String((row as Record<string, unknown>).project_name ?? "Projeto");
       const status = String((row as Record<string, unknown>).status ?? "");
       const client = String((row as Record<string, unknown>).client_name ?? "").trim();
       return {

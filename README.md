@@ -274,3 +274,22 @@ Criar `vercel.json` na raiz do projeto:
    - `update org_settings set enable_ai_assistant = true;`
 3. Ajustar limite semanal se necessário:
    - `update org_settings set ai_weekly_limit = 50;`
+
+---
+
+## How To Test In Prod (rápido)
+
+1. Login Equipa em `/login?mode=team` e confirmar redirect para `/app/dashboard`.
+2. Abrir `/app/projects`, criar projeto e entrar no detalhe.
+3. No detalhe do projeto, testar tab **Logística**:
+   - geocode automático
+   - fallback manual de km/min
+   - weather/fuel com retry.
+4. Arquivar projeto e confirmar que desaparece da lista principal.
+5. Abrir `/app/templates`, criar projeto a partir de template e validar abertura.
+6. Abrir `/app/tasks`, criar tarefa, mover coluna e validar persistência após refresh.
+7. Abrir `/app/clients` (owner/admin), gerar convite de cliente e copiar link.
+8. Abrir `/app/integrations` e confirmar que carrega sem erro (owner/admin only).
+9. Abrir `/app/insights` e confirmar métricas sem contar projetos deleted/archived.
+10. Abrir `/app/diagnostics` e confirmar checks verdes (DB + plugins + support logs).
+

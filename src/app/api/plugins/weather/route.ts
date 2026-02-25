@@ -1,7 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { createClient } from "@/lib/supabase-server";
 import { logPluginRun } from "@/lib/plugins/runtime";
 import { ttlFromRegistry } from "@/lib/plugins/registry";
+
+const nominatimResultSchema = z.object({
+  lat: z.string(),
+  lon: z.string(),
+  display_name: z.string(),
+  name: z.string().optional(),
+});
+
+const openMeteoSchema = z.object({
+  daily: z.object({
+    time: z.array(z.string()).default([]),
+    weathercode: z.array(z.number()).default([]),
+    temperature_2m_max: z.array(z.number()).default([]),
+    temperature_2m_min: z.array(z.number()).default([]),
+    precipitation_sum: z.array(z.number()).default([]),
+    windspeed_10m_max: z.array(z.number()).default([]),
+  }).optional(),
+});
 
 function weatherDescription(code: number): string {
   const map: Record<number, string> = {
@@ -26,8 +45,10 @@ async function geocodeLocation(location: string) {
   );
 
   if (!response.ok) return null;
-  const json = await response.json() as Array<{ lat: string; lon: string; display_name: string; name?: string }>;
-  const first = json[0];
+  const json = await response.json().catch(() => []);
+  const parsed = z.array(nominatimResultSchema).safeParse(json);
+  if (!parsed.success) return null;
+  const first = parsed.data[0];
   if (!first) return null;
   return {
     lat: Number(first.lat),
@@ -107,25 +128,21 @@ export async function GET(req: NextRequest) {
     const response = await fetch(url.toString(), { next: { revalidate: 60 * 30 } });
     if (!response.ok) throw new Error(`Open-Meteo ${response.status}`);
 
-    const raw = await response.json() as {
-      daily?: {
-        time: string[];
-        weathercode: number[];
-        temperature_2m_max: number[];
-        temperature_2m_min: number[];
-        precipitation_sum: number[];
-        windspeed_10m_max: number[];
-      };
-    };
+    const raw = await response.json().catch(() => null);
+    const parsed = openMeteoSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw new Error("Payload inválido de Open-Meteo");
+    }
+    const daily = parsed.data.daily;
 
-    const days = (raw.daily?.time ?? []).map((date, index) => ({
+    const days = (daily?.time ?? []).map((date, index) => ({
       date,
-      weather_code: raw.daily?.weathercode?.[index] ?? null,
-      weather_label: weatherDescription(raw.daily?.weathercode?.[index] ?? -1),
-      temp_max: raw.daily?.temperature_2m_max?.[index] ?? null,
-      temp_min: raw.daily?.temperature_2m_min?.[index] ?? null,
-      precipitation_sum: raw.daily?.precipitation_sum?.[index] ?? null,
-      windspeed_max: raw.daily?.windspeed_10m_max?.[index] ?? null,
+      weather_code: daily?.weathercode?.[index] ?? null,
+      weather_label: weatherDescription(daily?.weathercode?.[index] ?? -1),
+      temp_max: daily?.temperature_2m_max?.[index] ?? null,
+      temp_min: daily?.temperature_2m_min?.[index] ?? null,
+      precipitation_sum: daily?.precipitation_sum?.[index] ?? null,
+      windspeed_max: daily?.windspeed_10m_max?.[index] ?? null,
     }));
 
     const payload = {

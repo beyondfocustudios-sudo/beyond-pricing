@@ -1,9 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { createClient } from "@/lib/supabase-server";
 import { logPluginRun } from "@/lib/plugins/runtime";
 import { ttlFromRegistry } from "@/lib/plugins/registry";
 
 type Coords = { lat: number; lng: number; label: string };
+
+const nominatimResultSchema = z.object({
+  lat: z.string(),
+  lon: z.string(),
+  display_name: z.string(),
+});
+
+const osrmSchema = z.object({
+  routes: z.array(z.object({
+    distance: z.number(),
+    duration: z.number(),
+  })).default([]),
+});
 
 function haversineKm(a: Coords, b: Coords) {
   const R = 6371;
@@ -24,8 +38,10 @@ async function geocode(value: string): Promise<Coords | null> {
     },
   );
   if (!response.ok) return null;
-  const json = await response.json() as Array<{ lat: string; lon: string; display_name: string }>;
-  const first = json[0];
+  const json = await response.json().catch(() => []);
+  const parsed = z.array(nominatimResultSchema).safeParse(json);
+  if (!parsed.success) return null;
+  const first = parsed.data[0];
   if (!first) return null;
   return {
     lat: Number(first.lat),
@@ -109,8 +125,10 @@ export async function GET(req: NextRequest) {
     const response = await fetch(osrm, { signal: AbortSignal.timeout(7000) });
     if (!response.ok) throw new Error(`OSRM ${response.status}`);
 
-    const json = await response.json() as { routes?: Array<{ distance: number; duration: number }> };
-    const route = json.routes?.[0];
+    const raw = await response.json().catch(() => null);
+    const parsed = osrmSchema.safeParse(raw);
+    if (!parsed.success) throw new Error("Payload inválido de OSRM");
+    const route = parsed.data.routes?.[0];
     if (!route) throw new Error("OSRM sem rotas");
 
     const travelKm = Math.round((route.distance / 1000) * 10) / 10;
@@ -125,7 +143,7 @@ export async function GET(req: NextRequest) {
       travel_km: travelKm,
       travel_minutes: travelMinutes,
       source: "osrm",
-      data: json,
+      data: parsed.data,
       fetched_at: fetchedAt.toISOString(),
       expires_at: expiresAt.toISOString(),
     }, { onConflict: "origin_key,destination_key" });
