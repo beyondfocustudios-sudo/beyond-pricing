@@ -50,6 +50,22 @@ function statusLabel(status: ProviderStatus["status"]) {
   return "Idle";
 }
 
+// Fallback providers shown while loading or when API fails
+const FALLBACK_PROVIDERS: ProviderStatus[] = [
+  { provider: "google", connected: false, connectUrl: "/api/integrations/google/connect", disconnectAction: "disconnect", syncAction: "sync", status: "idle", lastSyncAt: null, lastSyncError: null, calendars: [] },
+  { provider: "microsoft", connected: false, connectUrl: "/api/integrations/microsoft/connect", disconnectAction: "disconnect", syncAction: "sync", status: "idle", lastSyncAt: null, lastSyncError: null, calendars: [] },
+];
+
+// Map query param errors from OAuth callbacks to human-readable messages
+function oauthErrorMessage(code: string | null): string | null {
+  if (!code) return null;
+  if (code === "google_oauth_config") return "Erro de configuração Google OAuth — verifica GOOGLE_CALENDAR_CLIENT_ID e CLIENT_SECRET no .env.local.";
+  if (code === "microsoft_oauth_config") return "Erro de configuração Microsoft OAuth — verifica MICROSOFT_CALENDAR_CLIENT_ID e CLIENT_SECRET no .env.local.";
+  if (code === "google_callback_failed") return "Callback Google falhou — código inválido ou state mismatch. Tenta de novo.";
+  if (code === "microsoft_callback_failed") return "Callback Microsoft falhou — código inválido ou state mismatch. Tenta de novo.";
+  return `Erro OAuth: ${code}`;
+}
+
 export default function IntegrationsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -57,21 +73,38 @@ export default function IntegrationsPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  // Show OAuth callback errors from URL params
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const errCode = params.get("error");
+    const connectedProvider = params.get("connected");
+    if (errCode) setError(oauthErrorMessage(errCode));
+    if (connectedProvider) {
+      // Clean URL after successful connect
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
-    setError(null);
 
     const res = await fetch("/api/integrations/calendars", { cache: "no-store" });
     const json = (await res.json().catch(() => ({}))) as { error?: string } & Partial<IntegrationsPayload>;
 
     if (!res.ok) {
-      setError(json.error ?? "Falha ao carregar integrações de calendário.");
+      setError((prev) => prev ?? (json.error ?? "Falha ao carregar integrações de calendário."));
+      // Still show fallback provider cards so Connect buttons remain usable
+      setPayload((prev) => prev ?? { providers: FALLBACK_PROVIDERS, ics: { feedToken: "", feedUrl: null, downloadUrl: "/api/calendar/feed.ics" } });
       setLoading(false);
       return;
     }
 
+    // Ensure both google + microsoft are always present, merge with live data
+    const liveByProvider = new Map((json.providers as ProviderStatus[] ?? []).map((p) => [p.provider, p]));
+    const providers = FALLBACK_PROVIDERS.map((fallback) => liveByProvider.get(fallback.provider) ?? fallback);
+
     setPayload({
-      providers: Array.isArray(json.providers) ? (json.providers as ProviderStatus[]) : [],
+      providers,
       ics: {
         feedToken: json.ics?.feedToken ?? "",
         feedUrl: json.ics?.feedUrl ?? null,
