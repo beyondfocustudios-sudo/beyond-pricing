@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import type { BuildStamp } from "@/lib/build-stamp";
 
 type BuildStampBadgeProps = {
@@ -21,25 +21,29 @@ function formatBuildTime(value: string) {
 }
 
 export default function BuildStampBadge({ stamp }: BuildStampBadgeProps) {
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const [open, setOpen] = useState(false);
-  const enabledByEnv = process.env.NEXT_PUBLIC_BUILD_STAMP === "1";
   const enabledByQuery = searchParams.get("debug") === "1";
-  const enabled = enabledByEnv || enabledByQuery;
+  const isTargetSurface = pathname?.startsWith("/app") || pathname?.startsWith("/portal");
+  const enabled = Boolean(isTargetSurface && enabledByQuery);
+  const envLabel = stamp.env ?? "unknown";
+  const refLabel = stamp.ref ?? "unknown";
+  const shaLabel = stamp.sha ?? "unknown";
+  const buildTimeLabel = stamp.builtAt ?? "unknown";
   const payload = useMemo(
     () =>
       JSON.stringify(
         {
-          env: stamp.env,
-          branch: stamp.ref,
-          sha: stamp.sha,
-          buildTime: stamp.builtAt,
-          deploymentUrl: stamp.deploymentUrl,
+          env: envLabel,
+          branch: refLabel,
+          sha: shaLabel,
+          buildTime: buildTimeLabel,
         },
         null,
         2,
       ),
-    [stamp],
+    [buildTimeLabel, envLabel, refLabel, shaLabel],
   );
 
   if (!enabled) return null;
@@ -56,7 +60,7 @@ export default function BuildStampBadge({ stamp }: BuildStampBadgeProps) {
           backdropFilter: "blur(8px)",
         }}
       >
-        <span>{stamp.env} · {stamp.ref} · {stamp.sha} · {formatBuildTime(stamp.builtAt)}</span>
+        <span>{envLabel} · {refLabel} · {shaLabel} · {formatBuildTime(buildTimeLabel)}</span>
         <button
           type="button"
           onClick={() => setOpen((current) => !current)}
