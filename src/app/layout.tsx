@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
+import BuildStampBadge from "@/components/BuildStampBadge";
 
 const themeInitScript = `
 (() => {
@@ -43,7 +44,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
-      <body className="h-full min-h-dvh w-full antialiased">{children}</body>
+      <body className="h-full min-h-dvh w-full antialiased">
+        {children}
+        <BuildStampBadge />
+      </body>
     </html>
   );
 }
