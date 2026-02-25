@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/components/Toast";
 import { buttonMotionProps, transitions, variants } from "@/lib/motion";
+import { MotionList, MotionListItem, Pressable } from "@/components/motion-system";
 
 type AssistantConfig = {
   enabled: boolean;
@@ -602,10 +603,10 @@ export default function HQAssistantWidget() {
       <AnimatePresence>
         {open ? (
           <motion.aside
-            initial={reduceMotion ? false : { opacity: 0, y: 14, scale: 0.98 }}
-            animate={reduceMotion ? undefined : { opacity: 1, y: 0, scale: 1 }}
-            exit={reduceMotion ? undefined : { opacity: 0, y: 12, scale: 0.98 }}
-            transition={transitions.smooth}
+            initial={reduceMotion ? false : "initial"}
+            animate={reduceMotion ? undefined : "animate"}
+            exit={reduceMotion ? undefined : "exit"}
+            variants={variants.modalEnter}
             className="fixed bottom-[5.6rem] right-4 z-[110] w-[min(96vw,420px)] overflow-hidden rounded-[26px] border"
             style={{
               borderColor: "var(--border-soft)",
@@ -627,23 +628,23 @@ export default function HQAssistantWidget() {
             <div className="border-b px-3 py-2" style={{ borderColor: "var(--border)" }}>
               <div className="flex items-center gap-2">
                 {tabs.map((tab) => (
-                  <button
+                  <Pressable
                     key={tab.id}
                     className={`pill ${activeTab === tab.id ? "pill-active" : ""} inline-flex items-center gap-1.5 px-3 py-1.5 text-xs`}
                     onClick={() => setActiveTab(tab.id)}
                   >
                     <tab.icon className="h-3.5 w-3.5" />
                     {tab.label}
-                  </button>
+                  </Pressable>
                 ))}
               </div>
             </div>
 
-            <div className="max-h-[68vh] overflow-y-auto px-4 py-3">
+            <MotionList className="max-h-[68vh] overflow-y-auto px-4 py-3">
               {activeTab === "actions" ? (
                 <section className="space-y-4" data-testid="hq-actions-tab">
                   {isTeam ? (
-                    <div className="rounded-2xl border p-3" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
+                    <MotionListItem className="rounded-2xl border p-3" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
                       <p className="mb-2 text-xs font-semibold uppercase tracking-[0.08em]" style={{ color: "var(--text-3)" }}>Criar tarefa</p>
                       <div className="space-y-2">
                         <input
@@ -681,10 +682,10 @@ export default function HQAssistantWidget() {
                           Criar tarefa
                         </button>
                       </div>
-                    </div>
+                    </MotionListItem>
                   ) : null}
 
-                  <div className="rounded-2xl border p-3" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
+                  <MotionListItem className="rounded-2xl border p-3" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
                     <div className="mb-2 flex items-center justify-between gap-2">
                       <p className="text-xs font-semibold uppercase tracking-[0.08em]" style={{ color: "var(--text-3)" }}>Projetos rápidos</p>
                       <button className="pill px-2.5 py-1 text-[11px]" onClick={() => void runSearch("")}>Atualizar</button>
@@ -708,10 +709,10 @@ export default function HQAssistantWidget() {
                         <p className="text-xs" style={{ color: "var(--text-3)" }}>Sem projetos carregados. Abre Pesquisa para procurar.</p>
                       ) : null}
                     </div>
-                  </div>
+                  </MotionListItem>
 
                   {currentProjectId ? (
-                    <div className="grid grid-cols-1 gap-2">
+                    <MotionListItem className="grid grid-cols-1 gap-2">
                       <button className="btn btn-secondary justify-start" onClick={() => void handleGenerateReviewLink()}>
                         <ExternalLink className="h-4 w-4" />
                         Gerar link de review
@@ -726,11 +727,11 @@ export default function HQAssistantWidget() {
                         <RefreshCw className="h-4 w-4" />
                         Atualizar plugins agora
                       </button>
-                    </div>
+                    </MotionListItem>
                   ) : null}
 
                   {isOwnerAdmin && !isPortal ? (
-                    <div className="rounded-2xl border p-3" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
+                    <MotionListItem className="rounded-2xl border p-3" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
                       <p className="mb-2 text-xs font-semibold uppercase tracking-[0.08em]" style={{ color: "var(--text-3)" }}>Convidar cliente</p>
                       <div className="space-y-2">
                         <select className="input" value={inviteClientId} onChange={(event) => setInviteClientId(event.target.value)}>
@@ -755,7 +756,7 @@ export default function HQAssistantWidget() {
                           Enviar convite
                         </button>
                       </div>
-                    </div>
+                    </MotionListItem>
                   ) : null}
                 </section>
               ) : null}
@@ -894,7 +895,7 @@ export default function HQAssistantWidget() {
                   ) : null}
                 </section>
               ) : null}
-            </div>
+            </MotionList>
 
             <footer className="border-t px-4 py-3" style={{ borderColor: "var(--border)" }}>
               <button
@@ -913,17 +914,19 @@ export default function HQAssistantWidget() {
       <AnimatePresence>
         {reportOpen ? (
           <motion.div
-            initial={reduceMotion ? false : { opacity: 0 }}
-            animate={reduceMotion ? undefined : { opacity: 1 }}
-            exit={reduceMotion ? undefined : { opacity: 0 }}
+            initial={reduceMotion ? false : "initial"}
+            animate={reduceMotion ? undefined : "animate"}
+            exit={reduceMotion ? undefined : "exit"}
+            variants={variants.fadeIn}
             className="fixed inset-0 z-[120] grid place-items-center bg-black/35 px-4"
             onClick={() => setReportOpen(false)}
           >
             <motion.div
-              initial={reduceMotion ? false : { opacity: 0, y: 12, scale: 0.98 }}
-              animate={reduceMotion ? undefined : { opacity: 1, y: 0, scale: 1 }}
-              exit={reduceMotion ? undefined : { opacity: 0, y: 10, scale: 0.98 }}
-              transition={transitions.smooth}
+              initial={reduceMotion ? false : "initial"}
+              animate={reduceMotion ? undefined : "animate"}
+              exit={reduceMotion ? undefined : "exit"}
+              variants={variants.modalEnter}
+              transition={transitions.soft}
               className="w-full max-w-lg rounded-[24px] border p-4"
               style={{
                 borderColor: "var(--border-soft)",

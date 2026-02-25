@@ -817,6 +817,7 @@ export default function PortalReviewPage() {
                   return (
                     <MotionListItem
                       key={thread.id}
+                      kind="list"
                       className="rounded-2xl border p-3"
                       style={{ borderColor: isSelected ? "var(--accent-primary)" : "var(--border)" }}
                     >

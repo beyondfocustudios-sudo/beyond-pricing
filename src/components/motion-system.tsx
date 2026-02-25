@@ -73,17 +73,19 @@ export function MotionList({
 }
 
 export function MotionListItem({
+  kind = "item",
   className,
   children,
   ...props
-}: HTMLMotionProps<"div">) {
+}: HTMLMotionProps<"div"> & { kind?: "item" | "list" }) {
   const reduceMotion = useReducedMotion();
+  const itemVariants = kind === "list" ? variants.listItem : variants.itemEnter;
 
   return (
     <motion.div
       layout={motionSafe(!reduceMotion, true)}
       className={className}
-      variants={variants.itemEnter}
+      variants={itemVariants}
       initial={reduceMotion ? false : "initial"}
       animate={reduceMotion ? undefined : "animate"}
       exit={reduceMotion ? undefined : "exit"}
@@ -229,4 +231,3 @@ export function CopyToast({
     </AnimatePresence>
   );
 }
-

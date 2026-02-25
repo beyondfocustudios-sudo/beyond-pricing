@@ -6,6 +6,11 @@ import { useReducedMotion, type MotionProps, type Transition, type Variants } fr
 const easeOutBase44 = [0.22, 1, 0.36, 1] as const;
 const easeInOutBase44 = [0.4, 0, 0.2, 1] as const;
 
+export const ease = {
+  fade: easeOutBase44,
+  inOut: easeInOutBase44,
+} as const;
+
 export const spring = {
   fast: { type: "spring", stiffness: 380, damping: 32, mass: 0.7 } satisfies Transition,
   ui: { type: "spring", stiffness: 300, damping: 30, mass: 0.8 } satisfies Transition,
@@ -19,13 +24,13 @@ export const durations = {
 };
 
 export const transitions = {
-  page: { duration: durations.fade, ease: easeOutBase44 } satisfies Transition,
-  fadeSlide: { duration: durations.fade, ease: easeOutBase44 } satisfies Transition,
+  page: { duration: durations.fade, ease: ease.fade } satisfies Transition,
+  fadeSlide: { duration: durations.fade, ease: ease.fade } satisfies Transition,
   micro: spring.fast,
   ui: spring.ui,
   soft: spring.soft,
-  smooth: { duration: durations.fade, ease: easeOutBase44 } satisfies Transition,
-  inOut: { duration: durations.fadeSlow, ease: easeInOutBase44 } satisfies Transition,
+  smooth: { duration: durations.fade, ease: ease.fade } satisfies Transition,
+  inOut: { duration: durations.fadeSlow, ease: ease.inOut } satisfies Transition,
 };
 
 export const variants = {
@@ -39,7 +44,7 @@ export const variants = {
     animate: {
       transition: {
         staggerChildren: 0.06,
-        delayChildren: 0.02,
+        delayChildren: 0.06,
       },
     },
     exit: {
@@ -50,9 +55,9 @@ export const variants = {
     },
   } satisfies Variants,
   itemEnter: {
-    initial: { opacity: 0, y: 10 },
-    animate: { opacity: 1, y: 0, transition: transitions.fadeSlide },
-    exit: { opacity: 0, y: -8, transition: transitions.fadeSlide },
+    initial: { opacity: 0, y: 10, scale: 0.995 },
+    animate: { opacity: 1, y: 0, scale: 1, transition: transitions.fadeSlide },
+    exit: { opacity: 0, y: -8, scale: 0.99, transition: transitions.fadeSlide },
   } satisfies Variants,
   cardEnter: {
     initial: { opacity: 0, y: 14, scale: 0.98 },
@@ -70,9 +75,9 @@ export const variants = {
     exit: { opacity: 0, x: -10, transition: transitions.fadeSlide },
   } satisfies Variants,
   listItem: {
-    initial: { opacity: 0, height: 0, y: 8 },
-    animate: { opacity: 1, height: "auto", y: 0, transition: transitions.soft },
-    exit: { opacity: 0, height: 0, y: -8, transition: transitions.fadeSlide },
+    initial: { opacity: 0, height: 0, y: 8, scale: 0.995 },
+    animate: { opacity: 1, height: "auto", y: 0, scale: 1, transition: transitions.soft },
+    exit: { opacity: 0, height: 0, y: -8, scale: 0.99, transition: transitions.fadeSlide },
   } satisfies Variants,
   fadeIn: {
     initial: { opacity: 0 },

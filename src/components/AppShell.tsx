@@ -235,7 +235,7 @@ export function AppShell({
                       background: "rgba(26, 143, 163, 0.12)",
                       border: "1px solid rgba(26, 143, 163, 0.26)",
                     }}
-                    transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                    transition={transitions.ui}
                   />
                 ) : null}
                 <item.icon className="relative z-10 h-4 w-4" />
