@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase-server";
 import { AppShell } from "@/components/AppShell";
 import { ToastProvider } from "@/components/Toast";
 import { ThemeProvider } from "@/components/ThemeProvider";
-import { resolveAudienceMembership } from "@/lib/login-audience";
+import { resolveAccessRole } from "@/lib/access-role";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   // Env guard — surface misconfiguration immediately
@@ -16,10 +16,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     redirect("/login");
   }
 
-  const membership = await resolveAudienceMembership(supabase, user);
-  if (!membership.isTeam) {
+  const access = await resolveAccessRole(supabase, user);
+  if (!access.isTeam && !access.isCollaborator) {
     await supabase.auth.signOut();
-    if (membership.isClient || membership.isCollaborator) {
+    if (access.isClient || access.isCollaborator) {
       redirect("/portal/login?mismatch=1");
     }
     redirect("/login?mode=team&mismatch=1");
@@ -39,7 +39,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           ⚠️ Env vars em falta — define NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY
         </div>
       )}
-      <AppShell userEmail={user.email ?? ""}>
+      <AppShell userEmail={user.email ?? ""} userRole={access.role}>
         {children}
       </AppShell>
     </ToastProvider>

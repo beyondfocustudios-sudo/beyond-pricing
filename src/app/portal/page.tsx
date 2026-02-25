@@ -33,32 +33,32 @@ export default function PortalHomePage() {
   const router = useRouter();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isClientView, setIsClientView] = useState(true);
 
   useEffect(() => {
     const load = async () => {
       const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
 
-      const [clientRoleRes, collaboratorRoleRes] = await Promise.all([
+      const [clientRoleRes, teamRoleRes] = await Promise.all([
         fetch("/api/auth/validate-audience?audience=client", { cache: "no-store" }),
-        fetch("/api/auth/validate-audience?audience=collaborator", { cache: "no-store" }),
+        fetch("/api/auth/validate-audience?audience=team", { cache: "no-store" }),
       ]);
-      const clientMode = clientRoleRes.ok;
-      const collaboratorMode = collaboratorRoleRes.ok;
-      setIsClientView(clientMode);
+      if (!clientRoleRes.ok) {
+        if (teamRoleRes.ok) {
+          const payload = await teamRoleRes.json().catch(() => ({} as { redirectPath?: string }));
+          router.replace(payload.redirectPath ?? "/app/dashboard");
+          return;
+        }
+        router.replace("/portal/login?mismatch=1");
+        return;
+      }
 
-      let query = supabase
+      const query = supabase
         .from("project_members")
         .select("project_id, role, projects:project_id(id, name, status, updated_at)")
         .eq("user_id", user?.id ?? "")
-        .not("projects", "is", null);
-
-      if (clientMode) {
-        query = query.in("role", ["client_viewer", "client_approver"]);
-      } else if (collaboratorMode) {
-        query = query.in("role", ["owner", "admin", "editor"]);
-      }
+        .not("projects", "is", null)
+        .in("role", ["client_viewer", "client_approver"]);
 
       const { data } = await query;
 
@@ -73,7 +73,7 @@ export default function PortalHomePage() {
       setLoading(false);
     };
     void load();
-  }, []);
+  }, [router]);
 
   if (loading) {
     return (
@@ -87,7 +87,7 @@ export default function PortalHomePage() {
     <div className="space-y-4">
       <div>
         <p className="text-xs uppercase tracking-[0.1em]" style={{ color: "var(--muted)" }}>
-          {isClientView ? "Client Area" : "Portal Colaborador"}
+          Client Area
         </p>
         <h1 className="mt-1 page-title">Projetos</h1>
       </div>

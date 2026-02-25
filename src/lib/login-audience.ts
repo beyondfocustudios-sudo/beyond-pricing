@@ -25,13 +25,13 @@ export function parseAudience(value: string | null | undefined): LoginAudience |
 
 export function audienceLabel(audience: LoginAudience): string {
   if (audience === "team") return "Equipa Beyond";
-  if (audience === "client") return "Cliente";
+  if (audience === "client") return "Cliente Beyond";
   return "Colaborador";
 }
 
 export function audienceLoginPath(audience: LoginAudience): string {
   if (audience === "client") return "/portal/login?mode=client";
-  if (audience === "collaborator") return "/portal/login?mode=collaborator";
+  if (audience === "collaborator") return "/login?mode=team";
   return "/login?mode=team";
 }
 
@@ -110,16 +110,24 @@ export function decideAudienceAccess(
   membership: AudienceMembership,
 ): AudienceDecision {
   const ok =
-    (audience === "team" && membership.isTeam)
+    (audience === "team" && (membership.isTeam || membership.isCollaborator))
     || (audience === "client" && membership.isClient)
     || (audience === "collaborator" && membership.isCollaborator);
 
   if (ok) {
+    const resolvedAudience: LoginAudience = audience === "team" && membership.isCollaborator && !membership.isTeam
+      ? "collaborator"
+      : audience;
+
     return {
       ok: true,
       message: "Acesso autorizado.",
-      suggestedAudience: audience,
-      suggestedPath: audience === "client" ? "/portal" : "/app/dashboard",
+      suggestedAudience: resolvedAudience,
+      suggestedPath: resolvedAudience === "client"
+        ? "/portal"
+        : resolvedAudience === "collaborator"
+          ? "/app/collaborator"
+          : "/app/dashboard",
       membership,
     };
   }

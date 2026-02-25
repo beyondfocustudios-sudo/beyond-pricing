@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
   if (created.error || !created.data.user) {
     if (created.error?.message?.toLowerCase().includes("already")) {
       return NextResponse.json(
-        { error: "Já existe conta para este email. Usa o login do portal." },
+        { error: "Já existe conta para este email. Usa o login da Equipa Beyond." },
         { status: 409 },
       );
     }

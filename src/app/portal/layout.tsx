@@ -9,6 +9,7 @@ import { ThemeProvider, useTheme } from "@/components/ThemeProvider";
 import { TopScheduleBar } from "@/components/ui-kit";
 import { SuperShell } from "@/components/dashboard/super-dashboard";
 import HQAssistantWidget from "@/components/HQAssistantWidget";
+import { OnboardingGate } from "@/components/onboarding/OnboardingGate";
 
 function PortalShell({
   children,
@@ -26,6 +27,7 @@ function PortalShell({
       className="super-theme super-shell-bg h-full min-h-full w-full"
       style={{ padding: "clamp(16px, 2.5vw, 40px)" }}
     >
+      <OnboardingGate surface="portal" />
       <SuperShell className="mx-auto flex h-full min-h-0 w-full max-w-[1440px] flex-col">
         <header className="super-topbar">
           <Link href="/portal" className="inline-flex items-center gap-2.5">
@@ -82,6 +84,11 @@ export default function PortalLayout({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (pathname === "/portal/login" || pathname === "/portal/invite") {
+      setLoading(false);
+      return;
+    }
+
     const sb = createClient();
     sb.auth.getUser().then(async ({ data }) => {
       if (!data.user) {
@@ -89,11 +96,16 @@ export default function PortalLayout({
         return;
       }
 
-      const [clientRes, collaboratorRes] = await Promise.all([
+      const [clientRes, teamRes] = await Promise.all([
         fetch("/api/auth/validate-audience?audience=client", { cache: "no-store" }),
-        fetch("/api/auth/validate-audience?audience=collaborator", { cache: "no-store" }),
+        fetch("/api/auth/validate-audience?audience=team", { cache: "no-store" }),
       ]);
-      if (!clientRes.ok && !collaboratorRes.ok) {
+      if (!clientRes.ok) {
+        if (teamRes.ok) {
+          const teamPayload = await teamRes.json().catch(() => ({} as { redirectPath?: string }));
+          router.replace(teamPayload.redirectPath ?? "/app/dashboard");
+          return;
+        }
         await sb.auth.signOut();
         router.replace("/portal/login?mismatch=1");
         return;
@@ -103,7 +115,7 @@ export default function PortalLayout({
       setEmail(data.user.email ?? null);
       setLoading(false);
     });
-  }, [router]);
+  }, [pathname, router]);
 
   const handleLogout = async () => {
     const sb = createClient();

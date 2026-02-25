@@ -32,7 +32,7 @@ export async function resolveProjectManageAccess(projectId: string, userId: stri
   const projectRole = String(projectMemberRes.data?.role ?? "").toLowerCase();
   const isOwner = projectRowRes.data.user_id === userId || projectRowRes.data.owner_user_id === userId;
 
-  const hasProjectRole = projectRole === "owner" || projectRole === "admin" || projectRole === "editor";
+  const hasProjectRole = projectRole === "owner" || projectRole === "admin";
   const allowed = isTeamRole(teamRole) || hasProjectRole || isOwner;
 
   if (!allowed) {

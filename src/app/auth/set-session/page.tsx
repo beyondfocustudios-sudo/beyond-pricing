@@ -42,6 +42,7 @@ function SetSessionInner() {
 
       setSessionCookieClient(ttlSeconds);
 
+      let finalNext = next;
       if (audience) {
         const res = await fetch(`/api/auth/validate-audience?audience=${audience}`, { cache: "no-store" });
         if (!res.ok) {
@@ -50,9 +51,7 @@ function SetSessionInner() {
             ? data.suggestedPath
             : audience === "client"
               ? "/portal/login?mode=client"
-              : audience === "collaborator"
-                ? "/portal/login?mode=collaborator"
-                : "/login?mode=team";
+              : "/login?mode=team";
 
           try {
             const sb = createClient();
@@ -67,9 +66,13 @@ function SetSessionInner() {
           router.replace(mismatchPath);
           return;
         }
+        const data = await res.json().catch(() => ({} as { redirectPath?: string }));
+        if (typeof data.redirectPath === "string" && data.redirectPath.startsWith("/")) {
+          finalNext = data.redirectPath;
+        }
       }
 
-      router.replace(next);
+      router.replace(finalNext);
     };
 
     void run();

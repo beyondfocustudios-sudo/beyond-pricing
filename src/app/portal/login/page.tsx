@@ -46,7 +46,7 @@ function PortalLoginInner() {
   }, []);
 
   useEffect(() => {
-    if (mode === "team") {
+    if (mode !== "client") {
       router.replace(audienceLoginPath("team"));
     }
   }, [mode, router]);

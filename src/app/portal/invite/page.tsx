@@ -138,7 +138,7 @@ function PortalInviteInner() {
     }
 
     setSessionCookieClient(SESSION_TTL.SHORT);
-    router.push("/portal");
+    router.push(invite?.kind === "collaborator" ? "/app/collaborator" : "/portal");
     router.refresh();
   };
 
@@ -198,7 +198,11 @@ function PortalInviteInner() {
               {!loading && done ? (
                 <div className="alert alert-success mt-6">
                   <CheckCircle2 className="h-4 w-4 shrink-0" />
-                  <span className="text-sm">Conta criada. Faz login em `/portal/login`.</span>
+                  <span className="text-sm">
+                    {invite?.kind === "collaborator"
+                      ? "Conta criada. Faz login em `/login?mode=team`."
+                      : "Conta criada. Faz login em `/portal/login`."}
+                  </span>
                 </div>
               ) : null}
 

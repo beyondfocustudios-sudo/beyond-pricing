@@ -6,7 +6,6 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   AlertCircle,
   ArrowRight,
-  BriefcaseBusiness,
   Building2,
   CheckCircle2,
   Eye,
@@ -63,10 +62,13 @@ function MicrosoftIcon() {
 
 async function validateAudienceAccess(audience: LoginAudience) {
   const response = await fetch(`/api/auth/validate-audience?audience=${audience}`, { cache: "no-store" });
-  const payload = await response.json().catch(() => ({} as { message?: string; suggestedPath?: string }));
+  const payload = await response.json().catch(() => ({} as { message?: string; suggestedPath?: string; redirectPath?: string }));
 
   if (response.ok) {
-    return { ok: true as const, suggestedPath: "/app/dashboard" };
+    return {
+      ok: true as const,
+      suggestedPath: payload.redirectPath ?? "/app/dashboard",
+    };
   }
 
   return {
@@ -112,6 +114,12 @@ function LoginPageInner() {
     };
   }, []);
 
+  useEffect(() => {
+    if (selectedAudience === "collaborator") {
+      router.replace("/login?mode=team");
+    }
+  }, [router, selectedAudience]);
+
   const passwordStrength = useMemo(() => {
     const score = Number(password.length >= 8) + Number(/[A-Z]/.test(password)) + Number(/\d/.test(password));
     if (!password) return { label: "Sem password", tone: "var(--text-3)" };
@@ -144,7 +152,7 @@ function LoginPageInner() {
       return false;
     }
 
-    router.push(audience === "team" ? "/app/dashboard" : "/portal");
+    router.push(result.suggestedPath);
     router.refresh();
     return true;
   };
@@ -307,7 +315,7 @@ function LoginPageInner() {
               </p>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2">
               <motion.button
                 type="button"
                 className="card text-left p-4"
@@ -326,19 +334,8 @@ function LoginPageInner() {
                 {...buttonMotionProps({ enabled: motionEnabled })}
               >
                 <Building2 className="mb-2 h-5 w-5" style={{ color: "var(--accent-blue)" }} />
-                <p className="font-semibold" style={{ color: "var(--text)" }}>Cliente</p>
+                <p className="font-semibold" style={{ color: "var(--text)" }}>Cliente Beyond</p>
                 <p className="mt-1 text-xs" style={{ color: "var(--text-2)" }}>Acesso portal para projetos e entregas.</p>
-              </motion.button>
-
-              <motion.button
-                type="button"
-                className="card text-left p-4"
-                onClick={() => router.push("/portal/login?mode=collaborator")}
-                {...buttonMotionProps({ enabled: motionEnabled })}
-              >
-                <BriefcaseBusiness className="mb-2 h-5 w-5" style={{ color: "var(--accent-blue)" }} />
-                <p className="font-semibold" style={{ color: "var(--text)" }}>Colaborador</p>
-                <p className="mt-1 text-xs" style={{ color: "var(--text-2)" }}>Acesso portal para colaboradores de projeto.</p>
               </motion.button>
             </div>
           </section>
@@ -347,7 +344,9 @@ function LoginPageInner() {
     );
   }
 
-  if (selectedAudience === "client" || selectedAudience === "collaborator") {
+  if (selectedAudience === "collaborator") return null;
+
+  if (selectedAudience === "client") {
     return (
       <AuthShell maxWidth={640}>
         <div className="w-full card-glass rounded-[28px] border p-6" style={{ borderColor: "var(--border-soft)" }}>

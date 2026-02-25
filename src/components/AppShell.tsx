@@ -24,6 +24,7 @@ import {
   Moon,
   Sun,
   Zap,
+  UserRound,
 } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
 import NotificationBell from "@/components/NotificationBell";
@@ -31,6 +32,7 @@ import { useTheme } from "@/components/ThemeProvider";
 import { PillTabs, SuperShell } from "@/components/dashboard/super-dashboard";
 import { buttonMotionProps, transitions, variants } from "@/lib/motion";
 import HQAssistantWidget from "@/components/HQAssistantWidget";
+import { OnboardingGate } from "@/components/onboarding/OnboardingGate";
 
 type NavItem = {
   href: string;
@@ -45,6 +47,20 @@ const PRIMARY_NAV: NavItem[] = [
   { href: "/app/inbox", label: "Inbox", icon: MessageSquare },
   { href: "/app/insights", label: "Insights", icon: TrendingUp },
   { href: "/app/settings", label: "Settings", icon: Settings },
+];
+
+const PRIMARY_NAV_OWNER_ADMIN: NavItem[] = [
+  ...PRIMARY_NAV.slice(0, 5),
+  { href: "/app/integrations", label: "Integrations", icon: Zap },
+  PRIMARY_NAV[5],
+];
+
+const PRIMARY_NAV_COLLABORATOR: NavItem[] = [
+  { href: "/app/collaborator", label: "Home", icon: LayoutDashboard },
+  { href: "/app/projects", label: "Projects", icon: Calculator },
+  { href: "/app/tasks", label: "Tasks", icon: ListTodo },
+  { href: "/app/inbox", label: "Inbox", icon: MessageSquare },
+  { href: "/app/preferences", label: "Perfil", icon: UserRound },
 ];
 
 const SECONDARY_NAV: NavItem[] = [
@@ -64,6 +80,13 @@ const CEO_RAIL: NavItem[] = [
   { href: "/app/inbox", label: "Inbox", icon: MessageSquare },
 ];
 
+const COLLABORATOR_RAIL: NavItem[] = [
+  { href: "/app/projects", label: "Projetos", icon: Calculator },
+  { href: "/app/tasks", label: "Tarefas", icon: ListTodo },
+  { href: "/app/inbox", label: "Inbox", icon: MessageSquare },
+  { href: "/app/preferences", label: "Perfil", icon: UserRound },
+];
+
 const MOBILE_NAV: NavItem[] = [
   { href: "/app/dashboard", label: "Dash", icon: LayoutDashboard },
   { href: "/app/projects", label: "Projects", icon: Calculator },
@@ -72,17 +95,23 @@ const MOBILE_NAV: NavItem[] = [
   { href: "/app/settings", label: "Settings", icon: Settings },
 ];
 
+const MOBILE_NAV_COLLABORATOR: NavItem[] = [
+  { href: "/app/collaborator", label: "Home", icon: LayoutDashboard },
+  { href: "/app/projects", label: "Projects", icon: Calculator },
+  { href: "/app/tasks", label: "Tasks", icon: ListTodo },
+  { href: "/app/inbox", label: "Inbox", icon: MessageSquare },
+  { href: "/app/preferences", label: "Perfil", icon: UserRound },
+];
+
 function navIsActive(pathname: string, href: string) {
-  if (pathname === "/app/preferences") {
-    pathname = "/app/settings";
-  }
+  if (pathname === "/app/preferences" && href === "/app/settings") return true;
   if (href === "/app/dashboard") return pathname === "/app" || pathname === "/app/dashboard";
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function resolvePrimaryActive(pathname: string) {
-  const found = PRIMARY_NAV.find((tab) => navIsActive(pathname, tab.href));
-  return found?.href ?? "/app/dashboard";
+function resolvePrimaryActive(pathname: string, tabs: NavItem[]) {
+  const found = tabs.find((tab) => navIsActive(pathname, tab.href));
+  return found?.href ?? tabs[0]?.href ?? "/app/dashboard";
 }
 
 function railIsActive(pathname: string, href: string) {
@@ -93,18 +122,28 @@ function railIsActive(pathname: string, href: string) {
 export function AppShell({
   children,
   userEmail,
+  userRole,
 }: {
   children: ReactNode;
   userEmail: string;
+  userRole: "owner" | "admin" | "member" | "collaborator" | "client" | "unknown";
 }) {
   const pathname = usePathname();
   const router = useRouter();
   const [signingOut, setSigningOut] = useState(false);
   const { theme, toggleTheme, dashboardMode } = useTheme();
   const reduceMotion = useReducedMotion();
-  const activePrimary = useMemo(() => resolvePrimaryActive(pathname), [pathname]);
+  const isCollaborator = userRole === "collaborator";
+  const isOwnerAdmin = userRole === "owner" || userRole === "admin";
+  const primaryNav = useMemo(() => {
+    if (isCollaborator) return PRIMARY_NAV_COLLABORATOR;
+    if (isOwnerAdmin) return PRIMARY_NAV_OWNER_ADMIN;
+    return PRIMARY_NAV;
+  }, [isCollaborator, isOwnerAdmin]);
+  const mobileNav = useMemo(() => (isCollaborator ? MOBILE_NAV_COLLABORATOR : MOBILE_NAV), [isCollaborator]);
+  const activePrimary = useMemo(() => resolvePrimaryActive(pathname, primaryNav), [pathname, primaryNav]);
   const isCeoMode = dashboardMode === "ceo";
-  const railItems = isCeoMode ? CEO_RAIL : SECONDARY_NAV;
+  const railItems = isCollaborator ? COLLABORATOR_RAIL : isCeoMode ? CEO_RAIL : SECONDARY_NAV;
 
   const handleLogout = async () => {
     setSigningOut(true);
@@ -121,9 +160,10 @@ export function AppShell({
       className="super-theme super-shell-bg h-full min-h-full w-full"
       style={{ padding: "clamp(16px, 2.5vw, 40px)" }}
     >
+      <OnboardingGate surface="app" collaboratorMode={isCollaborator} />
       <SuperShell className="mx-auto flex h-full min-h-0 w-full max-w-[1440px] flex-col">
         <header className="super-topbar">
-          <Link href="/app/dashboard" className="inline-flex items-center gap-2.5">
+          <Link href={isCollaborator ? "/app/collaborator" : "/app/dashboard"} className="inline-flex items-center gap-2.5">
             <span
               className="inline-flex h-8 w-8 items-center justify-center rounded-full"
               style={{ background: "var(--accent-blue)", color: "#fff" }}
@@ -136,7 +176,7 @@ export function AppShell({
           </Link>
 
           <div className="hidden min-w-0 flex-1 justify-center px-5 md:flex">
-            <PillTabs tabs={PRIMARY_NAV.map((tab) => ({ href: tab.href, label: tab.label }))} active={activePrimary} />
+            <PillTabs tabs={primaryNav.map((tab) => ({ href: tab.href, label: tab.label }))} active={activePrimary} />
           </div>
 
           <div className="flex items-center gap-1.5">
@@ -178,7 +218,7 @@ export function AppShell({
         </header>
 
         <div className="border-b px-3 py-2 md:hidden" style={{ borderColor: "var(--border)" }}>
-          <PillTabs tabs={PRIMARY_NAV.map((tab) => ({ href: tab.href, label: tab.label }))} active={activePrimary} />
+          <PillTabs tabs={primaryNav.map((tab) => ({ href: tab.href, label: tab.label }))} active={activePrimary} />
         </div>
 
         <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-24 pt-5 md:px-6 md:pb-8 md:pt-6 xl:px-7">
@@ -218,7 +258,7 @@ export function AppShell({
         }}
       >
         <div className="mx-auto flex max-w-[1380px] items-stretch justify-around px-1 py-1.5">
-          {MOBILE_NAV.map((item) => {
+          {mobileNav.map((item) => {
             const active = navIsActive(pathname, item.href);
             return (
               <Link
