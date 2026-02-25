@@ -7,6 +7,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "tokens:build": "tsx scripts/build-tokens.ts",
+    "tokens:validate": "tsx scripts/build-tokens.ts --validate",
+    "db:push": "supabase db push",
+    "db:diff": "supabase db diff",
+    "db:status": "supabase migration list",
+    "db:audit": "tsx scripts/audit-schema-gaps-standalone.ts",
     "test:smoke": "playwright test e2e/smoke.spec.ts",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed"
