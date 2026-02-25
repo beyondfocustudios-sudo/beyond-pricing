@@ -48,6 +48,7 @@ export type ScheduleItem = {
   startsAt?: string;
   endsAt?: string;
   calendarHref?: string;
+  googleHref?: string;
   active?: boolean;
 };
 
@@ -282,20 +283,27 @@ export function DarkCalendarCard({
             <div className="min-w-0">
               <p className="dark-calendar-title">{event.title}</p>
               <p className="dark-calendar-subtitle">{event.subtitle}</p>
-              {event.calendarHref ? (
-                <a href={event.calendarHref} className="dark-calendar-add" download>
-                  Add to calendar
-                </a>
-              ) : null}
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px]">
+                {event.googleHref ? (
+                  <a href={event.googleHref} className="dark-calendar-add" target="_blank" rel="noreferrer">
+                    Google
+                  </a>
+                ) : null}
+                {event.calendarHref ? (
+                  <a href={event.calendarHref} className="dark-calendar-add" download>
+                    ICS
+                  </a>
+                ) : null}
+              </div>
             </div>
           </li>
         ))}
       </ol>
       {feedHref ? (
         <div className="dark-calendar-feed">
-          <p>Feed ICS para Apple/Outlook/Google:</p>
+          <p>Apple/Outlook via ICS:</p>
           <a href={feedHref} className="dark-calendar-feed-link">
-            {feedHref}
+            Abrir calendário interno
           </a>
         </div>
       ) : null}

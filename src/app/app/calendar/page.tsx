@@ -169,6 +169,26 @@ function toGoogleCalendarUrl(event: CalendarEvent) {
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
 
+async function copyText(value: string) {
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+
+  if (typeof document === "undefined") throw new Error("Clipboard indisponivel");
+
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  const copied = document.execCommand("copy");
+  document.body.removeChild(textarea);
+  if (!copied) throw new Error("Falha ao copiar");
+}
+
 function eventTypeLabel(type: CalendarEvent["type"]) {
   switch (type) {
     case "shoot": return "Shoot";
@@ -204,6 +224,7 @@ export default function AppCalendarPage() {
 
   const [feedToken, setFeedToken] = useState<string | null>(null);
   const [tokenLoading, setTokenLoading] = useState(false);
+  const [copyState, setCopyState] = useState<"idle" | "ok" | "error">("idle");
 
   const { from, to } = useMemo(() => rangeForView(view, anchorDate), [view, anchorDate]);
 
@@ -276,6 +297,19 @@ export default function AppCalendarPage() {
     if (typeof window === "undefined") return `/api/calendar/feed.ics?token=${feedToken}`;
     return `${window.location.origin}/api/calendar/feed.ics?token=${feedToken}`;
   }, [feedToken]);
+
+  const quickGoogleHref = useMemo(() => {
+    const start = new Date(anchorDate);
+    start.setHours(10, 0, 0, 0);
+    const end = new Date(start.getTime() + 60 * 60 * 1000);
+    const params = new URLSearchParams({
+      action: "TEMPLATE",
+      text: "Evento Beyond Pricing",
+      dates: `${start.toISOString().replace(/[-:]/g, "").replace(".000", "")}/${end.toISOString().replace(/[-:]/g, "").replace(".000", "")}`,
+      details: "Criado a partir do calendario interno Beyond Pricing.",
+    });
+    return `https://calendar.google.com/calendar/render?${params.toString()}`;
+  }, [anchorDate]);
 
   const openCreateModal = (seedDate?: Date) => {
     const start = seedDate ? new Date(seedDate) : new Date(anchorDate);
@@ -379,7 +413,13 @@ export default function AppCalendarPage() {
 
   const copyFeed = async () => {
     if (!feedUrl) return;
-    await navigator.clipboard.writeText(feedUrl);
+    try {
+      await copyText(feedUrl);
+      setCopyState("ok");
+    } catch {
+      setCopyState("error");
+    }
+    setTimeout(() => setCopyState("idle"), 1500);
   };
 
   return (
@@ -452,17 +492,24 @@ export default function AppCalendarPage() {
           </a>
           <button className="btn btn-secondary btn-sm" onClick={() => void copyFeed()} disabled={!feedUrl || tokenLoading}>
             {tokenLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
-            Copiar link ICS
+            {copyState === "ok" ? "Copiado" : copyState === "error" ? "Falha ao copiar" : "Copiar link ICS"}
           </button>
           {feedUrl ? (
-            <a className="btn btn-secondary btn-sm" href={`https://calendar.google.com/calendar/u/0/r?cid=${encodeURIComponent(feedUrl)}`} target="_blank" rel="noreferrer">
+            <a className="btn btn-secondary btn-sm" href={feedUrl} target="_blank" rel="noreferrer">
               <ExternalLink className="h-4 w-4" />
-              Google Calendar
+              Abrir link ICS
             </a>
           ) : null}
+          <a className="btn btn-secondary btn-sm" href={quickGoogleHref} target="_blank" rel="noreferrer">
+            <ExternalLink className="h-4 w-4" />
+            Adicionar ao Google Calendar
+          </a>
         </div>
         <p className="mt-3 text-xs break-all" style={{ color: "var(--text-3)" }}>
           {feedUrl || "A gerar token de feed..."}
+        </p>
+        <p className="mt-1 text-xs" style={{ color: "var(--text-3)" }}>
+          Google: abre o link para criar um evento. Apple/Outlook: usa o link ICS em subscricao.
         </p>
       </section>
 
@@ -551,6 +598,26 @@ export default function AppCalendarPage() {
                           <p className="mt-1 text-[11px]" style={{ color: "var(--text-3)" }}>
                             {new Date(event.starts_at).toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" })}
                           </p>
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+                            <a
+                              href={toGoogleCalendarUrl(event)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="underline"
+                              style={{ color: "var(--accent-primary)" }}
+                              onClick={(eventClick) => eventClick.stopPropagation()}
+                            >
+                              Adicionar ao Google
+                            </a>
+                            <a
+                              href={`/api/calendar/event.ics?id=${event.id}`}
+                              className="underline"
+                              style={{ color: "var(--text-3)" }}
+                              onClick={(eventClick) => eventClick.stopPropagation()}
+                            >
+                              Download ICS
+                            </a>
+                          </div>
                         </button>
                       ))
                     )}
@@ -580,7 +647,7 @@ export default function AppCalendarPage() {
                         ICS
                       </a>
                       <a className="btn btn-ghost btn-sm" href={toGoogleCalendarUrl(event)} target="_blank" rel="noreferrer">
-                        Google
+                        Adicionar ao Google
                       </a>
                       <button className="btn btn-secondary btn-sm" onClick={() => openEditModal(event)}>
                         <Pencil className="h-3.5 w-3.5" />
@@ -615,6 +682,26 @@ export default function AppCalendarPage() {
                   <p className="mt-1 text-xs" style={{ color: "var(--text-3)" }}>
                     {new Date(event.starts_at).toLocaleDateString("pt-PT", { weekday: "short", day: "2-digit", month: "short" })} · {new Date(event.starts_at).toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" })}
                   </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+                    <a
+                      href={toGoogleCalendarUrl(event)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline"
+                      style={{ color: "var(--accent-primary)" }}
+                      onClick={(eventClick) => eventClick.stopPropagation()}
+                    >
+                      Adicionar ao Google
+                    </a>
+                    <a
+                      href={`/api/calendar/event.ics?id=${event.id}`}
+                      className="underline"
+                      style={{ color: "var(--text-3)" }}
+                      onClick={(eventClick) => eventClick.stopPropagation()}
+                    >
+                      Download ICS
+                    </a>
+                  </div>
                 </button>
               ))
             )}

@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase-server";
 import { resolveAccessRole } from "@/lib/access-role";
@@ -31,10 +30,6 @@ function parseProvider(value: unknown): CalendarProvider | null {
   const provider = String(value ?? "").toLowerCase();
   if (provider === "google" || provider === "microsoft") return provider;
   return null;
-}
-
-function makeFeedToken() {
-  return randomBytes(24).toString("hex");
 }
 
 async function requireTeamUser() {
@@ -90,7 +85,6 @@ export async function GET(request: NextRequest) {
     calendarsByIntegration.set(row.integration_id, list);
   }
 
-  let feedToken = "";
   const existingToken = await sb
     .from("calendar_feed_tokens")
     .select("token")
@@ -100,18 +94,7 @@ export async function GET(request: NextRequest) {
     .limit(1)
     .maybeSingle();
 
-  if (existingToken.data?.token) {
-    feedToken = existingToken.data.token;
-  } else {
-    const generatedToken = makeFeedToken();
-    const inserted = await sb
-      .from("calendar_feed_tokens")
-      .insert({ user_id: user.id, token: generatedToken })
-      .select("token")
-      .single();
-
-    feedToken = inserted.data?.token ?? "";
-  }
+  const feedToken = existingToken.data?.token ?? "";
 
   const baseUrl = request.nextUrl.origin;
   const providers = (["google", "microsoft"] as const).map((provider) => {
@@ -141,6 +124,7 @@ export async function GET(request: NextRequest) {
     providers,
     ics: {
       feedToken,
+      hasToken: Boolean(feedToken),
       feedUrl: feedToken ? `${baseUrl}/api/calendar/feed.ics?token=${feedToken}` : null,
       downloadUrl: feedToken ? `/api/calendar/feed.ics?token=${feedToken}` : "/api/calendar/feed.ics",
     },

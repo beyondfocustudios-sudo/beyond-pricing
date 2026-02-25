@@ -192,6 +192,17 @@ export default function DashboardHome() {
   }, [projects, tasks, clientsCount, weekAgo]);
 
   const scheduleItems = useMemo<ScheduleItem[]>(() => {
+    const buildGoogleHref = (title: string, startsAt: Date, subtitle: string) => {
+      const endsAt = new Date(startsAt.getTime() + 45 * 60 * 1000);
+      const params = new URLSearchParams({
+        action: "TEMPLATE",
+        text: title,
+        dates: `${startsAt.toISOString().replace(/[-:]/g, "").replace(".000", "")}/${endsAt.toISOString().replace(/[-:]/g, "").replace(".000", "")}`,
+        details: subtitle,
+      });
+      return `https://calendar.google.com/calendar/render?${params.toString()}`;
+    };
+
     const buildAdhocHref = (title: string, startsAt: Date, subtitle: string) => {
       const endsAt = new Date(startsAt.getTime() + 45 * 60 * 1000);
       const qs = new URLSearchParams({
@@ -217,6 +228,7 @@ export default function DashboardHome() {
           subtitle: `Deadline · ${formatDateShort(date.toISOString())}`,
           startsAt: date.toISOString(),
           calendarHref: `/api/calendar/event.ics?source=task&id=${task.id}`,
+          googleHref: buildGoogleHref(task.title, date, `Deadline · ${formatDateShort(date.toISOString())}`),
           active: index === 0,
         };
       });
@@ -239,6 +251,7 @@ export default function DashboardHome() {
         ...item,
         startsAt: start.toISOString(),
         calendarHref: buildAdhocHref(item.title, start, item.subtitle),
+        googleHref: buildGoogleHref(item.title, start, item.subtitle),
       };
     });
   }, [tasks]);
@@ -513,7 +526,7 @@ export default function DashboardHome() {
               </MotionListItem>
 
               <MotionListItem className="md:col-span-1 xl:col-span-4">
-              <DarkCalendarCard events={scheduleItems} feedHref="/api/calendar/feed.ics" />
+              <DarkCalendarCard events={scheduleItems} feedHref="/app/calendar" />
               </MotionListItem>
 
               <MotionListItem className="md:col-span-1 xl:col-span-4">
