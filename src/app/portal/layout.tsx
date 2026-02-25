@@ -8,6 +8,7 @@ import { LogOut, Moon, Sun, Zap } from "lucide-react";
 import { ThemeProvider, useTheme } from "@/components/ThemeProvider";
 import { TopScheduleBar } from "@/components/ui-kit";
 import { SuperShell } from "@/components/dashboard/super-dashboard";
+import HQAssistantWidget from "@/components/HQAssistantWidget";
 
 function PortalShell({
   children,
@@ -61,6 +62,7 @@ function PortalShell({
           <div className="surface p-4 sm:p-5">{children}</div>
         </main>
       </SuperShell>
+      <HQAssistantWidget />
     </div>
   );
 }

@@ -184,4 +184,45 @@ test.describe("Beyond Pricing smoke", () => {
     expect(finalPayload.approvals.some((row) => row.decision === "approved")).toBeTruthy();
     expect(["approved", "in_review", "pending"]).toContain(finalPayload.deliverable.status ?? "pending");
   });
+
+  test("hq assistant widget: open + task + search + report + interpret", async ({ page }) => {
+    test.setTimeout(180_000);
+
+    await loginTeam(page);
+    await page.goto("/app/dashboard");
+
+    const fab = page.getByTestId("hq-assistant-fab");
+    await expect(fab).toBeVisible();
+    await fab.click();
+
+    await expect(page.getByTestId("hq-actions-tab")).toBeVisible();
+
+    const title = `E2E HQ task ${Date.now()}`;
+    await page.getByTestId("hq-create-task-title").fill(title);
+    await page.getByTestId("hq-create-task-submit").click();
+
+    await page.getByRole("button", { name: "Pesquisa" }).click();
+    await expect(page.getByTestId("hq-search-tab")).toBeVisible();
+    await page.getByTestId("hq-search-input").fill("projeto");
+    await expect(page.getByTestId("hq-search-results")).toBeVisible();
+
+    await page.getByTestId("hq-report-bug").click();
+    await page.getByPlaceholder("Descreve o que aconteceu").fill("E2E report bug via HQ Assistant.");
+    await page.getByPlaceholder("O que esperavas que acontecesse?").fill("Esperava render sem erros.");
+    await page.getByPlaceholder("Passos para reproduzir (se souberes)").fill("1) Abrir dashboard 2) Abrir widget");
+    await page.getByTestId("hq-report-submit").click();
+
+    const interpretRes = await page.request.post("/api/assistant/interpret", {
+      data: {
+        message: "cria tarefa para follow-up",
+        context_minimal: {
+          route: "/app/dashboard",
+        },
+      },
+    });
+
+    expect([200, 429]).toContain(interpretRes.status());
+    const interpretJson = await interpretRes.json() as { intent?: string };
+    expect(interpretJson.intent).toBeTruthy();
+  });
 });

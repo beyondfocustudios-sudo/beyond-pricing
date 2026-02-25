@@ -19,6 +19,7 @@ import {
   Users2,
   ClipboardList,
   Activity,
+  LifeBuoy,
   LogOut,
   Moon,
   Sun,
@@ -29,6 +30,7 @@ import NotificationBell from "@/components/NotificationBell";
 import { useTheme } from "@/components/ThemeProvider";
 import { PillTabs, SuperShell } from "@/components/dashboard/super-dashboard";
 import { buttonMotionProps, transitions, variants } from "@/lib/motion";
+import HQAssistantWidget from "@/components/HQAssistantWidget";
 
 type NavItem = {
   href: string;
@@ -53,6 +55,7 @@ const SECONDARY_NAV: NavItem[] = [
   { href: "/app/crm", label: "CRM", icon: Users2 },
   { href: "/app/callsheets", label: "Call Sheets", icon: ClipboardList },
   { href: "/app/diagnostics", label: "Diagnostics", icon: Activity },
+  { href: "/app/support", label: "Support", icon: LifeBuoy },
 ];
 
 const CEO_RAIL: NavItem[] = [
@@ -203,6 +206,8 @@ export function AppShell({
           </motion.div>
         </main>
       </SuperShell>
+
+      <HQAssistantWidget />
 
       <nav
         className="fixed bottom-0 left-0 right-0 z-40 border-t backdrop-blur-md md:hidden"

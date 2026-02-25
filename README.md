@@ -46,6 +46,7 @@ SMTP_FROM=noreply@beyondfocus.pt
 
 ```env
 OPENAI_API_KEY=sk-xxx
+ASSISTANT_MODEL=gpt-5-mini
 ```
 
 ### Vercel Cron
@@ -121,6 +122,7 @@ curl -X POST https://beyond-pricing.vercel.app/api/admin/bootstrap
 | /app/logistics | Planeador de rotas + gasolina |
 | /app/weather | Open-Meteo para dias de rodagem |
 | /app/insights | Análise de orçamentos |
+| /app/support | Centro de tickets (owner/admin) |
 
 ### Portal do Cliente (/portal)
 
@@ -241,3 +243,24 @@ Criar `vercel.json` na raiz do projeto:
 - **Rate limiting**: todos os API endpoints
 - **Soft delete**: projetos, clientes, tarefas, CRM
 - **Audit log**: `audit_log` para ações críticas
+
+---
+
+## HQ Assistant v2
+
+- Widget ativo em `/app/*` e `/portal/*` (feature flag em `org_settings.enable_hq_assistant`)
+- Tabs: `Ações`, `Pesquisa`, `Assistente`
+- AI só para equipa interna e apenas quando:
+  - `org_settings.enable_ai_assistant = true`
+  - `OPENAI_API_KEY` configurada
+- Limite semanal por user: `org_settings.ai_weekly_limit` (default 50)
+
+### Ativar AI (rápido)
+
+1. Definir env no Vercel:
+   - `OPENAI_API_KEY`
+   - `ASSISTANT_MODEL=gpt-5-mini`
+2. Em DB, ligar flag:
+   - `update org_settings set enable_ai_assistant = true;`
+3. Ajustar limite semanal se necessário:
+   - `update org_settings set ai_weekly_limit = 50;`
