@@ -84,11 +84,11 @@ async function triggerNotifications(
   senderId: string
 ) {
   if (senderType === "client") {
-    // Notify all team members of project
+    // Notify internal team members only (exclude client/freelancer roles)
     const { data: members } = await admin.from("project_members")
-      .select("user_id")
+      .select("user_id, role")
       .eq("project_id", projectId)
-      .not("role", "in", '("client_viewer","client_approver")');
+      .in("role", ["owner", "admin", "editor", "producer"]);
     if (members?.length) {
       const notifs = members
         .filter((m) => m.user_id !== senderId)

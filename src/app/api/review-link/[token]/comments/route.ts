@@ -179,7 +179,7 @@ export async function POST(
     .eq("project_id", resolved.data.deliverable.project_id);
 
   const notifyRoles = !user || access?.isClientUser
-    ? ["owner", "admin", "editor"]
+    ? ["owner", "admin", "editor", "producer"]
     : ["client_viewer", "client_approver"];
 
   const recipients = (members ?? [])

@@ -129,7 +129,7 @@ export async function POST(request: NextRequest) {
     .eq("project_id", versionRef.project.id);
 
   const notifyRoles = access.isClientUser
-    ? ["owner", "admin", "editor"]
+    ? ["owner", "admin", "editor", "producer"]
     : ["client_viewer", "client_approver"];
 
   const recipientUserIds = (recipients ?? [])
