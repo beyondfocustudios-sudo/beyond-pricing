@@ -118,10 +118,10 @@ export function AppShell({
 
   return (
     <div
-      className="super-theme super-shell-bg h-dvh min-h-dvh overflow-x-clip"
+      className="super-theme super-shell-bg h-full min-h-full w-full"
       style={{ padding: "clamp(16px, 2.5vw, 40px)" }}
     >
-      <SuperShell className="mx-auto flex h-full min-h-full w-full max-w-[1440px] flex-col overflow-x-clip">
+      <SuperShell className="mx-auto flex h-full min-h-0 w-full max-w-[1440px] flex-col">
         <header className="super-topbar">
           <Link href="/app/dashboard" className="inline-flex items-center gap-2.5">
             <span
@@ -181,15 +181,15 @@ export function AppShell({
           <PillTabs tabs={PRIMARY_NAV.map((tab) => ({ href: tab.href, label: tab.label }))} active={activePrimary} />
         </div>
 
-        <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-24 pt-5 md:px-7 md:pb-7 md:pt-6">
+        <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-24 pt-5 md:px-6 md:pb-8 md:pt-6 xl:px-7">
           <motion.div
             initial={reduceMotion ? false : "initial"}
             animate={reduceMotion ? undefined : "animate"}
             variants={variants.page}
             transition={transitions.page}
-            className="mx-auto w-full app-main-grid"
+            className="mx-auto grid w-full grid-cols-1 items-start gap-5 2xl:grid-cols-[10rem_minmax(0,1fr)] 2xl:gap-7"
           >
-            <aside className="quick-rail hidden xl:flex">
+            <aside className="quick-rail hidden 2xl:flex">
               {railItems.map((item) => {
                 const active = railIsActive(pathname, item.href);
                 return (
