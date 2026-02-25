@@ -29,6 +29,13 @@ async function createProjectAndGetId(page: Page) {
   return projectId;
 }
 
+async function archiveCurrentProject(page: Page, projectId: string) {
+  const res = await page.request.delete(`/api/projects/${projectId}`);
+  expect(res.ok()).toBeTruthy();
+  await page.goto("/app/projects");
+  await page.waitForURL(/\/app\/projects$/, { timeout: 30_000 });
+}
+
 test.describe("Beyond Pricing smoke", () => {
   test.skip(!email || !password, "Set E2E_EMAIL and E2E_PASSWORD to run smoke tests.");
 
@@ -37,7 +44,8 @@ test.describe("Beyond Pricing smoke", () => {
 
     await loginTeam(page);
 
-    await createProjectAndGetId(page);
+    const projectId = await createProjectAndGetId(page);
+    await archiveCurrentProject(page, projectId);
     await expect(page.getByText("Application error")).toHaveCount(0);
 
     for (const route of [

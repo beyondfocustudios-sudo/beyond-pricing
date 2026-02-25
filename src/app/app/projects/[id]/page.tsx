@@ -44,6 +44,8 @@ import {
   FolderOpen,
   Settings2,
   Presentation,
+  UserPlus,
+  Copy,
 } from "lucide-react";
 import Link from "next/link";
 import { CatalogModal } from "@/components/CatalogModal";
@@ -418,21 +420,53 @@ export default function ProjectPage() {
   // ── Delete project (soft delete) ──────────────────────────
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [showCollaboratorInviteModal, setShowCollaboratorInviteModal] = useState(false);
+  const [collabInviteEmail, setCollabInviteEmail] = useState("");
+  const [collabInviteRole, setCollabInviteRole] = useState<"editor" | "admin">("editor");
+  const [collabInviteLoading, setCollabInviteLoading] = useState(false);
+  const [collabInviteLink, setCollabInviteLink] = useState<string | null>(null);
+  const [collabInviteExpiresAt, setCollabInviteExpiresAt] = useState<string | null>(null);
 
   const handleDeleteProject = async () => {
     setDeleting(true);
-    const sb = createClient();
-    const { error } = await sb
-      .from("projects")
-      .update({ deleted_at: new Date().toISOString() })
-      .eq("id", projectId);
+    const res = await fetch(`/api/projects/${projectId}`, {
+      method: "DELETE",
+    });
+    const payload = await res.json().catch(() => ({} as { error?: string }));
     setDeleting(false);
-    if (error) {
-      toast.error(`Erro ao apagar projeto: ${error.message}`);
+    if (!res.ok) {
+      toast.error(`Erro ao apagar projeto: ${payload.error ?? "falha inesperada"}`);
     } else {
       toast.success("Projeto arquivado com sucesso");
       router.push("/app/projects");
     }
+  };
+
+  const handleCreateCollaboratorInvite = async () => {
+    const email = collabInviteEmail.trim().toLowerCase();
+    if (!email || collabInviteLoading) return;
+    setCollabInviteLoading(true);
+
+    const res = await fetch(`/api/projects/${projectId}/collaborators/invites`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email,
+        role: collabInviteRole,
+        expiresInDays: 7,
+      }),
+    });
+    const payload = await res.json().catch(() => ({} as { error?: string; inviteUrl?: string; expiresAt?: string }));
+    setCollabInviteLoading(false);
+
+    if (!res.ok || !payload.inviteUrl) {
+      toast.error(payload.error ?? "Falha ao criar convite de colaborador");
+      return;
+    }
+
+    setCollabInviteLink(payload.inviteUrl);
+    setCollabInviteExpiresAt(payload.expiresAt ?? null);
+    toast.success("Convite de colaborador criado");
   };
 
   // ── Export PDF ────────────────────────────────────────────
@@ -671,6 +705,14 @@ export default function ProjectPage() {
             <span className="hidden sm:inline">PDF</span>
           </button>
           <button
+            onClick={() => setShowCollaboratorInviteModal(true)}
+            className="btn btn-ghost btn-sm"
+            title="Convidar colaborador"
+          >
+            <UserPlus className="h-4 w-4" />
+            <span className="hidden sm:inline">Colaborador</span>
+          </button>
+          <button
             onClick={handleSave}
             disabled={saving}
             className="btn btn-primary btn-sm"
@@ -736,6 +778,99 @@ export default function ProjectPage() {
                   style={{ background: "var(--error)", color: "white", borderRadius: "var(--r-full)" }}
                 >
                   {deleting ? "A arquivar…" : "Arquivar"}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Collaborator invite modal ── */}
+      <AnimatePresence>
+        {showCollaboratorInviteModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+            onClick={(e) => { if (e.target === e.currentTarget) setShowCollaboratorInviteModal(false); }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 12, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.95, y: 12, opacity: 0 }}
+              className="card w-full max-w-md space-y-4"
+            >
+              <div className="flex items-center gap-3">
+                <div
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+                  style={{ background: "rgba(26, 143, 163, 0.16)" }}
+                >
+                  <UserPlus className="h-5 w-5" style={{ color: "var(--accent)" }} />
+                </div>
+                <div>
+                  <p className="font-semibold" style={{ color: "var(--text)" }}>Convidar Colaborador</p>
+                  <p className="text-xs" style={{ color: "var(--text-3)" }}>Convite expira em 7 dias</p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <input
+                  type="email"
+                  className="input"
+                  value={collabInviteEmail}
+                  onChange={(e) => setCollabInviteEmail(e.target.value)}
+                  placeholder="email@colaborador.com"
+                />
+                <select
+                  className="input"
+                  value={collabInviteRole}
+                  onChange={(e) => setCollabInviteRole(e.target.value as "editor" | "admin")}
+                >
+                  <option value="editor">Colaborador (editor)</option>
+                  <option value="admin">Colaborador (admin projeto)</option>
+                </select>
+              </div>
+
+              {collabInviteLink ? (
+                <div className="space-y-2 rounded-xl border p-3" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
+                  <p className="text-xs" style={{ color: "var(--text-3)" }}>
+                    Link gerado {collabInviteExpiresAt ? `· expira ${new Date(collabInviteExpiresAt).toLocaleDateString("pt-PT")}` : ""}
+                  </p>
+                  <p className="text-xs break-all" style={{ color: "var(--text-2)" }}>{collabInviteLink}</p>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={async () => {
+                      await navigator.clipboard.writeText(collabInviteLink);
+                      toast.success("Link copiado");
+                    }}
+                  >
+                    <Copy className="h-4 w-4" />
+                    Copiar link
+                  </button>
+                </div>
+              ) : null}
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setShowCollaboratorInviteModal(false);
+                    setCollabInviteEmail("");
+                    setCollabInviteRole("editor");
+                    setCollabInviteLink(null);
+                    setCollabInviteExpiresAt(null);
+                  }}
+                  className="btn btn-secondary flex-1"
+                >
+                  Fechar
+                </button>
+                <button
+                  onClick={handleCreateCollaboratorInvite}
+                  disabled={collabInviteLoading}
+                  className="btn btn-primary flex-1"
+                >
+                  {collabInviteLoading ? "A gerar…" : "Gerar convite"}
                 </button>
               </div>
             </motion.div>

@@ -151,6 +151,16 @@ curl -X POST /api/admin/invite \
   -d '{"email":"novo@beyond.pt","role":"member"}'
 ```
 
+### Convidar colaborador para projeto
+
+```bash
+curl -X POST /api/projects/<project_id>/collaborators/invites \
+  -H "Content-Type: application/json" \
+  -d '{"email":"colab@studio.pt","role":"editor","expiresInDays":7}'
+```
+
+O colaborador conclui o setup em `/portal/invite?token=...` e fica associado ao projeto.
+
 ---
 
 ## Dropbox — Categorização Automática

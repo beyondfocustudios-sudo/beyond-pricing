@@ -18,9 +18,11 @@ function Spinner() {
 }
 
 type InviteState = {
+  kind: "client" | "collaborator";
   emailMasked: string;
-  role: "client_viewer" | "client_approver";
+  role: "client_viewer" | "client_approver" | "owner" | "admin" | "editor";
   clientName: string | null;
+  projectName: string | null;
   expiresAt: string;
 };
 
@@ -52,19 +54,38 @@ function PortalInviteInner() {
         setLoading(false);
         return;
       }
-      const res = await fetch(`/api/clients/invites?token=${encodeURIComponent(token)}`, { cache: "no-store" });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(data?.error ?? "Convite inválido.");
+
+      const tryClient = await fetch(`/api/clients/invites?token=${encodeURIComponent(token)}`, { cache: "no-store" });
+      const clientData = await tryClient.json().catch(() => ({}));
+      if (tryClient.ok) {
+        setInvite({
+          kind: "client",
+          emailMasked: clientData.emailMasked,
+          role: clientData.role,
+          clientName: clientData.clientName ?? null,
+          projectName: null,
+          expiresAt: clientData.expiresAt,
+        });
         setLoading(false);
         return;
       }
-      setInvite({
-        emailMasked: data.emailMasked,
-        role: data.role,
-        clientName: data.clientName ?? null,
-        expiresAt: data.expiresAt,
-      });
+
+      const tryCollaborator = await fetch(`/api/collaborators/invites?token=${encodeURIComponent(token)}`, { cache: "no-store" });
+      const collaboratorData = await tryCollaborator.json().catch(() => ({}));
+      if (tryCollaborator.ok) {
+        setInvite({
+          kind: "collaborator",
+          emailMasked: collaboratorData.emailMasked,
+          role: collaboratorData.role,
+          clientName: null,
+          projectName: collaboratorData.projectName ?? null,
+          expiresAt: collaboratorData.expiresAt,
+        });
+        setLoading(false);
+        return;
+      }
+
+      setError(collaboratorData?.error ?? clientData?.error ?? "Convite inválido.");
       setLoading(false);
     };
 
@@ -86,7 +107,11 @@ function PortalInviteInner() {
     setSaving(true);
     setError(null);
 
-    const res = await fetch("/api/clients/invites/accept", {
+    const acceptEndpoint = invite?.kind === "collaborator"
+      ? "/api/collaborators/invites/accept"
+      : "/api/clients/invites/accept";
+
+    const res = await fetch(acceptEndpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -183,7 +208,13 @@ function PortalInviteInner() {
                     {invite.emailMasked}
                   </div>
                   <p className="text-xs" style={{ color: "var(--text-3)" }}>
-                    Cliente: {invite.clientName ?? "—"} · Expira em {new Date(invite.expiresAt).toLocaleDateString("pt-PT")}
+                    {invite.kind === "client"
+                      ? `Cliente: ${invite.clientName ?? "—"}`
+                      : `Projeto: ${invite.projectName ?? "—"}`}{" "}
+                    · Expira em {new Date(invite.expiresAt).toLocaleDateString("pt-PT")}
+                  </p>
+                  <p className="text-xs" style={{ color: "var(--text-3)" }}>
+                    Acesso: {invite.kind === "client" ? "Cliente" : "Colaborador"} ({invite.role})
                   </p>
 
                   <div className="space-y-1.5">
