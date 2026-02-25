@@ -24,6 +24,7 @@ import { SESSION_TTL, setSessionCookieClient } from "@/lib/session";
 import { buttonMotionProps, transitions, useMotionEnabled, variants } from "@/lib/motion";
 import { OtpCodeInput } from "@/components/auth/OtpCodeInput";
 import { audienceLabel, audienceLoginPath, parseAudience, type LoginAudience } from "@/lib/login-audience";
+import { AuthShell } from "@/components/layout/AuthShell";
 
 type AuthTab = "password" | "otp" | "oauth";
 
@@ -285,13 +286,13 @@ function LoginPageInner() {
 
   if (!selectedAudience) {
     return (
-      <div className="super-theme super-shell-bg h-dvh overflow-y-auto px-4 py-5 md:p-8">
+      <AuthShell maxWidth={980}>
         <motion.div
           initial={motionEnabled ? "initial" : false}
           animate={motionEnabled ? "animate" : undefined}
           variants={variants.page}
           transition={transitions.page}
-          className="mx-auto w-full max-w-[980px]"
+          className="w-full"
         >
           <section className="card-glass rounded-[32px] border p-6 sm:p-8" style={{ borderColor: "var(--border-soft)" }}>
             <div className="mb-6">
@@ -342,14 +343,14 @@ function LoginPageInner() {
             </div>
           </section>
         </motion.div>
-      </div>
+      </AuthShell>
     );
   }
 
   if (selectedAudience === "client" || selectedAudience === "collaborator") {
     return (
-      <div className="super-theme super-shell-bg h-dvh overflow-y-auto px-4 py-5 md:p-8">
-        <div className="mx-auto w-full max-w-[640px] card-glass rounded-[28px] border p-6" style={{ borderColor: "var(--border-soft)" }}>
+      <AuthShell maxWidth={640}>
+        <div className="w-full card-glass rounded-[28px] border p-6" style={{ borderColor: "var(--border-soft)" }}>
           <p className="text-xs uppercase tracking-[0.11em]" style={{ color: "var(--text-3)" }}>
             Cliente
           </p>
@@ -364,18 +365,18 @@ function LoginPageInner() {
             <button className="btn btn-primary" onClick={() => router.push(`/portal/login?mode=${selectedAudience}`)}>Ir para Portal</button>
           </div>
         </div>
-      </div>
+      </AuthShell>
     );
   }
 
   return (
-    <div className="super-theme super-shell-bg h-dvh overflow-y-auto px-4 py-5 md:p-8">
+    <AuthShell maxWidth={1120}>
       <motion.div
         initial={motionEnabled ? "initial" : false}
         animate={motionEnabled ? "animate" : undefined}
         variants={variants.page}
         transition={transitions.page}
-        className="mx-auto w-full max-w-[1120px]"
+        className="w-full"
       >
         <section className="card-glass overflow-hidden rounded-[32px] border" style={{ borderColor: "var(--border-soft)" }}>
           <div className="grid min-h-[680px] md:grid-cols-[1.1fr_1fr]">
@@ -735,7 +736,7 @@ function LoginPageInner() {
           </div>
         </section>
       </motion.div>
-    </div>
+    </AuthShell>
   );
 }
 

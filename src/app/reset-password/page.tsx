@@ -4,6 +4,7 @@ import { useState, useEffect, Suspense, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import { Eye, EyeOff, Lock, CheckCircle2, XCircle } from "lucide-react";
+import { AuthShell } from "@/components/layout/AuthShell";
 
 function ResetPasswordForm() {
   const router = useRouter();
@@ -52,21 +53,24 @@ function ResetPasswordForm() {
   if (done) {
     return (
       <div className="flex flex-col items-center gap-4 text-center">
-        <CheckCircle2 className="w-12 h-12 text-emerald-500" />
-        <h2 className="text-xl font-semibold text-white">Password atualizada!</h2>
-        <p className="text-white/60 text-sm">A redirecionar para o dashboard…</p>
+        <CheckCircle2 className="w-12 h-12" style={{ color: "var(--success)" }} />
+        <h2 className="text-xl font-semibold" style={{ color: "var(--text)" }}>Password atualizada!</h2>
+        <p className="text-sm" style={{ color: "var(--text-2)" }}>A redirecionar para o dashboard…</p>
       </div>
     );
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-5 w-full max-w-sm">
+    <form onSubmit={handleSubmit} className="flex flex-col gap-5 w-full">
       <div className="text-center mb-2">
-        <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-white/10 mb-4">
-          <Lock className="w-7 h-7 text-white" />
+        <div
+          className="inline-flex items-center justify-center w-14 h-14 rounded-2xl mb-4"
+          style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}
+        >
+          <Lock className="w-7 h-7" style={{ color: "var(--text)" }} />
         </div>
-        <h1 className="text-2xl font-bold text-white">Nova password</h1>
-        <p className="text-white/60 text-sm mt-1">Escolhe uma password segura.</p>
+        <h1 className="text-2xl font-bold" style={{ color: "var(--text)" }}>Nova password</h1>
+        <p className="text-sm mt-1" style={{ color: "var(--text-2)" }}>Escolhe uma password segura.</p>
       </div>
 
       <div className="relative">
@@ -76,12 +80,13 @@ function ResetPasswordForm() {
           onChange={e => setPassword(e.target.value)}
           placeholder="Nova password (mín. 8 chars)"
           required
-          className="w-full px-4 py-3 rounded-2xl bg-white/10 border border-white/20 text-white placeholder-white/40 focus:outline-none focus:border-white/40 focus:bg-white/15 transition-all pr-12"
+          className="input w-full pr-12"
         />
         <button
           type="button"
           onClick={() => setShowPw(!showPw)}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/70 transition-colors"
+          className="absolute right-3 top-1/2 -translate-y-1/2 transition-colors"
+          style={{ color: "var(--text-3)" }}
         >
           {showPw ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
         </button>
@@ -93,11 +98,14 @@ function ResetPasswordForm() {
         onChange={e => setConfirm(e.target.value)}
         placeholder="Confirmar password"
         required
-        className="w-full px-4 py-3 rounded-2xl bg-white/10 border border-white/20 text-white placeholder-white/40 focus:outline-none focus:border-white/40 focus:bg-white/15 transition-all"
+        className="input w-full"
       />
 
       {password && confirm && (
-        <div className={`flex items-center gap-2 text-sm ${password === confirm ? "text-emerald-400" : "text-rose-400"}`}>
+        <div
+          className="flex items-center gap-2 text-sm"
+          style={{ color: password === confirm ? "var(--success)" : "var(--error)" }}
+        >
           {password === confirm
             ? <><CheckCircle2 className="w-4 h-4" /> Passwords coincidem</>
             : <><XCircle className="w-4 h-4" /> Passwords não coincidem</>
@@ -106,7 +114,10 @@ function ResetPasswordForm() {
       )}
 
       {error && (
-        <div className="rounded-xl bg-rose-500/20 border border-rose-500/30 px-4 py-3 text-rose-200 text-sm">
+        <div
+          className="rounded-xl px-4 py-3 text-sm"
+          style={{ background: "var(--error-bg)", border: "1px solid var(--error-border)", color: "var(--error)" }}
+        >
           {error}
         </div>
       )}
@@ -114,7 +125,7 @@ function ResetPasswordForm() {
       <button
         type="submit"
         disabled={loading || password !== confirm || !password}
-        className="w-full py-3 rounded-2xl bg-white text-gray-900 font-semibold hover:bg-white/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+        className="btn btn-primary w-full py-3 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {loading ? "A atualizar…" : "Atualizar password"}
       </button>
@@ -124,10 +135,12 @@ function ResetPasswordForm() {
 
 export default function ResetPasswordPage() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 p-4">
-      <Suspense fallback={<div className="text-white/60 text-sm">A carregar…</div>}>
-        <ResetPasswordForm />
-      </Suspense>
-    </div>
+    <AuthShell maxWidth={560}>
+      <div className="card-glass rounded-[28px] border p-6 md:p-8" style={{ borderColor: "var(--border-soft)" }}>
+        <Suspense fallback={<div className="text-sm" style={{ color: "var(--text-2)" }}>A carregar…</div>}>
+          <ResetPasswordForm />
+        </Suspense>
+      </div>
+    </AuthShell>
   );
 }

@@ -22,8 +22,11 @@ function PortalShell({
   const { theme, toggleTheme } = useTheme();
 
   return (
-    <div className="super-theme super-shell-bg min-h-dvh p-2 md:p-5">
-      <SuperShell className="mx-auto max-w-5xl overflow-hidden">
+    <div
+      className="super-theme super-shell-bg h-full min-h-full w-full"
+      style={{ padding: "clamp(16px, 2.5vw, 40px)" }}
+    >
+      <SuperShell className="mx-auto flex h-full min-h-0 w-full max-w-[1440px] flex-col">
         <header className="super-topbar">
           <Link href="/portal" className="inline-flex items-center gap-2.5">
             <span
@@ -57,7 +60,7 @@ function PortalShell({
           </div>
         </header>
 
-        <main className="px-3 pb-6 pt-3 md:px-4 md:pt-4">
+        <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-24 pt-5 md:px-6 md:pb-8 md:pt-6 xl:px-7">
           <TopScheduleBar className="mb-4" avatars={email ? [email] : []} />
           <div className="surface p-4 sm:p-5">{children}</div>
         </main>
@@ -115,7 +118,7 @@ export default function PortalLayout({
   if (loading) {
     return (
       <ThemeProvider>
-        <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg)" }}>
+        <div className="h-full min-h-full flex items-center justify-center" style={{ background: "var(--bg)" }}>
           <div className="h-8 w-8 rounded-full border-2 animate-spin" style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }} />
         </div>
       </ThemeProvider>

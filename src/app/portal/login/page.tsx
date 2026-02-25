@@ -9,6 +9,7 @@ import { SESSION_TTL, setSessionCookieClient } from "@/lib/session";
 import { buttonMotionProps, transitions, useMotionEnabled, variants } from "@/lib/motion";
 import { OtpCodeInput } from "@/components/auth/OtpCodeInput";
 import { audienceLabel, audienceLoginPath, parseAudience } from "@/lib/login-audience";
+import { AuthShell } from "@/components/layout/AuthShell";
 
 const OTP_COOLDOWN = 30;
 
@@ -153,13 +154,13 @@ function PortalLoginInner() {
   };
 
   return (
-    <div className="super-theme super-shell-bg h-dvh overflow-y-auto px-4 py-5 md:p-8">
+    <AuthShell maxWidth={980}>
       <motion.div
         initial={motionEnabled ? "initial" : false}
         animate={motionEnabled ? "animate" : undefined}
         variants={variants.page}
         transition={transitions.page}
-        className="mx-auto w-full max-w-[980px]"
+        className="w-full"
       >
         <section className="card-glass overflow-hidden rounded-[32px] border" style={{ borderColor: "var(--border-soft)" }}>
           <div className="grid min-h-[620px] md:grid-cols-[1fr_1fr]">
@@ -336,7 +337,7 @@ function PortalLoginInner() {
           </div>
         </section>
       </motion.div>
-    </div>
+    </AuthShell>
   );
 }
 

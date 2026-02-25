@@ -7,6 +7,7 @@ import { AlertCircle, ArrowRight, CheckCircle2, Lock, Mail, User, Zap } from "lu
 import { createClient } from "@/lib/supabase";
 import { SESSION_TTL, setSessionCookieClient } from "@/lib/session";
 import { buttonMotionProps, transitions, useMotionEnabled, variants } from "@/lib/motion";
+import { AuthShell } from "@/components/layout/AuthShell";
 
 function Spinner() {
   return (
@@ -142,13 +143,13 @@ function PortalInviteInner() {
   };
 
   return (
-    <div className="super-theme super-shell-bg h-dvh overflow-y-auto px-4 py-5 md:p-8">
+    <AuthShell maxWidth={820}>
       <motion.div
         initial={motionEnabled ? "initial" : false}
         animate={motionEnabled ? "animate" : undefined}
         variants={variants.page}
         transition={transitions.page}
-        className="mx-auto w-full max-w-[820px]"
+        className="w-full"
       >
         <section className="card-glass overflow-hidden rounded-[32px] border" style={{ borderColor: "var(--border-soft)" }}>
           <div className="grid min-h-[560px] md:grid-cols-[1fr_1fr]">
@@ -274,19 +275,19 @@ function PortalInviteInner() {
           </div>
         </section>
       </motion.div>
-    </div>
+    </AuthShell>
   );
 }
 
 function LoadingInvite() {
   return (
-    <div className="super-theme super-shell-bg h-dvh overflow-y-auto px-4 py-5 md:p-8">
-      <div className="mx-auto flex w-full max-w-[640px] items-center justify-center rounded-[28px] border p-8 card-glass" style={{ borderColor: "var(--border-soft)" }}>
+    <AuthShell maxWidth={640}>
+      <div className="flex w-full items-center justify-center rounded-[28px] border p-8 card-glass" style={{ borderColor: "var(--border-soft)" }}>
         <div className="inline-flex items-center gap-2 text-sm" style={{ color: "var(--text-2)" }}>
           <Spinner /> A carregar convite…
         </div>
       </div>
-    </div>
+    </AuthShell>
   );
 }
 
