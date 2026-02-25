@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import {
+  createStatelessImpersonationToken,
   createPortalImpersonationToken,
   hashPortalImpersonationToken,
   requireOwnerAdminUser,
@@ -41,8 +42,22 @@ export async function POST(
       expires_at: expiresAt,
     });
 
+  let finalToken = token;
   if (insertError) {
-    return NextResponse.json({ error: insertError.message }, { status: 500 });
+    // Backward-compatible fallback when migration 046 is not yet applied.
+    if (insertError.message.includes("portal_impersonation_tokens")) {
+      const stateless = createStatelessImpersonationToken({
+        adminUserId: auth.user.id,
+        clientId,
+        expiresAt,
+      });
+      if (!stateless) {
+        return NextResponse.json({ error: "PORTAL_IMPERSONATION_SECRET em falta no servidor." }, { status: 500 });
+      }
+      finalToken = stateless;
+    } else {
+      return NextResponse.json({ error: insertError.message }, { status: 500 });
+    }
   }
 
   const origin = new URL(request.url).origin;
@@ -51,6 +66,6 @@ export async function POST(
     ok: true,
     client: { id: client.id, name: client.name },
     expiresAt,
-    portalUrl: `${origin}/portal?impersonate=${token}`,
+    portalUrl: `${origin}/portal?impersonate=${finalToken}`,
   });
 }
