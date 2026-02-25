@@ -9,11 +9,14 @@ export type BuildStamp = {
 const BUILT_AT = new Date().toISOString();
 
 export function getBuildStamp(): BuildStamp {
-  const env = process.env.VERCEL_ENV ?? (process.env.NODE_ENV === "production" ? "production" : "local");
-  const ref = process.env.VERCEL_GIT_COMMIT_REF ?? "local";
-  const fullSha = process.env.VERCEL_GIT_COMMIT_SHA ?? "local";
+  const valueOr = (value: string | undefined, fallback: string) => (value && value.trim() ? value : fallback);
+
+  const env = valueOr(process.env.VERCEL_ENV, process.env.NODE_ENV === "production" ? "production" : "local");
+  const ref = valueOr(process.env.VERCEL_GIT_COMMIT_REF, "local");
+  const fullSha = valueOr(process.env.VERCEL_GIT_COMMIT_SHA, "local");
   const sha = fullSha === "local" ? "local" : fullSha.slice(0, 7);
-  const deploymentUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "local";
+  const vercelUrl = valueOr(process.env.VERCEL_URL, "");
+  const deploymentUrl = vercelUrl ? `https://${vercelUrl}` : "local";
 
   return {
     env,
@@ -23,4 +26,3 @@ export function getBuildStamp(): BuildStamp {
     builtAt: BUILT_AT,
   };
 }
-
