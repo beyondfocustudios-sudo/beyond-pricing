@@ -275,7 +275,13 @@ export default function PortalProjectsPage() {
                 placeholder="Escreve uma mensagem"
                 className="input min-h-[74px] flex-1"
               />
-              <button className="btn btn-primary btn-sm" onClick={() => void handleSend()} disabled={sending || !messageInput.trim()}>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => void handleSend()}
+                disabled={sending || !messageInput.trim()}
+                aria-label="Enviar mensagem"
+                title="Enviar mensagem"
+              >
                 <Send className="h-4 w-4" />
               </button>
             </div>

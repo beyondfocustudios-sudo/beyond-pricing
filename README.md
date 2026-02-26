@@ -242,6 +242,11 @@ Criar `vercel.json` na raiz do projeto:
 - [ ] Export markdown
 - [ ] Summarize heurístico
 
+### Console QA (Dev)
+- [ ] Ignorar ruído de extensões: `chrome-extension://`, `FrameDoesNotExistError`, `manifest/permissions`, `background.js`, `localhost:8081`
+- [ ] Validar apenas erros com origem na app: `/_next/`, `src/`, `api/`
+- [ ] Referência: `docs/qa-console-noise-filter.md`
+
 ---
 
 ## Segurança
@@ -293,3 +298,12 @@ Criar `vercel.json` na raiz do projeto:
 9. Abrir `/app/insights` e confirmar métricas sem contar projetos deleted/archived.
 10. Abrir `/app/diagnostics` e confirmar checks verdes (DB + plugins + support logs).
 
+## Playwright QA (equipa + cliente)
+
+1. Gerar storage states:
+   - `E2E_EMAIL=... E2E_PASSWORD=... npm run test:e2e:prepare-auth`
+2. Correr smoke suite:
+   - `E2E_EMAIL=... E2E_PASSWORD=... npm run test:smoke`
+3. Ficheiros gerados (não comitados):
+   - `e2e/storageState-team.json`
+   - `e2e/storageState-client.json`

@@ -4,6 +4,7 @@ export type PortalProject = {
   id: string;
   name: string;
   status: string | null;
+  description?: string | null;
   updated_at: string;
   client_id?: string | null;
 };
@@ -29,6 +30,27 @@ export type PortalMilestone = {
   description: string | null;
 };
 
+export type PortalDocument = {
+  id: string;
+  project_id: string;
+  title: string;
+  status: string | null;
+  type: string | null;
+  url: string | null;
+  created_at: string | null;
+};
+
+export type PortalReference = {
+  id: string;
+  project_id: string;
+  title: string;
+  status: string | null;
+  platform: string | null;
+  notes: string | null;
+  url: string | null;
+  created_at: string | null;
+};
+
 export type PortalConversation = {
   id: string;
   project_id: string;
@@ -48,7 +70,22 @@ export type PortalMessage = {
 
 type ProjectMemberRow = {
   project_id: string;
-  projects: ({ id: string; project_name: string; status: string | null; updated_at: string; client_id?: string | null } | Array<{ id: string; project_name: string; status: string | null; updated_at: string; client_id?: string | null }>) | null;
+  projects: (
+    | {
+      id: string;
+      project_name: string;
+      status: string | null;
+      updated_at: string;
+      client_id?: string | null;
+    }
+    | Array<{
+      id: string;
+      project_name: string;
+      status: string | null;
+      updated_at: string;
+      client_id?: string | null;
+    }>
+  ) | null;
 };
 
 export async function getClientProjects() {
@@ -67,6 +104,7 @@ export async function getClientProjects() {
       id: project.id,
       name: project.project_name,
       status: project.status ?? null,
+      description: null,
       updated_at: project.updated_at,
       client_id: project.client_id ?? null,
     });
@@ -78,14 +116,10 @@ export async function getClientProjects() {
 }
 
 export async function getProjectDeliverables(projectId: string) {
-  const supabase = createClient();
-  const { data } = await supabase
-    .from("deliverables")
-    .select("id, project_id, title, status, file_type, dropbox_url, created_at")
-    .eq("project_id", projectId)
-    .order("created_at", { ascending: false })
-    .limit(60);
-  return (data ?? []) as PortalDeliverable[];
+  const res = await fetch(`/api/portal/deliverables?projectId=${encodeURIComponent(projectId)}`, { cache: "no-store" });
+  if (!res.ok) return [];
+  const payload = (await res.json().catch(() => ({}))) as { deliverables?: PortalDeliverable[] };
+  return Array.isArray(payload.deliverables) ? payload.deliverables : [];
 }
 
 export async function getProjectMilestones(projectId: string) {
@@ -93,6 +127,20 @@ export async function getProjectMilestones(projectId: string) {
   if (!res.ok) return [];
   const data = (await res.json().catch(() => [])) as PortalMilestone[];
   return Array.isArray(data) ? data : [];
+}
+
+export async function getProjectDocuments(projectId: string) {
+  const res = await fetch(`/api/portal/documents?projectId=${encodeURIComponent(projectId)}`, { cache: "no-store" });
+  if (!res.ok) return [];
+  const payload = (await res.json().catch(() => ({}))) as { documents?: PortalDocument[] };
+  return Array.isArray(payload.documents) ? payload.documents : [];
+}
+
+export async function getProjectReferences(projectId: string) {
+  const res = await fetch(`/api/portal/references?projectId=${encodeURIComponent(projectId)}`, { cache: "no-store" });
+  if (!res.ok) return [];
+  const payload = (await res.json().catch(() => ({}))) as { references?: PortalReference[] };
+  return Array.isArray(payload.references) ? payload.references : [];
 }
 
 export async function getConversationForProject(projectId: string) {

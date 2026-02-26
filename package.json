@@ -14,6 +14,7 @@
     "db:diff": "supabase db diff",
     "db:status": "supabase migration list",
     "db:audit": "tsx scripts/audit-schema-gaps-standalone.ts",
+    "test:e2e:prepare-auth": "tsx e2e/create-storage-states.ts",
     "test:smoke": "playwright test e2e/smoke.spec.ts",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed"

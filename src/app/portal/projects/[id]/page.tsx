@@ -20,16 +20,20 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import {
+  getClientProjects,
   getConversationForProject,
+  getProjectDocuments,
   getMessages,
   getProjectDeliverables,
   getProjectMilestones,
+  getProjectReferences,
   sendConversationMessage,
+  type PortalDocument,
   type PortalDeliverable,
   type PortalMessage,
   type PortalMilestone,
+  type PortalReference,
 } from "@/lib/portal-data";
-import { createClient } from "@/lib/supabase";
 
 type ProjectRow = {
   id: string;
@@ -50,18 +54,21 @@ type RequestRow = {
 };
 
 type PageTab = "overview" | "deliveries" | "inbox" | "calendar" | "approvals";
+type ExtendedPageTab = PageTab | "documents" | "references";
 
-const TAB_LABELS: Record<PageTab, string> = {
+const TAB_LABELS: Record<ExtendedPageTab, string> = {
   overview: "Overview",
   deliveries: "Entregas",
+  documents: "Documentos",
+  references: "Referências",
   inbox: "Inbox",
   calendar: "Calendário",
   approvals: "Aprovações",
 };
 
-function sanitizeTab(value: string | null): PageTab {
-  const allowed: PageTab[] = ["overview", "deliveries", "inbox", "calendar", "approvals"];
-  return allowed.includes((value ?? "") as PageTab) ? (value as PageTab) : "overview";
+function sanitizeTab(value: string | null): ExtendedPageTab {
+  const allowed: ExtendedPageTab[] = ["overview", "deliveries", "documents", "references", "inbox", "calendar", "approvals"];
+  return allowed.includes((value ?? "") as ExtendedPageTab) ? (value as ExtendedPageTab) : "overview";
 }
 
 function buildGoogleLink(title: string, startIso: string, endIso: string, details?: string) {
@@ -96,6 +103,8 @@ export default function PortalProjectDetailPage() {
 
   const [project, setProject] = useState<ProjectRow | null>(null);
   const [deliveries, setDeliveries] = useState<PortalDeliverable[]>([]);
+  const [documents, setDocuments] = useState<PortalDocument[]>([]);
+  const [references, setReferences] = useState<PortalReference[]>([]);
   const [milestones, setMilestones] = useState<PortalMilestone[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<PortalMessage[]>([]);
@@ -113,7 +122,7 @@ export default function PortalProjectDetailPage() {
   });
   const [requestSending, setRequestSending] = useState(false);
 
-  const setTab = (nextTab: PageTab) => {
+  const setTab = (nextTab: ExtendedPageTab) => {
     const params = new URLSearchParams(searchParams.toString());
     params.set("tab", nextTab);
     router.replace(`/portal/projects/${projectId}?${params.toString()}`, { scroll: false });
@@ -124,21 +133,27 @@ export default function PortalProjectDetailPage() {
     setError(null);
 
     try {
-      const supabase = createClient();
-      const { data: projectRow, error: projectError } = await supabase
-        .from("projects")
-        .select("id, project_name, status, description, updated_at")
-        .eq("id", projectId)
-        .maybeSingle();
+      const assignedProjects = await getClientProjects();
+      const assignedProject = assignedProjects.find((entry) => entry.id === projectId);
 
-      if (projectError || !projectRow) {
+      if (!assignedProject) {
         setError("Projeto não encontrado.");
         setLoading(false);
         return;
       }
 
-      const [projectDeliveries, projectMilestones, convId, requestsRes] = await Promise.all([
+      const projectRow: ProjectRow = {
+        id: assignedProject.id,
+        project_name: assignedProject.name,
+        status: assignedProject.status ?? null,
+        description: assignedProject.description ?? null,
+        updated_at: assignedProject.updated_at,
+      };
+
+      const [projectDeliveries, projectDocuments, projectReferences, projectMilestones, convId, requestsRes] = await Promise.all([
         getProjectDeliverables(projectId),
+        getProjectDocuments(projectId),
+        getProjectReferences(projectId),
         getProjectMilestones(projectId),
         getConversationForProject(projectId),
         fetch(`/api/portal/requests?projectId=${encodeURIComponent(projectId)}`, { cache: "no-store" }),
@@ -149,8 +164,10 @@ export default function PortalProjectDetailPage() {
         : [];
       const conversationMessages = convId ? await getMessages(convId) : [];
 
-      setProject(projectRow as ProjectRow);
+      setProject(projectRow);
       setDeliveries(projectDeliveries);
+      setDocuments(projectDocuments);
+      setReferences(projectReferences);
       setMilestones(projectMilestones);
       setConversationId(convId);
       setMessages(conversationMessages);
@@ -175,6 +192,22 @@ export default function PortalProjectDetailPage() {
       return haystack.includes(query);
     });
   }, [deliveries, query]);
+
+  const filteredDocuments = useMemo(() => {
+    if (!query) return documents;
+    return documents.filter((doc) => {
+      const haystack = `${doc.title} ${doc.type ?? ""} ${doc.status ?? ""}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [documents, query]);
+
+  const filteredReferences = useMemo(() => {
+    if (!query) return references;
+    return references.filter((ref) => {
+      const haystack = `${ref.title} ${ref.platform ?? ""} ${ref.status ?? ""} ${ref.notes ?? ""}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [references, query]);
 
   const filteredMessages = useMemo(() => {
     if (!query) return messages;
@@ -241,7 +274,7 @@ export default function PortalProjectDetailPage() {
             <p className="text-sm" style={{ color: "var(--text-2)" }}>{project.description || "Resumo e colaboração centralizados."}</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {(Object.keys(TAB_LABELS) as PageTab[]).map((item) => (
+            {(Object.keys(TAB_LABELS) as ExtendedPageTab[]).map((item) => (
               <button
                 key={item}
                 onClick={() => setTab(item)}
@@ -421,6 +454,79 @@ export default function PortalProjectDetailPage() {
         </div>
       ) : null}
 
+      {tab === "documents" ? (
+        <section className="card min-w-0 min-h-[62vh] p-5 lg:h-[calc(100dvh-220px)] lg:overflow-y-auto">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>Documentos</h2>
+            <span className="pill text-[11px]">{filteredDocuments.length}</span>
+          </div>
+
+          <div className="space-y-2">
+            {filteredDocuments.map((document) => (
+              <article key={document.id} className="rounded-2xl border p-3" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold" style={{ color: "var(--text)" }}>{document.title}</p>
+                    <p className="text-xs" style={{ color: "var(--text-3)" }}>
+                      {document.type ?? "documento"} • {document.created_at ? new Date(document.created_at).toLocaleDateString("pt-PT") : "sem data"}
+                    </p>
+                  </div>
+                  <span className="pill text-[10px]">{document.status ?? "disponível"}</span>
+                </div>
+                {document.url ? (
+                  <a className="btn btn-secondary btn-sm mt-3" href={document.url} target="_blank" rel="noreferrer">
+                    <Download className="h-4 w-4" />
+                    Abrir documento
+                  </a>
+                ) : null}
+              </article>
+            ))}
+            {filteredDocuments.length === 0 ? (
+              <p className="rounded-xl border border-dashed px-3 py-4 text-xs" style={{ borderColor: "var(--border)", color: "var(--text-3)" }}>
+                Sem documentos para este projeto.
+              </p>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+
+      {tab === "references" ? (
+        <section className="card min-w-0 min-h-[62vh] p-5 lg:h-[calc(100dvh-220px)] lg:overflow-y-auto">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>Referências</h2>
+            <span className="pill text-[11px]">{filteredReferences.length}</span>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            {filteredReferences.map((reference) => (
+              <article key={reference.id} className="rounded-2xl border p-3" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
+                <p className="truncate text-sm font-semibold" style={{ color: "var(--text)" }}>{reference.title}</p>
+                <p className="mt-1 text-xs" style={{ color: "var(--text-3)" }}>
+                  {reference.platform ?? "link"} • {reference.status ?? "ativo"}
+                </p>
+                {reference.notes ? (
+                  <p className="mt-2 line-clamp-3 text-xs" style={{ color: "var(--text-2)" }}>
+                    {reference.notes}
+                  </p>
+                ) : null}
+                {reference.url ? (
+                  <a className="btn btn-ghost btn-sm mt-3" href={reference.url} target="_blank" rel="noreferrer">
+                    <ExternalLink className="h-4 w-4" />
+                    Abrir referência
+                  </a>
+                ) : null}
+              </article>
+            ))}
+          </div>
+
+          {filteredReferences.length === 0 ? (
+            <p className="mt-3 rounded-xl border border-dashed px-3 py-4 text-xs" style={{ borderColor: "var(--border)", color: "var(--text-3)" }}>
+              Sem referências para este projeto.
+            </p>
+          ) : null}
+        </section>
+      ) : null}
+
       {tab === "inbox" ? (
         <div className="grid min-w-0 gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
           <section className="card min-h-[62vh] p-4 lg:h-[calc(100dvh-220px)] lg:overflow-y-auto">
@@ -466,7 +572,13 @@ export default function PortalProjectDetailPage() {
                 <button className="btn btn-secondary btn-sm" type="button" title="Anexar link">
                   <Paperclip className="h-4 w-4" />
                 </button>
-                <button className="btn btn-primary btn-sm" onClick={() => void submitMessage()} disabled={sending || !messageInput.trim()}>
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={() => void submitMessage()}
+                  disabled={sending || !messageInput.trim()}
+                  aria-label="Enviar mensagem"
+                  title="Enviar mensagem"
+                >
                   <Send className="h-4 w-4" />
                 </button>
               </div>

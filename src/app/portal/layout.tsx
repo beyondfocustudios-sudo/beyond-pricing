@@ -8,10 +8,9 @@ import {
   LayoutDashboard,
   LogOut,
   Mail,
-  Moon,
   Package,
   Search,
-  Sun,
+  SunMoon,
   UserCircle2,
   Zap,
 } from "lucide-react";
@@ -56,7 +55,7 @@ function PortalChrome({
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { theme, toggleTheme } = useTheme();
+  const { toggleTheme } = useTheme();
   const searchKey = searchParams.toString();
   const query = searchParams.get("q") ?? "";
   const [searchInput, setSearchInput] = useState(query);
@@ -143,10 +142,10 @@ function PortalChrome({
               <button
                 onClick={toggleTheme}
                 className="icon-btn"
-                title={theme === "dark" ? "Modo claro" : "Modo escuro"}
-                aria-label={theme === "dark" ? "Modo claro" : "Modo escuro"}
+                title="Alternar tema"
+                aria-label="Alternar tema"
               >
-                {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                <SunMoon className="h-4 w-4" />
               </button>
 
               <div className="hidden items-center gap-2 rounded-full border px-3 py-1.5 sm:flex" style={{ borderColor: "var(--border)", color: "var(--text-2)" }}>

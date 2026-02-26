@@ -21,8 +21,7 @@ import {
   Activity,
   LifeBuoy,
   LogOut,
-  Moon,
-  Sun,
+  SunMoon,
   Zap,
   UserRound,
   Search,
@@ -136,7 +135,7 @@ export function AppShell({
   const searchParams = useSearchParams();
   const router = useRouter();
   const [signingOut, setSigningOut] = useState(false);
-  const { theme, toggleTheme, dashboardMode } = useTheme();
+  const { toggleTheme, dashboardMode } = useTheme();
   const reduceMotion = useReducedMotion();
   const isCollaborator = userRole === "collaborator";
   const isOwnerAdmin = userRole === "owner" || userRole === "admin";
@@ -215,11 +214,11 @@ export function AppShell({
               <motion.button
                 onClick={toggleTheme}
                 className="icon-btn"
-                title={theme === "dark" ? "Modo claro" : "Modo escuro"}
-                aria-label={theme === "dark" ? "Modo claro" : "Modo escuro"}
+                title="Alternar tema"
+                aria-label="Alternar tema"
                 {...buttonMotionProps({ enabled: !reduceMotion })}
               >
-                {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                <SunMoon className="h-4 w-4" />
               </motion.button>
 
               <motion.button

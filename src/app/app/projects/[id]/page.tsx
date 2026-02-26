@@ -320,7 +320,7 @@ export default function ProjectPage() {
       // Load Dropbox config + files
       const sb2 = createClient();
       const [pdRes, filesRes] = await Promise.all([
-        sb2.from("project_dropbox").select("root_path, base_path, folder_id, folder_url, last_sync_at").eq("project_id", projectId).single(),
+        sb2.from("project_dropbox").select("root_path, base_path, folder_id, folder_url, last_sync_at").eq("project_id", projectId).maybeSingle(),
         sb2.from("deliverable_files").select("id, filename, ext, file_type, collection, shared_link, bytes, captured_at, created_at").eq("project_id", projectId).order("captured_at", { ascending: false }),
       ]);
       if (pdRes.data) {

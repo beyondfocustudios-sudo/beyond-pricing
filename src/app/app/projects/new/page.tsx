@@ -32,7 +32,7 @@ export default function NewProjectPage() {
         .from("preferences")
         .select("*")
         .eq("user_id", user.id)
-        .single();
+        .maybeSingle();
 
       const defaults = prefs ?? DEFAULT_PREFERENCES;
 
