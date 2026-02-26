@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase-server";
 import { resolveProjectManageAccess } from "@/lib/project-access";
+import { archiveProjectDropboxFolder } from "@/lib/dropbox-folder-sync";
 
 async function requireAccess(projectId: string) {
   if (!projectId) {
@@ -25,7 +26,7 @@ async function requireAccess(projectId: string) {
     return { error: NextResponse.json({ error: "Sem permissão" }, { status: 403 }) } as const;
   }
 
-  return { access } as const;
+  return { access, userId: user.id } as const;
 }
 
 export async function PATCH(
@@ -40,6 +41,14 @@ export async function PATCH(
   const now = new Date().toISOString();
 
   if (body.action === "archive") {
+    let dropboxArchived = false;
+    try {
+      await archiveProjectDropboxFolder(gate.userId, projectId);
+      dropboxArchived = true;
+    } catch {
+      // Non-blocking for project archive action.
+    }
+
     const { data, error } = await gate.access.admin
       .from("projects")
       .update({
@@ -55,7 +64,7 @@ export async function PATCH(
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true, project: data });
+    return NextResponse.json({ ok: true, project: data, dropboxArchived });
   }
 
   if (body.status) {
@@ -80,6 +89,14 @@ export async function PATCH(
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    if (nextStatus === "archived") {
+      try {
+        await archiveProjectDropboxFolder(gate.userId, projectId);
+      } catch {
+        // Non-blocking.
+      }
+    }
+
     return NextResponse.json({ ok: true, project: data });
   }
 
@@ -100,6 +117,14 @@ export async function DELETE(
 
   const now = new Date().toISOString();
 
+  let dropboxArchived = false;
+  try {
+    await archiveProjectDropboxFolder(gate.userId, projectId);
+    dropboxArchived = true;
+  } catch {
+    // Non-blocking soft delete.
+  }
+
   const { data, error } = await gate.access.admin
     .from("projects")
     .update({
@@ -116,5 +141,5 @@ export async function DELETE(
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true, project: data });
+  return NextResponse.json({ ok: true, project: data, dropboxArchived });
 }

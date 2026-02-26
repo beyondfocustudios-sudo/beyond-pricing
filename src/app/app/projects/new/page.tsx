@@ -61,12 +61,20 @@ export default function NewProjectPage() {
           margem_alvo_valor: 0, preco_minimo: 0, preco_minimo_com_iva: 0,
           margem_minima_valor: 0,
         },
-      }).select("id").single();
+      }).select("id, client_id").single();
 
       if (insertError || !data) {
         setError(insertError?.message ?? "Não foi possível criar o projeto.");
         setSaving(false);
         return;
+      }
+
+      if (data.client_id) {
+        void fetch("/api/dropbox/ensure-project-folder", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ projectId: data.id }),
+        });
       }
 
       await fireCelebration("project_created", enableCelebrations);

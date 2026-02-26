@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { encryptDropboxToken } from "@/lib/dropbox-crypto";
+import { ensureDropboxRootFolder } from "@/lib/dropbox-folder-sync";
 
 const STATE_COOKIE = "bp_dropbox_oauth_state";
 
@@ -163,6 +164,11 @@ export async function GET(request: NextRequest) {
   if (writeError) {
     return redirectWithError(request, "dropbox_connection_save_failed");
   }
+
+  // Best effort: create org root folder on first successful connection.
+  await ensureDropboxRootFolder(user.id).catch(() => {
+    // Non-blocking; UI can retry via /api/dropbox/ensure-root.
+  });
 
   const nextPath = decodedState.nextPath && decodedState.nextPath.startsWith("/")
     ? decodedState.nextPath

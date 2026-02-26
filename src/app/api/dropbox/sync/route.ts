@@ -178,11 +178,16 @@ export async function POST(req: NextRequest) {
 
   const { data: projectDropbox } = await service
     .from("project_dropbox")
-    .select("root_path")
+    .select("root_path, folder_path, deliveries_path")
     .eq("project_id", projectId)
     .maybeSingle();
 
-  const syncPath = path || String(projectDropbox?.root_path ?? connection.sync_path ?? "/");
+  const syncPath = path
+    || String((projectDropbox as { deliveries_path?: string | null } | null)?.deliveries_path
+      ?? (projectDropbox as { folder_path?: string | null } | null)?.folder_path
+      ?? projectDropbox?.root_path
+      ?? connection.sync_path
+      ?? "/");
 
   let accessToken = pickToken(connection, "access");
   const refreshToken = pickToken(connection, "refresh");
@@ -331,7 +336,9 @@ export async function POST(req: NextRequest) {
         {
           project_id: projectId,
           org_id: resolved.orgId,
+          folder_path: syncPath,
           root_path: syncPath,
+          deliveries_path: syncPath,
           cursor: result.cursor,
           last_sync_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),

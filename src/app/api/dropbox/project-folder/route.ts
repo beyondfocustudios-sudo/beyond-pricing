@@ -13,6 +13,17 @@ function sanitizeFolderName(value: string) {
     .slice(0, 120);
 }
 
+async function ensureSubfolder(accessToken: string, path: string) {
+  try {
+    await createFolder(accessToken, path);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error ?? "");
+    if (!/conflict|already exists|path\/conflict/i.test(message)) {
+      throw error;
+    }
+  }
+}
+
 type DropboxConnectionRow = {
   id: string;
   access_token: string | null;
@@ -79,7 +90,7 @@ export async function POST(request: NextRequest) {
 
   const projectId = String(body.projectId ?? "").trim();
   const folderName = sanitizeFolderName(String(body.folderName ?? ""));
-  const basePath = String(body.basePath ?? "/Beyond Focus/Clientes").trim() || "/Beyond Focus/Clientes";
+  const basePath = String(body.basePath ?? "/Clientes").trim() || "/Clientes";
 
   if (!projectId || !folderName) {
     return NextResponse.json({ error: "projectId e folderName são obrigatórios" }, { status: 400 });
@@ -164,17 +175,29 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  const deliveriesPath = `${pathDisplay.replace(/\/$/, "")}/01_Entregas`;
   const folderUrl = await createSharedLink(accessToken, pathDisplay);
+  await Promise.all([
+    ensureSubfolder(accessToken, `${pathDisplay}/01_Entregas`),
+    ensureSubfolder(accessToken, `${pathDisplay}/02_Brief`),
+    ensureSubfolder(accessToken, `${pathDisplay}/03_Referencias`),
+    ensureSubfolder(accessToken, `${pathDisplay}/04_Assets`),
+    ensureSubfolder(accessToken, `${pathDisplay}/99_Archive`),
+  ]);
+  const deliveriesUrl = await createSharedLink(accessToken, deliveriesPath);
 
   const { error: upsertError } = await admin
     .from("project_dropbox")
     .upsert(
       {
         project_id: projectId,
+        folder_path: pathDisplay,
         root_path: pathDisplay,
+        deliveries_path: deliveriesPath,
         base_path: normalizedBase,
         folder_id: folderId,
         folder_url: folderUrl,
+        deliveries_url: deliveriesUrl,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "project_id" },
@@ -187,7 +210,9 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({
     ok: true,
     path: pathDisplay,
+    deliveriesPath,
     folderId,
     folderUrl,
+    deliveriesUrl,
   });
 }
