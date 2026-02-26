@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Download, Eye, Film, FileText, Image as ImageIcon, MessageSquare, Search, TriangleAlert } from "lucide-react";
 import { getClientProjects, getProjectDeliverables, type PortalDeliverable, type PortalProject } from "@/lib/portal-data";
+import { FilePreviewModal } from "../components/FilePreviewModal";
+import { FilePreviewLoader } from "../components/FilePreviewLoader";
 
 export default function PortalDeliveriesPage() {
   const searchParams = useSearchParams();
@@ -15,6 +17,9 @@ export default function PortalDeliveriesPage() {
   const [items, setItems] = useState<Array<PortalDeliverable & { projectName: string }>>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [linkLoading, setLinkLoading] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewData, setPreviewData] = useState<{ fileUrl: string; fileName: string; fileType: string; expiresAt: string; deliverableId: string } | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -58,27 +63,74 @@ export default function PortalDeliveriesPage() {
 
   const openLink = async (item: PortalDeliverable, mode: "preview" | "download") => {
     if (item.is_demo && item.dropbox_url) {
-      window.open(item.dropbox_url, "_blank", "noopener,noreferrer");
+      if (mode === "preview") {
+        setPreviewData({
+          fileUrl: item.dropbox_url,
+          fileName: item.filename ?? item.title,
+          fileType: item.file_type ?? "",
+          expiresAt: "",
+          deliverableId: item.id,
+        });
+        setPreviewOpen(true);
+      } else {
+        window.open(item.dropbox_url, "_blank", "noopener,noreferrer");
+      }
       return;
     }
 
     const fileId = item.file_id ?? item.id;
     setLinkLoading(`${fileId}:${mode}`);
+    setPreviewError(null);
     try {
       const res = await fetch("/api/portal/deliverables/link", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fileId, mode }),
       });
-      const json = await res.json().catch(() => ({} as { error?: string; url?: string }));
+      const json = await res.json().catch(() => ({} as { error?: string; url?: string; expires_at?: string }));
       if (!res.ok || !json.url) {
         throw new Error(json.error ?? "Não foi possível abrir o ficheiro.");
       }
-      window.open(json.url, "_blank", "noopener,noreferrer");
+
+      if (mode === "preview") {
+        setPreviewData({
+          fileUrl: json.url,
+          fileName: item.filename ?? item.title,
+          fileType: item.file_type ?? "",
+          expiresAt: json.expires_at || "",
+          deliverableId: item.id,
+        });
+        setPreviewOpen(true);
+      } else {
+        window.open(json.url, "_blank", "noopener,noreferrer");
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Não foi possível abrir o ficheiro.");
+      const errorMsg = err instanceof Error ? err.message : "Não foi possível abrir o ficheiro.";
+      if (mode === "preview") {
+        setPreviewError(errorMsg);
+      } else {
+        setError(errorMsg);
+      }
     } finally {
       setLinkLoading(null);
+    }
+  };
+
+  const handlePreviewDownload = async () => {
+    if (!previewData) return;
+    const fileId = previewData.deliverableId;
+    try {
+      const res = await fetch("/api/portal/deliverables/link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileId, mode: "download" }),
+      });
+      const json = await res.json().catch(() => ({} as { url?: string }));
+      if (json.url) {
+        window.open(json.url, "_blank", "noopener,noreferrer");
+      }
+    } catch {
+      setPreviewError("Falha ao descarregar ficheiro.");
     }
   };
 
@@ -187,6 +239,30 @@ export default function PortalDeliveriesPage() {
           <p className="mt-3 text-xs" style={{ color: "var(--text-3)" }}>Sem seleção.</p>
         )}
       </aside>
+
+      {/* Preview Modal */}
+      {previewData && (
+        <FilePreviewLoader
+          key={`${previewData.deliverableId}-loader`}
+          deliverableId={previewData.deliverableId}
+          onReady={() => {
+            // Loader hidden when ready
+          }}
+          onError={setPreviewError}
+        />
+      )}
+      <FilePreviewModal
+        isOpen={previewOpen && !!previewData}
+        fileUrl={previewData?.fileUrl}
+        fileName={previewData?.fileName}
+        fileType={previewData?.fileType}
+        expiresAt={previewData?.expiresAt}
+        onClose={() => {
+          setPreviewOpen(false);
+          setPreviewError(null);
+        }}
+        onDownload={handlePreviewDownload}
+      />
     </div>
   );
 }

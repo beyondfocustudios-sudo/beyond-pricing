@@ -35,6 +35,8 @@ import {
   type PortalMilestone,
   type PortalReference,
 } from "@/lib/portal-data";
+import { FilePreviewModal } from "@/app/portal/components/FilePreviewModal";
+import { FilePreviewLoader } from "@/app/portal/components/FilePreviewLoader";
 
 type ProjectRow = {
   id: string;
@@ -587,40 +589,33 @@ export default function PortalProjectDetailPage() {
             )}
           </section>
 
-          {previewOpen && selectedDelivery ? (
-            <aside className="fixed inset-y-0 right-0 z-40 w-full max-w-xl border-l bg-[var(--surface)] p-4 shadow-2xl md:w-[520px]">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold" style={{ color: "var(--text)" }}>{selectedDelivery.title}</p>
-                  <p className="text-xs" style={{ color: "var(--text-3)" }}>
-                    {selectedDelivery.name ?? selectedDelivery.filename ?? "ficheiro"} {previewExpiresAt ? `• expira ${new Date(previewExpiresAt).toLocaleTimeString("pt-PT")}` : ""}
-                  </p>
-                </div>
-                <button className="btn btn-ghost btn-sm" onClick={() => setPreviewOpen(false)}>Fechar</button>
-              </div>
-
-              <div className="h-[calc(100dvh-140px)] overflow-auto rounded-2xl border p-2" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
-                {previewError ? (
-                  <p className="p-3 text-sm" style={{ color: "var(--error)" }}>{previewError}</p>
-                ) : !previewUrl ? (
-                  <p className="p-3 text-sm" style={{ color: "var(--text-3)" }}>A carregar preview…</p>
-                ) : (selectedDelivery.mime_type ?? "").startsWith("video/") || (selectedDelivery.file_type ?? "").includes("video") ? (
-                  <video className="h-auto w-full rounded-xl" controls src={previewUrl} />
-                ) : (selectedDelivery.mime_type ?? "").startsWith("image/") || (selectedDelivery.file_type ?? "").includes("image") ? (
-                  <img src={previewUrl} alt={selectedDelivery.title} className="h-auto w-full rounded-xl object-contain" />
-                ) : (selectedDelivery.mime_type ?? "").includes("pdf") ? (
-                  <iframe src={previewUrl} className="h-full min-h-[70vh] w-full rounded-xl" />
-                ) : (
-                  <div className="p-4">
-                    <p className="text-sm" style={{ color: "var(--text-3)" }}>Sem preview para este tipo de ficheiro.</p>
-                    <button className="btn btn-primary btn-sm mt-3" onClick={() => void openDeliveryLink(selectedDelivery, "download")}>
-                      Download
-                    </button>
-                  </div>
-                )}
-              </div>
-            </aside>
-          ) : null}
+          {/* Preview Modal */}
+          {selectedDelivery && (
+            <FilePreviewLoader
+              key={`${selectedDelivery.id}-loader`}
+              deliverableId={selectedDelivery.id}
+              onReady={() => {
+                // Loader hidden when ready
+              }}
+              onError={setPreviewError}
+            />
+          )}
+          <FilePreviewModal
+            isOpen={previewOpen && !!selectedDelivery}
+            fileUrl={previewUrl}
+            fileName={selectedDelivery?.filename ?? selectedDelivery?.title}
+            fileType={selectedDelivery?.mime_type ?? selectedDelivery?.file_type}
+            expiresAt={previewExpiresAt}
+            onClose={() => {
+              setPreviewOpen(false);
+              setPreviewError(null);
+            }}
+            onDownload={() => {
+              if (selectedDelivery) {
+                void openDeliveryLink(selectedDelivery, "download");
+              }
+            }}
+          />
         </div>
       ) : null}
 
