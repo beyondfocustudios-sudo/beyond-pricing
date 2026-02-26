@@ -3,16 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { motion } from "framer-motion";
-import {
-  ArrowRight,
-  CalendarClock,
-  CircleAlert,
-  Mail,
-  Package,
-  Shield,
-  Video,
-} from "lucide-react";
+import { LayoutGroup } from "framer-motion";
 import {
   getClientProjects,
   getConversations,
@@ -23,7 +14,16 @@ import {
   type PortalMilestone,
   type PortalProject,
 } from "@/lib/portal-data";
-import { transitions, variants } from "@/lib/motion";
+import {
+  HeroSummaryCard,
+  CompactKpiCard,
+  ListCard,
+  DarkCalendarCard,
+  type ListRow,
+  type ScheduleItem,
+} from "@/components/dashboard/super-dashboard";
+import { MotionList, MotionListItem, MotionPage } from "@/components/motion-system";
+import { formatDateShort } from "@/lib/utils";
 
 function matchQuery(text: string, query: string) {
   if (!query) return true;
@@ -42,6 +42,18 @@ function statusLabel(status: string | null) {
     archived: "Arquivado",
   };
   return map[value] ?? status ?? "Em progresso";
+}
+
+function buildGoogleLink(title: string, startIso: string, subtitle: string) {
+  const start = new Date(startIso).toISOString().replace(/[-:]/g, "").replace(".000", "");
+  const end = new Date(new Date(startIso).getTime() + 45 * 60 * 1000).toISOString().replace(/[-:]/g, "").replace(".000", "");
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: title,
+    dates: `${start}/${end}`,
+    details: subtitle,
+  });
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
 
 export default function PortalDashboardPage() {
@@ -116,143 +128,184 @@ export default function PortalDashboardPage() {
 
   const nextMilestone = milestones.find((milestone) => milestone.due_date && (milestone.status ?? "") !== "completed") ?? null;
 
+  // Schedule items for calendar (moved before conditional returns)
+  const scheduleItems = useMemo<ScheduleItem[]>(() => {
+    const upcomingMilestones = milestones
+      .filter((m) => m.due_date && new Date(m.due_date).getTime() >= Date.now() - 24 * 60 * 60 * 1000)
+      .sort((a, b) => new Date(a.due_date ?? "").getTime() - new Date(b.due_date ?? "").getTime())
+      .slice(0, 4);
+
+    if (upcomingMilestones.length > 0) {
+      return upcomingMilestones.map((milestone, idx) => {
+        const start = new Date(milestone.due_date ?? "");
+        return {
+          id: milestone.id,
+          time: start.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
+          title: milestone.title,
+          subtitle: `Marco · ${formatDateShort(milestone.due_date ?? "")}`,
+          startsAt: milestone.due_date ?? "",
+          calendarHref: buildGoogleLink(milestone.title, milestone.due_date ?? "", `Marco · ${formatDateShort(milestone.due_date ?? "")}`),
+          googleHref: buildGoogleLink(milestone.title, milestone.due_date ?? "", `Marco · ${formatDateShort(milestone.due_date ?? "")}`),
+          active: idx === 0,
+        };
+      });
+    }
+
+    const upcomingDeliveries = deliveries
+      .filter((d) => new Date(d.created_at).getTime() >= Date.now() - 24 * 60 * 60 * 1000)
+      .slice(0, 4);
+
+    if (upcomingDeliveries.length > 0) {
+      return upcomingDeliveries.map((delivery, idx) => {
+        const start = new Date(delivery.created_at);
+        return {
+          id: delivery.id,
+          time: start.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
+          title: delivery.title || "Entrega",
+          subtitle: `Entrega · ${formatDateShort(delivery.created_at)}`,
+          startsAt: delivery.created_at,
+          calendarHref: buildGoogleLink(delivery.title || "Entrega", delivery.created_at, `Entrega · ${formatDateShort(delivery.created_at)}`),
+          googleHref: buildGoogleLink(delivery.title || "Entrega", delivery.created_at, `Entrega · ${formatDateShort(delivery.created_at)}`),
+          active: idx === 0,
+        };
+      });
+    }
+
+    const baseDate = new Date();
+    const placeholders = [
+      { id: "ph-1", time: "10:00", title: "Próxima entrega", subtitle: "Revisa os marcos" },
+      { id: "ph-2", time: "14:30", title: "Reunião de alinhamento", subtitle: "Com o teu gestor de projeto" },
+      { id: "ph-3", time: "16:00", title: "Aprovações pendentes", subtitle: "Feedback das entregas" },
+      { id: "ph-4", time: "09:00", title: "Planear próximas tarefas", subtitle: "Visão geral dos projetos" },
+    ];
+
+    return placeholders.map((item, idx) => {
+      const [h, m] = item.time.split(":").map(Number);
+      const start = new Date(baseDate);
+      start.setHours(h, m, 0, 0);
+      return {
+        ...item,
+        startsAt: start.toISOString(),
+        calendarHref: buildGoogleLink(item.title, start.toISOString(), item.subtitle),
+        googleHref: buildGoogleLink(item.title, start.toISOString(), item.subtitle),
+        active: idx === 0,
+      };
+    });
+  }, [milestones, deliveries]);
+
+  const projectListRows = useMemo<ListRow[]>(() => {
+    return filteredProjects.slice(0, 5).map((project) => ({
+      id: project.id,
+      title: project.name,
+      subtitle: new Date(project.updated_at).toLocaleDateString("pt-PT"),
+      status: statusLabel(project.status),
+      ctaHref: `/portal/projects/${project.id}`,
+      ctaLabel: "Abrir",
+    }));
+  }, [filteredProjects]);
+
+  const activityRows = useMemo<ListRow[]>(() => {
+    return deliveries.slice(0, 5).map((delivery) => ({
+      id: delivery.id,
+      title: delivery.title || "Entrega",
+      subtitle: formatDateShort(delivery.created_at),
+      status: statusLabel(delivery.status),
+      ctaHref: `/portal/projects/${delivery.project_id}?tab=deliveries`,
+      ctaLabel: "Ver",
+    }));
+  }, [deliveries]);
+
   if (loading) {
     return (
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="space-y-4">
-          <div className="skeleton h-28 rounded-3xl" />
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {Array.from({ length: 4 }).map((_, index) => (
-              <div key={index} className="skeleton h-24 rounded-2xl" />
+      <MotionPage className="space-y-6 pb-28 md:pb-8">
+        <div className="grid gap-6 lg:grid-cols-2 xl:grid-cols-12">
+          <div className="skeleton h-40 rounded-3xl xl:col-span-12" />
+          <div className="grid gap-4 sm:grid-cols-2 xl:col-span-4 xl:grid-cols-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="skeleton h-24 rounded-2xl" />
             ))}
           </div>
-          <div className="skeleton h-[360px] rounded-3xl" />
+          <div className="skeleton h-80 rounded-3xl xl:col-span-5" />
+          <div className="skeleton h-80 rounded-3xl xl:col-span-3" />
         </div>
-        <div className="space-y-4">
-          <div className="skeleton h-40 rounded-3xl" />
-          <div className="skeleton h-40 rounded-3xl" />
-          <div className="skeleton h-40 rounded-3xl" />
-        </div>
-      </div>
+      </MotionPage>
     );
   }
 
   if (error) {
     return (
-      <div className="card p-6">
-        <p className="text-sm" style={{ color: "var(--error)" }}>{error}</p>
-        <button className="btn btn-secondary mt-3" onClick={() => window.location.reload()}>Tentar novamente</button>
-      </div>
+      <MotionPage>
+        <div className="super-card p-6">
+          <p className="text-sm" style={{ color: "var(--error)" }}>{error}</p>
+          <button className="btn btn-secondary mt-3" onClick={() => window.location.reload()}>Tentar novamente</button>
+        </div>
+      </MotionPage>
     );
   }
 
   return (
-    <motion.div
-      initial="initial"
-      animate="animate"
-      variants={variants.containerStagger}
-      transition={transitions.smooth}
-      className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]"
-    >
-      <section className="space-y-4 min-w-0">
-        <motion.article variants={variants.cardEnter} className="card p-6">
-          <p className="text-xs uppercase tracking-[0.12em]" style={{ color: "var(--text-3)" }}>Portal Cliente</p>
-          <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em]" style={{ color: "var(--text)" }}>Olá, bem-vindo</h2>
-          <p className="mt-1 text-sm" style={{ color: "var(--text-2)" }}>
-            Próximo passo: {nextMilestone ? `${nextMilestone.title}` : "Rever entregas mais recentes."}
-          </p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Link href="/portal/projects" className="btn btn-primary btn-sm">
-              Abrir projetos
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-            <Link href="/portal/inbox" className="btn btn-secondary btn-sm">Ver inbox</Link>
-          </div>
-        </motion.article>
+    <MotionPage className="space-y-6 pb-28 md:pb-8">
+      <LayoutGroup id="portal-dashboard-layout">
+        <MotionList className="grid gap-6 lg:grid-cols-2 xl:grid-cols-12">
+          {/* Hero Card */}
+          <MotionListItem className="xl:col-span-12">
+            <HeroSummaryCard
+              greeting="Olá, bem-vindo"
+              subtitle="Acompanha os teus projetos, entregas e aprovações."
+              metrics={[
+                { id: "projects", label: "Projetos ativos", value: String(activeProjects), hint: "Em progresso", tone: "blue" },
+                { id: "deliveries", label: "Entregas (7d)", value: String(deliveriesLast7Days), hint: "Semana atual", tone: "yellow" },
+                { id: "approvals", label: "Aprovações", value: String(pendingApprovals), hint: "Pendentes", tone: "lilac" },
+                { id: "messages", label: "Mensagens", value: String(unreadMessages), hint: "Não lidas", tone: "mint" },
+              ]}
+              primaryCta={{ href: "/portal/projects", label: "Abrir projetos" }}
+            />
+          </MotionListItem>
 
-        <motion.div variants={variants.containerStagger} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {[
-            { label: "Projetos ativos", value: String(activeProjects), icon: Video },
-            { label: "Entregas (7 dias)", value: String(deliveriesLast7Days), icon: Package },
-            { label: "Aprovações pendentes", value: String(pendingApprovals), icon: CircleAlert },
-            { label: "Mensagens", value: String(unreadMessages), icon: Mail },
-          ].map((item) => (
-            <motion.article key={item.label} variants={variants.cardEnter} className="card p-4">
-              <div className="flex items-center justify-between">
-                <p className="text-xs uppercase tracking-[0.08em]" style={{ color: "var(--text-3)" }}>{item.label}</p>
-                <item.icon className="h-4 w-4" style={{ color: "var(--accent-blue)" }} />
+          {/* Left Column: Projects & Quick Actions */}
+          <MotionListItem className="grid content-start gap-6 lg:col-span-1 xl:col-span-4">
+            <section className="super-card">
+              <p className="text-[0.68rem] uppercase tracking-[0.1em]" style={{ color: "var(--text-3)" }}>Quick Links</p>
+              <h3 className="mt-1 text-lg font-semibold" style={{ color: "var(--text)" }}>Acções rápidas</h3>
+              <p className="mt-1 text-xs" style={{ color: "var(--text-2)" }}>Atalhos para navegar o portal.</p>
+              <div className="mt-4 grid gap-2">
+                <Link href="/portal/projects" className="pill-tab">Abrir projetos</Link>
+                <Link href="/portal/inbox" className="pill-tab">Ver inbox</Link>
+                <Link href="/portal/calendar" className="pill-tab">Agendar call</Link>
               </div>
-              <p className="mt-3 text-2xl font-semibold" style={{ color: "var(--text)" }}>{item.value}</p>
-            </motion.article>
-          ))}
-        </motion.div>
+            </section>
+            <ListCard title="Projetos" subtitle="Os teus projetos ativos" rows={projectListRows} href="/portal/projects" />
+          </MotionListItem>
 
-        <motion.article variants={variants.cardEnter} className="card p-5">
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-base font-semibold" style={{ color: "var(--text)" }}>Projetos</h3>
-            <Link href="/portal/projects" className="btn btn-ghost btn-sm">Ver todos</Link>
-          </div>
-          <div className="space-y-2">
-            {filteredProjects.slice(0, 5).map((project) => (
-              <Link key={project.id} href={`/portal/projects/${project.id}`} className="card card-hover block p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold" style={{ color: "var(--text)" }}>{project.name}</p>
-                    <p className="text-xs" style={{ color: "var(--text-3)" }}>
-                      Atualizado {new Date(project.updated_at).toLocaleDateString("pt-PT")}
-                    </p>
-                  </div>
-                  <span className="pill text-[11px]">{statusLabel(project.status)}</span>
-                </div>
+          {/* Center Column: KPIs */}
+          <MotionListItem className="grid content-start gap-6 lg:col-span-1 xl:col-span-5">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <CompactKpiCard label="Projetos ativos" value={String(activeProjects)} hint="Em progresso" />
+              <CompactKpiCard label="Entregas semana" value={String(deliveriesLast7Days)} hint="7 últimos dias" />
+              <CompactKpiCard label="Aprovações" value={String(pendingApprovals)} hint="Aguardando" />
+              <CompactKpiCard label="Mensagens" value={String(unreadMessages)} hint="Não lidas" />
+            </div>
+            <ListCard title="Atividade recente" subtitle="Entregas e marcos" rows={activityRows} href="/portal/deliveries" />
+          </MotionListItem>
+
+          {/* Right Column: Calendar */}
+          <MotionListItem className="grid content-start gap-6 lg:col-span-2 xl:col-span-3">
+            <DarkCalendarCard
+              events={scheduleItems}
+              feedHref="#"
+              href="/portal/calendar"
+              onCreateEvent={() => {}}
+            />
+            <section className="super-card">
+              <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>Segurança da conta</h3>
+              <p className="mt-1 text-xs" style={{ color: "var(--text-3)" }}>Mantém a tua conta segura.</p>
+              <Link className="btn btn-secondary btn-sm mt-3 w-full" href="/portal/login">
+                Atualizar password
               </Link>
-            ))}
-            {filteredProjects.length === 0 ? (
-              <div className="rounded-2xl border border-dashed p-4 text-sm" style={{ borderColor: "var(--border)", color: "var(--text-3)" }}>
-                Sem projetos para o filtro atual.
-              </div>
-            ) : null}
-          </div>
-        </motion.article>
-      </section>
-
-      <aside className="space-y-4 min-w-0">
-        <motion.article variants={variants.cardEnter} className="card p-5">
-          <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>Atividade</h3>
-          <div className="mt-3 space-y-2">
-            {deliveries.slice(0, 3).map((delivery) => (
-              <Link key={delivery.id} href={`/portal/projects/${delivery.project_id}?tab=deliveries`} className="flex items-start gap-2 rounded-xl p-2" style={{ background: "var(--surface-2)" }}>
-                <Package className="mt-0.5 h-3.5 w-3.5" style={{ color: "var(--accent-blue)" }} />
-                <div className="min-w-0">
-                  <p className="truncate text-xs font-medium" style={{ color: "var(--text)" }}>{delivery.title}</p>
-                  <p className="text-[11px]" style={{ color: "var(--text-3)" }}>{new Date(delivery.created_at).toLocaleString("pt-PT")}</p>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </motion.article>
-
-        <motion.article variants={variants.cardEnter} className="card p-5">
-          <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>Marcar call</h3>
-          <p className="mt-1 text-xs" style={{ color: "var(--text-3)" }}>
-            Agenda uma call rápida para alinhar alterações.
-          </p>
-          <a className="btn btn-primary btn-sm mt-3 w-full" href="/portal/calendar">
-            <CalendarClock className="h-4 w-4" />
-            Abrir agenda
-          </a>
-        </motion.article>
-
-        <motion.article variants={variants.cardEnter} className="card p-5">
-          <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>Segurança</h3>
-          <p className="mt-1 text-xs" style={{ color: "var(--text-3)" }}>
-            Mantém a tua conta atualizada.
-          </p>
-          <Link className="btn btn-secondary btn-sm mt-3 w-full" href="/portal/login">
-            <Shield className="h-4 w-4" />
-            Atualizar password
-          </Link>
-        </motion.article>
-      </aside>
-    </motion.div>
+            </section>
+          </MotionListItem>
+        </MotionList>
+      </LayoutGroup>
+    </MotionPage>
   );
 }
