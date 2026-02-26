@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase-server";
 import { resolveAccessRole } from "@/lib/access-role";
 import { createServiceClient } from "@/lib/supabase/service";
+import { normalizeRoot } from "@/lib/dropboxPaths";
 
 export const runtime = "nodejs";
 
@@ -62,7 +63,7 @@ export async function GET() {
   const cfg = configStatus();
 
   let connection: DropboxHealthRow | null = null;
-  let rootPath = "/Clientes";
+  let rootPath: string | null = null;
 
   if (orgId) {
     const { data } = await service
@@ -85,7 +86,11 @@ export async function GET() {
       .maybeSingle();
     const dbRoot = String((settingsRes.data as { dropbox_root_path?: string | null } | null)?.dropbox_root_path ?? "").trim();
     if (dbRoot) {
-      rootPath = dbRoot.startsWith("/") ? dbRoot : `/${dbRoot}`;
+      try {
+        rootPath = normalizeRoot(dbRoot);
+      } catch {
+        rootPath = null;
+      }
     }
   }
 
@@ -105,6 +110,7 @@ export async function GET() {
       : null,
     connectUrl: "/api/dropbox/connect",
     rootPath,
+    rootConfigured: Boolean(rootPath),
   });
 }
 
@@ -124,8 +130,11 @@ export async function POST(request: NextRequest) {
     if (!orgId) {
       return NextResponse.json({ error: "Org não definida para este utilizador" }, { status: 400 });
     }
-    const nextPathRaw = String(body.rootPath ?? "").trim() || "/Clientes";
-    const nextPath = nextPathRaw.startsWith("/") ? nextPathRaw : `/${nextPathRaw}`;
+    const nextPathRaw = String(body.rootPath ?? "").trim();
+    if (!nextPathRaw) {
+      return NextResponse.json({ error: "Root Dropbox obrigatório" }, { status: 400 });
+    }
+    const nextPath = normalizeRoot(nextPathRaw);
 
     const { data: settings } = await service
       .from("org_settings")

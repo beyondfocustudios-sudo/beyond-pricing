@@ -9,8 +9,15 @@ import {
   refreshAccessToken,
 } from "@/lib/dropbox";
 import { decryptDropboxToken, encryptDropboxToken } from "@/lib/dropbox-crypto";
+import {
+  assertInsideRoot,
+  clientPath,
+  DEFAULT_DROPBOX_ROOT,
+  join as joinDropboxPath,
+  normalizeRoot,
+  projectPath,
+} from "@/lib/dropboxPaths";
 
-const DEFAULT_DROPBOX_ROOT = "/Clientes";
 const DEFAULT_PROJECT_SUBFOLDERS = [
   "01_Entregas",
   "02_Brief",
@@ -63,6 +70,12 @@ type ProjectFolderResult = {
   deliveriesUrl: string | null;
 };
 
+type DropboxPathFixResult = {
+  projectDropboxFixed: number;
+  deliverableFilesFixed: number;
+  connectionsFixed: number;
+};
+
 export class DropboxSyncError extends Error {
   status: number;
   code: string;
@@ -74,25 +87,32 @@ export class DropboxSyncError extends Error {
   }
 }
 
-function normalizeDropboxPath(path: string | null | undefined, fallback = DEFAULT_DROPBOX_ROOT) {
+function normalizeDropboxPath(path: string | null | undefined, fallback?: string) {
   const raw = String(path ?? "").trim();
-  const withSlash = raw.startsWith("/") ? raw : `/${raw}`;
-  const cleaned = (raw ? withSlash : fallback).replace(/\/{2,}/g, "/");
+  const base = raw || String(fallback ?? "").trim();
+  if (!base) {
+    throw new DropboxSyncError("dropbox_root_missing", "Root Dropbox não configurado", 409);
+  }
+  const withSlash = base.startsWith("/") ? base : `/${base}`;
+  const cleaned = withSlash.replace(/\/{2,}/g, "/");
   if (cleaned === "/") return "/";
   return cleaned.replace(/\/+$/, "");
-}
-
-function joinDropboxPath(base: string, segment: string) {
-  const safeBase = normalizeDropboxPath(base);
-  const safeSegment = String(segment).trim().replace(/^\/+|\/+$/g, "");
-  if (!safeSegment) return safeBase;
-  if (safeBase === "/") return `/${safeSegment}`;
-  return `${safeBase}/${safeSegment}`;
 }
 
 function sanitizeSlug(value: string, fallback: string) {
   const slug = slugify(value);
   return slug || fallback;
+}
+
+function remapIntoRoot(rootPath: string, value: string | null | undefined) {
+  const root = normalizeRoot(rootPath);
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const normalized = raw.startsWith("/") ? raw.replace(/\/{2,}/g, "/").replace(/\/+$/, "") || "/" : `/${raw}`;
+  if (normalized === root || normalized.startsWith(`${root}/`)) return normalized;
+  if (!normalized.startsWith("/")) return null;
+  if (normalized === "/") return root;
+  return joinDropboxPath(root, normalized.replace(/^\/+/, ""));
 }
 
 function pickToken(row: DropboxConnectionRow, kind: "access" | "refresh") {
@@ -248,14 +268,15 @@ async function resolveDropboxConnection(
   return { connection, accessToken };
 }
 
-async function ensurePathExists(accessToken: string, fullPath: string) {
-  const target = normalizeDropboxPath(fullPath);
-  if (target === "/") return target;
+async function ensurePathExists(accessToken: string, rootPath: string, fullPath: string) {
+  const root = normalizeRoot(rootPath);
+  const target = assertInsideRoot(root, normalizeDropboxPath(fullPath, root));
 
   const parts = target.split("/").filter(Boolean);
   let current = "";
   for (const part of parts) {
     current += `/${part}`;
+    assertInsideRoot(root, current);
     try {
       await createFolder(accessToken, current);
     } catch (error) {
@@ -270,9 +291,10 @@ async function ensurePathExists(accessToken: string, fullPath: string) {
   return target;
 }
 
-async function movePathIdempotent(accessToken: string, fromPath: string, toPath: string) {
-  const from = normalizeDropboxPath(fromPath);
-  const to = normalizeDropboxPath(toPath);
+async function movePathIdempotent(accessToken: string, rootPath: string, fromPath: string, toPath: string) {
+  const root = normalizeRoot(rootPath);
+  const from = assertInsideRoot(root, normalizeDropboxPath(fromPath, root));
+  const to = assertInsideRoot(root, normalizeDropboxPath(toPath, root));
   if (from === to) return to;
 
   try {
@@ -306,7 +328,7 @@ async function ensureOrgSettingsRootPath(
   }
 
   const existing = data as { id?: string; key?: string; dropbox_root_path?: string | null } | null;
-  const rootPath = normalizeDropboxPath(existing?.dropbox_root_path, DEFAULT_DROPBOX_ROOT);
+  const rootPath = normalizeRoot(String(existing?.dropbox_root_path ?? DEFAULT_DROPBOX_ROOT));
   if (existing?.id) {
     const { error: updateError } = await admin
       .from("org_settings")
@@ -352,6 +374,95 @@ async function buildOrgContext(actorUserId: string, requireAdmin = false) {
   } satisfies DropboxOrgContext;
 }
 
+async function autoFixPathsOutsideRoot(ctx: DropboxOrgContext, rootPath: string) {
+  const root = normalizeRoot(rootPath);
+  let projectDropboxFixed = 0;
+  let deliverableFilesFixed = 0;
+  let connectionsFixed = 0;
+
+  const { data: connections } = await ctx.admin
+    .from("dropbox_connections")
+    .select("id, sync_path")
+    .eq("org_id", ctx.orgId)
+    .is("project_id", null)
+    .is("revoked_at", null);
+
+  for (const row of connections ?? []) {
+    const nextSync = remapIntoRoot(root, (row as { sync_path?: string | null }).sync_path ?? root);
+    if (nextSync && nextSync !== (row as { sync_path?: string | null }).sync_path) {
+      const { error } = await ctx.admin
+        .from("dropbox_connections")
+        .update({ sync_path: nextSync, updated_at: new Date().toISOString() })
+        .eq("id", (row as { id: string }).id);
+      if (!error) connectionsFixed += 1;
+    }
+  }
+
+  const { data: projectRows } = await ctx.admin
+    .from("project_dropbox")
+    .select("project_id, folder_path, root_path, deliveries_path, base_path")
+    .eq("org_id", ctx.orgId);
+
+  const projectIds: string[] = [];
+  for (const row of projectRows ?? []) {
+    const current = row as {
+      project_id: string;
+      folder_path?: string | null;
+      root_path?: string | null;
+      deliveries_path?: string | null;
+      base_path?: string | null;
+    };
+    const nextFolder = remapIntoRoot(root, current.folder_path ?? current.root_path ?? null);
+    const nextRoot = remapIntoRoot(root, current.root_path ?? current.folder_path ?? null);
+    const nextDeliveries = remapIntoRoot(root, current.deliveries_path ?? (nextFolder ? joinDropboxPath(nextFolder, "01_Entregas") : null));
+    const nextBase = remapIntoRoot(root, current.base_path ?? root) ?? root;
+
+    if (
+      nextFolder && nextRoot && nextDeliveries
+      && (nextFolder !== (current.folder_path ?? null)
+        || nextRoot !== (current.root_path ?? null)
+        || nextDeliveries !== (current.deliveries_path ?? null)
+        || nextBase !== (current.base_path ?? null))
+    ) {
+      const { error } = await ctx.admin
+        .from("project_dropbox")
+        .update({
+          folder_path: nextFolder,
+          root_path: nextRoot,
+          deliveries_path: nextDeliveries,
+          base_path: nextBase,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("project_id", current.project_id);
+      if (!error) {
+        projectDropboxFixed += 1;
+      }
+    }
+    if (current.project_id) projectIds.push(current.project_id);
+  }
+
+  if (projectIds.length > 0) {
+    const { data: files } = await ctx.admin
+      .from("deliverable_files")
+      .select("id, dropbox_path, project_id")
+      .in("project_id", projectIds);
+
+    for (const file of files ?? []) {
+      const current = file as { id: string; dropbox_path?: string | null };
+      const nextPath = remapIntoRoot(root, current.dropbox_path ?? null);
+      if (nextPath && nextPath !== (current.dropbox_path ?? null)) {
+        const { error } = await ctx.admin
+          .from("deliverable_files")
+          .update({ dropbox_path: nextPath, updated_at: new Date().toISOString() })
+          .eq("id", current.id);
+        if (!error) deliverableFilesFixed += 1;
+      }
+    }
+  }
+
+  return { projectDropboxFixed, deliverableFilesFixed, connectionsFixed } satisfies DropboxPathFixResult;
+}
+
 async function ensureClientFolderWithContext(
   ctx: DropboxOrgContext,
   clientId: string,
@@ -370,19 +481,19 @@ async function ensureClientFolderWithContext(
   }
 
   const rootPath = await ensureOrgSettingsRootPath(ctx.admin, ctx.orgId);
-  await ensurePathExists(ctx.accessToken, rootPath);
+  await ensurePathExists(ctx.accessToken, rootPath, rootPath);
 
   const desiredSlug = sanitizeSlug(String(client.slug ?? client.name ?? ""), `cliente-${String(client.id).slice(0, 8)}`);
-  const targetPath = joinDropboxPath(rootPath, desiredSlug);
+  const targetPath = clientPath(rootPath, desiredSlug);
   const currentPath = normalizeDropboxPath(client.dropbox_folder_path ?? "", targetPath);
 
   if (client.dropbox_folder_path && normalizeDropboxPath(client.dropbox_folder_path) !== targetPath) {
-    await movePathIdempotent(ctx.accessToken, currentPath, targetPath);
+    await movePathIdempotent(ctx.accessToken, rootPath, currentPath, targetPath);
   } else {
-    await ensurePathExists(ctx.accessToken, targetPath);
+    await ensurePathExists(ctx.accessToken, rootPath, targetPath);
   }
 
-  const folderUrl = await createSharedLink(ctx.accessToken, targetPath);
+  const folderUrl = await createSharedLink(ctx.accessToken, assertInsideRoot(rootPath, targetPath));
 
   const { error: updateClientError } = await ctx.admin
     .from("clients")
@@ -412,7 +523,7 @@ async function ensureClientFolderWithContext(
         .in("project_id", projectIds);
 
       for (const row of rows ?? []) {
-        const oldPrefix = normalizeDropboxPath(client.dropbox_folder_path);
+        const oldPrefix = normalizeDropboxPath(client.dropbox_folder_path, rootPath);
         const nextFolder = String(row.folder_path ?? row.root_path ?? "")
           .replace(oldPrefix, targetPath);
         const nextDeliveries = String(row.deliveries_path ?? "")
@@ -421,9 +532,9 @@ async function ensureClientFolderWithContext(
         await ctx.admin
           .from("project_dropbox")
           .update({
-            folder_path: normalizeDropboxPath(nextFolder, targetPath),
-            root_path: normalizeDropboxPath(nextFolder, targetPath),
-            deliveries_path: normalizeDropboxPath(nextDeliveries, joinDropboxPath(targetPath, "01_Entregas")),
+            folder_path: assertInsideRoot(rootPath, normalizeDropboxPath(nextFolder, targetPath)),
+            root_path: assertInsideRoot(rootPath, normalizeDropboxPath(nextFolder, targetPath)),
+            deliveries_path: assertInsideRoot(rootPath, normalizeDropboxPath(nextDeliveries, joinDropboxPath(targetPath, "01_Entregas"))),
             updated_at: new Date().toISOString(),
           })
           .eq("project_id", row.project_id);
@@ -486,7 +597,7 @@ async function ensureProjectFolderWithContext(
 
   const clientFolder = await ensureClientFolderWithContext(ctx, String(project.client_id));
   const projectSlug = sanitizeSlug(String(project.project_name ?? ""), `project-${String(project.id).slice(0, 8)}`);
-  const targetProjectPath = joinDropboxPath(clientFolder.folderPath, projectSlug);
+  const targetProjectPath = projectPath(clientFolder.rootPath, clientFolder.clientSlug, projectSlug);
   const targetDeliveries = joinDropboxPath(targetProjectPath, "01_Entregas");
 
   const { data: row } = await ctx.admin
@@ -503,18 +614,18 @@ async function ensureProjectFolderWithContext(
   );
 
   if (row?.project_id && existingPath !== targetProjectPath) {
-    await movePathIdempotent(ctx.accessToken, existingPath, targetProjectPath);
+    await movePathIdempotent(ctx.accessToken, clientFolder.rootPath, existingPath, targetProjectPath);
   } else {
-    await ensurePathExists(ctx.accessToken, targetProjectPath);
+    await ensurePathExists(ctx.accessToken, clientFolder.rootPath, targetProjectPath);
   }
 
   for (const folder of DEFAULT_PROJECT_SUBFOLDERS) {
-    await ensurePathExists(ctx.accessToken, joinDropboxPath(targetProjectPath, folder));
+    await ensurePathExists(ctx.accessToken, clientFolder.rootPath, joinDropboxPath(targetProjectPath, folder));
   }
 
   const [folderUrl, deliveriesUrl] = await Promise.all([
-    createSharedLink(ctx.accessToken, targetProjectPath),
-    createSharedLink(ctx.accessToken, targetDeliveries),
+    createSharedLink(ctx.accessToken, assertInsideRoot(clientFolder.rootPath, targetProjectPath)),
+    createSharedLink(ctx.accessToken, assertInsideRoot(clientFolder.rootPath, targetDeliveries)),
   ]);
 
   const nowIso = new Date().toISOString();
@@ -555,9 +666,10 @@ export async function ensureDropboxRootFolder(actorUserId: string) {
   const ctx = await buildOrgContext(actorUserId);
   try {
     const rootPath = await ensureOrgSettingsRootPath(ctx.admin, ctx.orgId);
-    await ensurePathExists(ctx.accessToken, rootPath);
-    await logDropboxAudit(ctx.admin, actorUserId, "dropbox.ensure_root", { orgId: ctx.orgId, rootPath });
-    return { orgId: ctx.orgId, rootPath };
+    await ensurePathExists(ctx.accessToken, rootPath, rootPath);
+    const fixed = await autoFixPathsOutsideRoot(ctx, rootPath);
+    await logDropboxAudit(ctx.admin, actorUserId, "dropbox.ensure_root", { orgId: ctx.orgId, rootPath, fixed });
+    return { orgId: ctx.orgId, rootPath, fixed };
   } catch (error) {
     await logDropboxAudit(ctx.admin, actorUserId, "dropbox.ensure_root_failed", {
       orgId: ctx.orgId,
@@ -599,11 +711,12 @@ export async function ensureProjectDropboxFolder(actorUserId: string, projectId:
 
 export async function moveDropboxFolder(actorUserId: string, fromPath: string, toPath: string) {
   const ctx = await buildOrgContext(actorUserId, true);
-  const from = normalizeDropboxPath(fromPath);
-  const to = normalizeDropboxPath(toPath);
+  const rootPath = await ensureOrgSettingsRootPath(ctx.admin, ctx.orgId);
+  const from = assertInsideRoot(rootPath, normalizeDropboxPath(fromPath, rootPath));
+  const to = assertInsideRoot(rootPath, normalizeDropboxPath(toPath, rootPath));
   try {
-    await ensurePathExists(ctx.accessToken, getParentPath(to));
-    const finalPath = await movePathIdempotent(ctx.accessToken, from, to);
+    await ensurePathExists(ctx.accessToken, rootPath, getParentPath(to));
+    const finalPath = await movePathIdempotent(ctx.accessToken, rootPath, from, to);
     await logDropboxAudit(ctx.admin, actorUserId, "dropbox.move_folder", { from, to: finalPath });
     return { from, to: finalPath };
   } catch (error) {
@@ -643,20 +756,20 @@ export async function archiveProjectDropboxFolder(actorUserId: string, projectId
       .eq("project_id", projectId)
       .maybeSingle();
 
-    const sourcePath = normalizeDropboxPath(
+    const sourcePath = assertInsideRoot(clientFolder.rootPath, normalizeDropboxPath(
       String((projectDropbox as { folder_path?: string | null; root_path?: string | null } | null)?.folder_path
         ?? (projectDropbox as { folder_path?: string | null; root_path?: string | null } | null)?.root_path
         ?? joinDropboxPath(clientFolder.folderPath, projectSlug)),
-    );
+    ));
 
     const sourceAlreadyArchived = sourcePath.includes("/99_Archive/");
     if (!sourceAlreadyArchived && !projectDropbox) {
-      await ensurePathExists(ctx.accessToken, sourcePath);
+      await ensurePathExists(ctx.accessToken, clientFolder.rootPath, sourcePath);
     }
 
     const clientBasePath = getParentPath(sourcePath);
-    const archiveBase = joinDropboxPath(clientBasePath, "99_Archive");
-    await ensurePathExists(ctx.accessToken, archiveBase);
+    const archiveBase = assertInsideRoot(clientFolder.rootPath, joinDropboxPath(clientBasePath, "99_Archive"));
+    await ensurePathExists(ctx.accessToken, clientFolder.rootPath, archiveBase);
 
     const archivedPath = sourceAlreadyArchived
       ? sourcePath
@@ -666,7 +779,7 @@ export async function archiveProjectDropboxFolder(actorUserId: string, projectId
         );
     const finalPath = sourceAlreadyArchived
       ? sourcePath
-      : await movePathIdempotent(ctx.accessToken, sourcePath, archivedPath);
+      : await movePathIdempotent(ctx.accessToken, clientFolder.rootPath, sourcePath, archivedPath);
     const deliveriesPath = joinDropboxPath(finalPath, "01_Entregas");
     const nowIso = new Date().toISOString();
 
@@ -708,7 +821,8 @@ export async function archiveProjectDropboxFolder(actorUserId: string, projectId
 
 export async function hardDeleteDropboxFolder(actorUserId: string, path: string) {
   const ctx = await buildOrgContext(actorUserId, true);
-  const normalizedPath = normalizeDropboxPath(path);
+  const rootPath = await ensureOrgSettingsRootPath(ctx.admin, ctx.orgId);
+  const normalizedPath = assertInsideRoot(rootPath, normalizeDropboxPath(path, rootPath));
   if (!normalizedPath || normalizedPath === "/") {
     throw new DropboxSyncError("invalid_path", "Path inválido para apagar", 400);
   }

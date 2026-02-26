@@ -53,6 +53,7 @@ import { CatalogModal } from "@/components/CatalogModal";
 import { ProjectLogisticsTab } from "@/components/ProjectLogisticsTab";
 import { ProjectWeatherTab } from "@/components/ProjectWeatherTab";
 import { useToast } from "@/components/Toast";
+import { assertInsideRoot, join as joinDropboxPath, normalizeRoot } from "@/lib/dropboxPaths";
 
 // ── Default inputs ────────────────────────────────────────────
 const DEFAULT_INPUTS: ProjectInputs = {
@@ -256,7 +257,7 @@ export default function ProjectPage() {
   const [delivFilterCol, setDelivFilterCol] = useState("all");
   const [dropboxPath, setDropboxPath] = useState("");
   const [dropboxDeliveriesPath, setDropboxDeliveriesPath] = useState("");
-  const [dropboxBasePath, setDropboxBasePath] = useState("/Clientes");
+  const [dropboxBasePath, setDropboxBasePath] = useState("");
   const [dropboxFolderId, setDropboxFolderId] = useState<string | null>(null);
   const [dropboxFolderUrl, setDropboxFolderUrl] = useState<string | null>(null);
   const [dropboxDeliveriesUrl, setDropboxDeliveriesUrl] = useState<string | null>(null);
@@ -337,7 +338,7 @@ export default function ProjectPage() {
       if (pdRes.data) {
         setDropboxPath((pdRes.data as { folder_path?: string | null }).folder_path ?? pdRes.data.root_path ?? "");
         setDropboxDeliveriesPath((pdRes.data as { deliveries_path?: string | null }).deliveries_path ?? "");
-        setDropboxBasePath((pdRes.data as { base_path?: string | null }).base_path ?? "/Clientes");
+        setDropboxBasePath((pdRes.data as { base_path?: string | null }).base_path ?? "");
         setDropboxFolderId((pdRes.data as { folder_id?: string | null }).folder_id ?? null);
         setDropboxFolderUrl((pdRes.data as { folder_url?: string | null }).folder_url ?? null);
         setDropboxDeliveriesUrl((pdRes.data as { deliveries_url?: string | null }).deliveries_url ?? null);
@@ -1026,7 +1027,6 @@ export default function ProjectPage() {
                         body: JSON.stringify({
                           projectId,
                           folderName: dropboxFolderNameInput.trim(),
-                          basePath: dropboxBasePath.trim() || "/Clientes",
                         }),
                       });
                       const json = await res.json().catch(() => ({} as {
@@ -1859,21 +1859,37 @@ export default function ProjectPage() {
                     className="btn btn-primary btn-sm"
                     disabled={savingDropboxPath || !dropboxPath.trim()}
                     onClick={async () => {
-                      setSavingDropboxPath(true);
-                      const sb = createClient();
-                      await sb.from("project_dropbox").upsert(
-                        {
-                          project_id: projectId,
-                          folder_path: dropboxPath.trim(),
-                          root_path: dropboxPath.trim(),
-                          deliveries_path: dropboxDeliveriesPath.trim() || `${dropboxPath.trim().replace(/\/+$/, "")}/01_Entregas`,
-                          base_path: dropboxBasePath.trim() || "/Clientes",
-                        },
-                        { onConflict: "project_id" }
-                      );
-                      setDropboxConfigured(true);
-                      setEditingDropboxPath(false);
-                      setSavingDropboxPath(false);
+                      try {
+                        setSavingDropboxPath(true);
+                        const root = normalizeRoot(dropboxBasePath.trim());
+                        const folder = assertInsideRoot(root, dropboxPath.trim());
+                        const deliveries = assertInsideRoot(
+                          root,
+                          dropboxDeliveriesPath.trim() || joinDropboxPath(folder, "01_Entregas")
+                        );
+                        const sb = createClient();
+                        await sb.from("project_dropbox").upsert(
+                          {
+                            project_id: projectId,
+                            folder_path: folder,
+                            root_path: folder,
+                            deliveries_path: deliveries,
+                            base_path: root,
+                          },
+                          { onConflict: "project_id" }
+                        );
+                        setDropboxConfigured(true);
+                        setEditingDropboxPath(false);
+                      } catch (error) {
+                        const message = error instanceof Error ? error.message : String(error ?? "");
+                        if (message === "DROPBOX_PATH_OUTSIDE_ROOT") {
+                          toast.error("A pasta tem de estar dentro de /Clientes");
+                        } else {
+                          toast.error("Não foi possível guardar os caminhos Dropbox.");
+                        }
+                      } finally {
+                        setSavingDropboxPath(false);
+                      }
                     }}
                   >
                     {savingDropboxPath ? "…" : "Guardar"}
@@ -1989,7 +2005,7 @@ export default function ProjectPage() {
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({
                               projectId,
-                              path: (dropboxDeliveriesPath || dropboxPath).trim() || "/",
+                              ...(dropboxDeliveriesPath || dropboxPath ? { path: (dropboxDeliveriesPath || dropboxPath).trim() } : {}),
                             }),
                           });
                           const json = await res.json().catch(() => ({} as { error?: string; totalProcessed?: number }));

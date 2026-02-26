@@ -5,6 +5,7 @@ import { requireProjectAccess } from "@/lib/authz";
 import { refreshAccessToken, getTemporaryLink } from "@/lib/dropbox";
 import { decryptDropboxToken, encryptDropboxToken } from "@/lib/dropbox-crypto";
 import { getDemoFileById } from "@/lib/dropbox-demo";
+import { assertInsideRoot, normalizeRoot } from "@/lib/dropboxPaths";
 
 type DropboxConnectionRow = {
   id: string;
@@ -146,6 +147,22 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Dropbox não conectado" }, { status: 404 });
   }
 
+  let rootPath: string | null = null;
+  if (conn.orgId) {
+    const settingsRes = await conn.service
+      .from("org_settings")
+      .select("dropbox_root_path")
+      .eq("org_id", conn.orgId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const rootRaw = String((settingsRes.data as { dropbox_root_path?: string | null } | null)?.dropbox_root_path ?? "").trim();
+    if (rootRaw) rootPath = normalizeRoot(rootRaw);
+  }
+  if (!rootPath) {
+    return NextResponse.json({ error: "Root Dropbox não configurado." }, { status: 409 });
+  }
+
   let accessToken = pickToken(conn.row, "access");
   const refreshToken = pickToken(conn.row, "refresh");
   const expiresAtRaw = conn.row.token_expires_at || conn.row.expires_at;
@@ -173,7 +190,8 @@ export async function POST(request: NextRequest) {
       .eq("id", conn.row.id);
   }
 
-  const temporaryLink = await getTemporaryLink(accessToken, String(file.dropbox_path));
+  const safePath = assertInsideRoot(rootPath, String(file.dropbox_path));
+  const temporaryLink = await getTemporaryLink(accessToken, safePath);
   if (!temporaryLink) {
     return NextResponse.json({ error: "Não foi possível gerar link temporário" }, { status: 500 });
   }

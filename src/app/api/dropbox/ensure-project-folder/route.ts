@@ -19,6 +19,9 @@ export async function POST(request: NextRequest) {
     if (error instanceof DropboxSyncError) {
       return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
     }
+    if (error instanceof Error && error.message === "DROPBOX_PATH_OUTSIDE_ROOT") {
+      return NextResponse.json({ error: "DROPBOX_PATH_OUTSIDE_ROOT", code: "DROPBOX_PATH_OUTSIDE_ROOT" }, { status: 400 });
+    }
     return NextResponse.json({ error: "Falha ao garantir pasta do projeto" }, { status: 500 });
   }
 }

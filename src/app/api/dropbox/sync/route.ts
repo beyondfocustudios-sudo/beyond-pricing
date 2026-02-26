@@ -10,6 +10,7 @@ import {
   type DropboxFile,
 } from "@/lib/dropbox";
 import { decryptDropboxToken, encryptDropboxToken } from "@/lib/dropbox-crypto";
+import { assertInsideRoot, normalizeRoot } from "@/lib/dropboxPaths";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -182,12 +183,30 @@ export async function POST(req: NextRequest) {
     .eq("project_id", projectId)
     .maybeSingle();
 
-  const syncPath = path
+  let rootPath: string | null = null;
+  if (resolved.orgId) {
+    const settingsRes = await service
+      .from("org_settings")
+      .select("dropbox_root_path")
+      .eq("org_id", resolved.orgId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const rootRaw = String((settingsRes.data as { dropbox_root_path?: string | null } | null)?.dropbox_root_path ?? "").trim();
+    if (rootRaw) rootPath = normalizeRoot(rootRaw);
+  }
+
+  if (!rootPath) {
+    return NextResponse.json({ error: "Root Dropbox não configurado. Define em /app/integrations." }, { status: 409 });
+  }
+
+  const syncPathCandidate = path
     || String((projectDropbox as { deliveries_path?: string | null } | null)?.deliveries_path
       ?? (projectDropbox as { folder_path?: string | null } | null)?.folder_path
       ?? projectDropbox?.root_path
       ?? connection.sync_path
-      ?? "/");
+      ?? rootPath);
+  const syncPath = assertInsideRoot(rootPath, syncPathCandidate);
 
   let accessToken = pickToken(connection, "access");
   const refreshToken = pickToken(connection, "refresh");
@@ -272,16 +291,17 @@ export async function POST(req: NextRequest) {
     }
 
     for (const file of allFiles) {
-      const categorized = categorizeFile(file.name, file.path_display);
+      const filePath = assertInsideRoot(rootPath, file.path_display);
+      const categorized = categorizeFile(file.name, filePath);
       const ext = inferExt(file.name);
       const mimeType = inferMime(ext);
-      const collection = inferCollection(file.path_display);
+      const collection = inferCollection(filePath);
 
       const { data: existing } = await service
         .from("deliverable_files")
         .select("id")
         .eq("project_id", projectId)
-        .eq("dropbox_path", file.path_display)
+        .eq("dropbox_path", filePath)
         .maybeSingle();
 
       const payload = {
@@ -291,7 +311,7 @@ export async function POST(req: NextRequest) {
         provider_id: file.id,
         dropbox_id: file.id,
         path: file.path_display,
-        dropbox_path: file.path_display,
+        dropbox_path: filePath,
         filename: file.name,
         name: file.name,
         ext,
@@ -379,6 +399,9 @@ export async function POST(req: NextRequest) {
         .eq("id", logEntry.id);
     }
 
+    if (msg === "DROPBOX_PATH_OUTSIDE_ROOT") {
+      return NextResponse.json({ error: msg, code: msg }, { status: 400 });
+    }
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

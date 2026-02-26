@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AlertCircle, CheckCircle2, Copy, ExternalLink, Loader2, RefreshCw, Unplug } from "lucide-react";
 import { MotionCard, MotionPage, Pressable } from "@/components/motion-system";
+import { useToast } from "@/components/Toast";
 
 type ExternalCalendar = {
   id: string;
@@ -37,7 +38,8 @@ type IntegrationsPayload = {
 type DropboxStatusPayload = {
   connected: boolean;
   connectUrl: string;
-  rootPath?: string;
+  rootPath?: string | null;
+  rootConfigured?: boolean;
   config: {
     ready: boolean;
     missing: string[];
@@ -116,13 +118,14 @@ function actionBusyKey(action: string, provider?: CalendarProvider | "all") {
 }
 
 export default function IntegrationsPage() {
+  const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [payload, setPayload] = useState<IntegrationsPayload | null>(null);
   const [dropbox, setDropbox] = useState<DropboxStatusPayload | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [dropboxRootPath, setDropboxRootPath] = useState("/Clientes");
+  const [dropboxRootPath, setDropboxRootPath] = useState("");
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -179,7 +182,8 @@ export default function IntegrationsPage() {
       setDropbox({
         connected: false,
         connectUrl: "/api/dropbox/connect",
-        rootPath: "/Clientes",
+        rootPath: null,
+        rootConfigured: false,
         config: {
           ready: false,
           missing: json.error ? [json.error] : ["Não foi possível carregar estado Dropbox"],
@@ -191,14 +195,15 @@ export default function IntegrationsPage() {
     setDropbox({
       connected: Boolean(json.connected),
       connectUrl: json.connectUrl ?? "/api/dropbox/connect",
-      rootPath: json.rootPath ?? "/Clientes",
+      rootPath: json.rootPath ?? null,
+      rootConfigured: Boolean(json.rootConfigured ?? json.rootPath),
       config: {
         ready: Boolean(json.config?.ready),
         missing: json.config?.missing ?? [],
       },
       connection: json.connection ?? null,
     });
-    setDropboxRootPath(json.rootPath ?? "/Clientes");
+    setDropboxRootPath(json.rootPath ?? "");
   }, []);
 
   useEffect(() => {
@@ -291,14 +296,16 @@ export default function IntegrationsPage() {
     });
     const payload = (await response.json().catch(() => ({}))) as { error?: string; rootPath?: string };
     if (!response.ok) {
-      setError(payload.error ?? "Falha ao atualizar root Dropbox.");
+      const message = payload.error === "DROPBOX_PATH_OUTSIDE_ROOT" ? "A pasta tem de estar dentro de /Clientes" : (payload.error ?? "Falha ao atualizar root Dropbox.");
+      setError(message);
+      if (payload.error === "DROPBOX_PATH_OUTSIDE_ROOT") toast.error("A pasta tem de estar dentro de /Clientes");
       setBusy(null);
       return;
     }
     if (payload.rootPath) setDropboxRootPath(payload.rootPath);
     await loadDropbox();
     setBusy(null);
-  }, [dropboxRootPath, loadDropbox]);
+  }, [dropboxRootPath, loadDropbox, toast]);
 
   const syncDropboxRoot = useCallback(async () => {
     setBusy("dropbox:sync-root");
@@ -306,14 +313,16 @@ export default function IntegrationsPage() {
     const response = await fetch("/api/dropbox/ensure-root", { method: "POST" });
     const payload = (await response.json().catch(() => ({}))) as { error?: string; rootPath?: string };
     if (!response.ok) {
-      setError(payload.error ?? "Falha ao sincronizar root Dropbox.");
+      const message = payload.error === "DROPBOX_PATH_OUTSIDE_ROOT" ? "A pasta tem de estar dentro de /Clientes" : (payload.error ?? "Falha ao sincronizar root Dropbox.");
+      setError(message);
+      if (payload.error === "DROPBOX_PATH_OUTSIDE_ROOT") toast.error("A pasta tem de estar dentro de /Clientes");
       setBusy(null);
       return;
     }
     if (payload.rootPath) setDropboxRootPath(payload.rootPath);
     await loadDropbox();
     setBusy(null);
-  }, [loadDropbox]);
+  }, [loadDropbox, toast]);
 
   const providers = useMemo(() => payload?.providers ?? [], [payload]);
 
@@ -591,7 +600,7 @@ export default function IntegrationsPage() {
                     Última atualização: <span style={{ color: "var(--text)" }}>{formatRelativeTime(dropbox.connection?.updatedAt ?? null)}</span>
                   </p>
                   <p className="mt-1">
-                    Root: <span style={{ color: "var(--text)" }}>{dropboxRootPath || "/Clientes"}</span>
+                    Root: <span style={{ color: "var(--text)" }}>{dropboxRootPath || "—"}</span>
                   </p>
                 </div>
               ) : (
@@ -603,6 +612,11 @@ export default function IntegrationsPage() {
               {dropbox && !dropbox.config.ready ? (
                 <p className="mt-3 text-xs" style={{ color: "var(--warning)" }}>
                   Configuração em falta: {dropbox.config.missing.join(", ")}
+                </p>
+              ) : null}
+              {dropbox?.connected && !dropbox?.rootConfigured ? (
+                <p className="mt-3 text-xs" style={{ color: "var(--warning)" }}>
+                  Root Dropbox não configurado. Define a pasta base antes de sincronizar.
                 </p>
               ) : null}
 
@@ -617,7 +631,7 @@ export default function IntegrationsPage() {
                 <Pressable
                   className="btn btn-secondary btn-sm"
                   onClick={() => void setDropboxRoot()}
-                  disabled={!dropbox?.connected || busy === "dropbox:set-root"}
+                  disabled={!dropbox?.connected || busy === "dropbox:set-root" || !dropboxRootPath.trim()}
                 >
                   {busy === "dropbox:set-root" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
                   Set root
