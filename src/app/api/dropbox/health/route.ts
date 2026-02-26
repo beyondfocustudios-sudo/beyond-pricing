@@ -18,7 +18,7 @@ type DropboxHealthRow = {
 function configStatus() {
   const clientId = Boolean(process.env.DROPBOX_CLIENT_ID || process.env.DROPBOX_APP_KEY);
   const clientSecret = Boolean(process.env.DROPBOX_CLIENT_SECRET || process.env.DROPBOX_APP_SECRET);
-  const redirectUri = Boolean(process.env.DROPBOX_REDIRECT_URI);
+  const redirectUri = Boolean(process.env.DROPBOX_REDIRECT_URI || process.env.NEXT_PUBLIC_SITE_URL);
   const tokenSecret = Boolean(process.env.DROPBOX_TOKEN_SECRET || process.env.CALENDAR_TOKEN_SECRET);
 
   return {
@@ -27,7 +27,7 @@ function configStatus() {
       ...(clientId ? [] : ["DROPBOX_CLIENT_ID"]),
       ...(clientSecret ? [] : ["DROPBOX_CLIENT_SECRET"]),
       ...(tokenSecret ? [] : ["DROPBOX_TOKEN_SECRET"]),
-      ...(redirectUri ? [] : ["DROPBOX_REDIRECT_URI(optional)"]),
+      ...(redirectUri ? [] : ["DROPBOX_REDIRECT_URI ou NEXT_PUBLIC_SITE_URL"]),
     ],
   };
 }
@@ -62,6 +62,7 @@ export async function GET() {
   const cfg = configStatus();
 
   let connection: DropboxHealthRow | null = null;
+  let rootPath = "/Clientes";
 
   if (orgId) {
     const { data } = await service
@@ -74,6 +75,18 @@ export async function GET() {
       .limit(1)
       .maybeSingle();
     connection = (data as DropboxHealthRow | null) ?? null;
+
+    const settingsRes = await service
+      .from("org_settings")
+      .select("dropbox_root_path")
+      .eq("org_id", orgId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const dbRoot = String((settingsRes.data as { dropbox_root_path?: string | null } | null)?.dropbox_root_path ?? "").trim();
+    if (dbRoot) {
+      rootPath = dbRoot.startsWith("/") ? dbRoot : `/${dbRoot}`;
+    }
   }
 
   return NextResponse.json({
@@ -90,7 +103,8 @@ export async function GET() {
           lastSyncedAt: connection.last_synced_at,
         }
       : null,
-    connectUrl: "/api/integrations/dropbox/auth",
+    connectUrl: "/api/dropbox/connect",
+    rootPath,
   });
 }
 
@@ -99,8 +113,51 @@ export async function POST(request: NextRequest) {
   if ("error" in context) return context.error;
 
   const { orgId, service } = context;
-  const body = await request.json().catch(() => ({} as { action?: string }));
+  const body = await request.json().catch(() => ({} as { action?: string; rootPath?: string }));
   const action = String(body.action ?? "").toLowerCase();
+
+  if (!action) {
+    return NextResponse.json({ error: "Ação inválida" }, { status: 400 });
+  }
+
+  if (action === "set_root") {
+    if (!orgId) {
+      return NextResponse.json({ error: "Org não definida para este utilizador" }, { status: 400 });
+    }
+    const nextPathRaw = String(body.rootPath ?? "").trim() || "/Clientes";
+    const nextPath = nextPathRaw.startsWith("/") ? nextPathRaw : `/${nextPathRaw}`;
+
+    const { data: settings } = await service
+      .from("org_settings")
+      .select("id")
+      .eq("org_id", orgId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (settings?.id) {
+      const { error } = await service
+        .from("org_settings")
+        .update({ dropbox_root_path: nextPath, updated_at: new Date().toISOString() })
+        .eq("id", settings.id);
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    } else {
+      const { error } = await service
+        .from("org_settings")
+        .insert({
+          org_id: orgId,
+          key: `dropbox_root_${orgId}`,
+          value: {},
+          dropbox_root_path: nextPath,
+          updated_at: new Date().toISOString(),
+        });
+      if (error && !/duplicate key/i.test(error.message)) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+    }
+
+    return NextResponse.json({ ok: true, rootPath: nextPath });
+  }
 
   if (action !== "disconnect") {
     return NextResponse.json({ error: "Ação inválida" }, { status: 400 });
@@ -122,6 +179,17 @@ export async function POST(request: NextRequest) {
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  if (orgId) {
+    await service
+      .from("project_dropbox")
+      .update({
+        archived_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("org_id", orgId)
+      .is("archived_at", null);
   }
 
   return NextResponse.json({ ok: true });

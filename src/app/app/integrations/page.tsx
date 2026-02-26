@@ -37,6 +37,7 @@ type IntegrationsPayload = {
 type DropboxStatusPayload = {
   connected: boolean;
   connectUrl: string;
+  rootPath?: string;
   config: {
     ready: boolean;
     missing: string[];
@@ -121,6 +122,7 @@ export default function IntegrationsPage() {
   const [dropbox, setDropbox] = useState<DropboxStatusPayload | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [dropboxRootPath, setDropboxRootPath] = useState("/Clientes");
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -176,7 +178,8 @@ export default function IntegrationsPage() {
     if (!response.ok) {
       setDropbox({
         connected: false,
-        connectUrl: "/api/integrations/dropbox/auth",
+        connectUrl: "/api/dropbox/connect",
+        rootPath: "/Clientes",
         config: {
           ready: false,
           missing: json.error ? [json.error] : ["Não foi possível carregar estado Dropbox"],
@@ -187,13 +190,15 @@ export default function IntegrationsPage() {
     }
     setDropbox({
       connected: Boolean(json.connected),
-      connectUrl: json.connectUrl ?? "/api/integrations/dropbox/auth",
+      connectUrl: json.connectUrl ?? "/api/dropbox/connect",
+      rootPath: json.rootPath ?? "/Clientes",
       config: {
         ready: Boolean(json.config?.ready),
         missing: json.config?.missing ?? [],
       },
       connection: json.connection ?? null,
     });
+    setDropboxRootPath(json.rootPath ?? "/Clientes");
   }, []);
 
   useEffect(() => {
@@ -272,6 +277,40 @@ export default function IntegrationsPage() {
       setBusy(null);
       return;
     }
+    await loadDropbox();
+    setBusy(null);
+  }, [loadDropbox]);
+
+  const setDropboxRoot = useCallback(async () => {
+    setBusy("dropbox:set-root");
+    setError(null);
+    const response = await fetch("/api/dropbox/health", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "set_root", rootPath: dropboxRootPath }),
+    });
+    const payload = (await response.json().catch(() => ({}))) as { error?: string; rootPath?: string };
+    if (!response.ok) {
+      setError(payload.error ?? "Falha ao atualizar root Dropbox.");
+      setBusy(null);
+      return;
+    }
+    if (payload.rootPath) setDropboxRootPath(payload.rootPath);
+    await loadDropbox();
+    setBusy(null);
+  }, [dropboxRootPath, loadDropbox]);
+
+  const syncDropboxRoot = useCallback(async () => {
+    setBusy("dropbox:sync-root");
+    setError(null);
+    const response = await fetch("/api/dropbox/ensure-root", { method: "POST" });
+    const payload = (await response.json().catch(() => ({}))) as { error?: string; rootPath?: string };
+    if (!response.ok) {
+      setError(payload.error ?? "Falha ao sincronizar root Dropbox.");
+      setBusy(null);
+      return;
+    }
+    if (payload.rootPath) setDropboxRootPath(payload.rootPath);
     await loadDropbox();
     setBusy(null);
   }, [loadDropbox]);
@@ -551,6 +590,9 @@ export default function IntegrationsPage() {
                   <p className="mt-1">
                     Última atualização: <span style={{ color: "var(--text)" }}>{formatRelativeTime(dropbox.connection?.updatedAt ?? null)}</span>
                   </p>
+                  <p className="mt-1">
+                    Root: <span style={{ color: "var(--text)" }}>{dropboxRootPath || "/Clientes"}</span>
+                  </p>
                 </div>
               ) : (
                 <p className="mt-3 text-xs" style={{ color: "var(--text-3)" }}>
@@ -563,6 +605,32 @@ export default function IntegrationsPage() {
                   Configuração em falta: {dropbox.config.missing.join(", ")}
                 </p>
               ) : null}
+
+              <div className="mt-3 flex flex-wrap gap-2 items-center">
+                <input
+                  className="input input-sm max-w-xs"
+                  value={dropboxRootPath}
+                  onChange={(event) => setDropboxRootPath(event.target.value)}
+                  placeholder="/Clientes"
+                  disabled={!dropbox?.connected}
+                />
+                <Pressable
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => void setDropboxRoot()}
+                  disabled={!dropbox?.connected || busy === "dropbox:set-root"}
+                >
+                  {busy === "dropbox:set-root" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                  Set root
+                </Pressable>
+                <Pressable
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => void syncDropboxRoot()}
+                  disabled={!dropbox?.connected || busy === "dropbox:sync-root"}
+                >
+                  {busy === "dropbox:sync-root" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                  Sync now
+                </Pressable>
+              </div>
 
               <div className="mt-4 flex flex-wrap gap-2">
                 {dropbox?.connected ? (
@@ -580,7 +648,7 @@ export default function IntegrationsPage() {
                     Connect Dropbox
                   </button>
                 ) : (
-                  <a className="btn btn-secondary btn-sm" href={dropbox?.connectUrl ?? "/api/integrations/dropbox/auth"}>
+                  <a className="btn btn-secondary btn-sm" href={dropbox?.connectUrl ?? "/api/dropbox/connect"}>
                     <ExternalLink className="h-3.5 w-3.5" />
                     Connect Dropbox
                   </a>

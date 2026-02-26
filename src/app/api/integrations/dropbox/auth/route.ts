@@ -10,7 +10,11 @@ function getDropboxClientId() {
 }
 
 function getRedirectUri(request: NextRequest) {
-  return process.env.DROPBOX_REDIRECT_URI || new URL("/api/integrations/dropbox/callback", request.nextUrl.origin).toString();
+  if (process.env.DROPBOX_REDIRECT_URI) return process.env.DROPBOX_REDIRECT_URI;
+  if (process.env.NEXT_PUBLIC_SITE_URL) {
+    return new URL("/api/dropbox/callback", process.env.NEXT_PUBLIC_SITE_URL).toString();
+  }
+  return new URL("/api/dropbox/callback", request.nextUrl.origin).toString();
 }
 
 export async function GET(request: NextRequest) {
@@ -53,6 +57,16 @@ export async function GET(request: NextRequest) {
   url.searchParams.set("redirect_uri", getRedirectUri(request));
   url.searchParams.set("state", statePayload);
   url.searchParams.set("token_access_type", "offline");
+  url.searchParams.set(
+    "scope",
+    [
+      "files.metadata.read",
+      "files.content.read",
+      "files.content.write",
+      "sharing.read",
+      "sharing.write",
+    ].join(" "),
+  );
 
   const response = NextResponse.redirect(url.toString());
   response.cookies.set(STATE_COOKIE, nonce, {

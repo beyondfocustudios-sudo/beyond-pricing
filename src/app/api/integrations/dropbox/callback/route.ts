@@ -19,7 +19,11 @@ function getDropboxClientSecret() {
 }
 
 function getRedirectUri(request: NextRequest) {
-  return process.env.DROPBOX_REDIRECT_URI || new URL("/api/integrations/dropbox/callback", request.nextUrl.origin).toString();
+  if (process.env.DROPBOX_REDIRECT_URI) return process.env.DROPBOX_REDIRECT_URI;
+  if (process.env.NEXT_PUBLIC_SITE_URL) {
+    return new URL("/api/dropbox/callback", process.env.NEXT_PUBLIC_SITE_URL).toString();
+  }
+  return new URL("/api/dropbox/callback", request.nextUrl.origin).toString();
 }
 
 export async function GET(request: NextRequest) {
