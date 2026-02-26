@@ -19,6 +19,8 @@ import { ThemeProvider, useTheme } from "@/components/ThemeProvider";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { OnboardingGate } from "@/components/onboarding/OnboardingGate";
 import DebugBuildStamp from "@/components/DebugBuildStamp";
+import { InboxDrawerProvider } from "@/app/portal/context/InboxDrawerProvider";
+import { InboxDrawer } from "@/app/portal/components/InboxDrawer";
 
 type NavItem = {
   href: string;
@@ -287,9 +289,12 @@ export default function PortalLayout({
 
   return (
     <ThemeProvider userId={userId ?? undefined}>
-      <PortalChrome email={email} onLogout={handleLogout}>
-        {children}
-      </PortalChrome>
+      <InboxDrawerProvider>
+        <PortalChrome email={email} onLogout={handleLogout}>
+          {children}
+        </PortalChrome>
+        <InboxDrawer />
+      </InboxDrawerProvider>
     </ThemeProvider>
   );
 }

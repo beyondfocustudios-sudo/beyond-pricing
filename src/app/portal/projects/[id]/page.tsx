@@ -37,6 +37,8 @@ import {
 } from "@/lib/portal-data";
 import { FilePreviewModal } from "@/app/portal/components/FilePreviewModal";
 import { FilePreviewLoader } from "@/app/portal/components/FilePreviewLoader";
+import { ReferencesManager } from "@/app/portal/components/ReferencesManager";
+import { createReference, updateReference, deleteReference } from "@/lib/portal-data";
 
 type ProjectRow = {
   id: string;
@@ -322,6 +324,25 @@ export default function PortalProjectDetailPage() {
       setTab("approvals");
     }
     setRequestSending(false);
+  };
+
+  const handleCreateReference = async (data: any) => {
+    const created = await createReference(projectId, data);
+    if (created) {
+      setReferences([created, ...references]);
+    }
+  };
+
+  const handleUpdateReference = async (id: string, data: any) => {
+    const updated = await updateReference(projectId, id, data);
+    if (updated) {
+      setReferences(references.map((ref) => (ref.id === id ? updated : ref)));
+    }
+  };
+
+  const handleDeleteReference = async (id: string) => {
+    await deleteReference(projectId, id);
+    setReferences(references.filter((ref) => ref.id !== id));
   };
 
   if (loading) {
@@ -662,33 +683,13 @@ export default function PortalProjectDetailPage() {
             <span className="pill text-[11px]">{filteredReferences.length}</span>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            {filteredReferences.map((reference) => (
-              <article key={reference.id} className="rounded-2xl border p-3" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
-                <p className="truncate text-sm font-semibold" style={{ color: "var(--text)" }}>{reference.title}</p>
-                <p className="mt-1 text-xs" style={{ color: "var(--text-3)" }}>
-                  {reference.platform ?? "link"} • {reference.status ?? "ativo"}
-                </p>
-                {reference.notes ? (
-                  <p className="mt-2 line-clamp-3 text-xs" style={{ color: "var(--text-2)" }}>
-                    {reference.notes}
-                  </p>
-                ) : null}
-                {reference.url ? (
-                  <a className="btn btn-ghost btn-sm mt-3" href={reference.url} target="_blank" rel="noreferrer">
-                    <ExternalLink className="h-4 w-4" />
-                    Abrir referência
-                  </a>
-                ) : null}
-              </article>
-            ))}
-          </div>
-
-          {filteredReferences.length === 0 ? (
-            <p className="mt-3 rounded-xl border border-dashed px-3 py-4 text-xs" style={{ borderColor: "var(--border)", color: "var(--text-3)" }}>
-              Sem referências para este projeto.
-            </p>
-          ) : null}
+          <ReferencesManager
+            projectId={projectId}
+            references={filteredReferences as any}
+            onCreateReference={handleCreateReference}
+            onUpdateReference={handleUpdateReference}
+            onDeleteReference={handleDeleteReference}
+          />
         </section>
       ) : null}
 

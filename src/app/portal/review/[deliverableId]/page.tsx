@@ -27,6 +27,9 @@ import { CopyToast, MotionList, MotionListItem, MotionPage, SavedCheckmark } fro
 import { useMotionConfig } from "@/lib/motion-config";
 import { fireCelebration } from "@/lib/celebration";
 import { useOptionalSmoothScroll } from "@/lib/smooth-scroll";
+import { ReviewProvider } from "@/app/portal/context/ReviewContext";
+import { ApprovalsPanel, ApprovalChecklistItem } from "@/app/portal/components/ApprovalsPanel";
+import { ThreadPanel } from "@/app/portal/components/ThreadPanel";
 
 type Version = {
   id: string;
@@ -146,12 +149,12 @@ export default function PortalReviewPage() {
   const [approvalSigner, setApprovalSigner] = useState("");
   const [approvalSaved, setApprovalSaved] = useState(false);
   const [showCopyToast, setShowCopyToast] = useState(false);
-  const [approvalChecklist, setApprovalChecklist] = useState({
-    sound: false,
-    color: false,
-    text: false,
-    branding: false,
-  });
+  const [approvalChecklist, setApprovalChecklist] = useState<ApprovalChecklistItem[]>([
+    { id: "sound", label: "Som validado", checked: false },
+    { id: "color", label: "Cor validada", checked: false },
+    { id: "text", label: "Textos/legendas", checked: false },
+    { id: "branding", label: "Branding aprovado", checked: false },
+  ]);
 
   useOptionalSmoothScroll(enableSmoothScroll);
 
@@ -211,7 +214,7 @@ export default function PortalReviewPage() {
   const mediaSrc = currentVersion?.file_url || payload?.latestFile?.shared_link || payload?.latestFile?.preview_url || "";
   const isVideo = String(currentVersion?.file_type || payload?.latestFile?.file_type || "").toLowerCase().includes("video")
     || /\.(mp4|mov|m4v|webm)$/i.test(mediaSrc);
-  const approvalChecklistCount = Object.values(approvalChecklist).filter(Boolean).length;
+  const approvalChecklistCount = approvalChecklist.filter((item) => item.checked).length;
 
   const exportCommentsCsv = () => {
     if (!payload) return;
@@ -278,15 +281,6 @@ export default function PortalReviewPage() {
     popup.print();
   };
 
-  const jumpToThread = (thread: ReviewThread) => {
-    setSelectedThreadId(thread.id);
-    const seconds = thread.timecode_seconds;
-    if (isVideo && videoRef.current && Number.isFinite(seconds)) {
-      videoRef.current.currentTime = Number(seconds);
-      void videoRef.current.play().catch(() => undefined);
-    }
-  };
-
   const createThread = async (event: FormEvent) => {
     event.preventDefault();
     if (!selectedVersionId || !newComment.trim()) return;
@@ -342,7 +336,8 @@ export default function PortalReviewPage() {
     }
   };
 
-  const toggleThreadStatus = async (threadId: string, status: "open" | "resolved") => {
+  const handleResolveThread = async (threadId: string, resolved: boolean) => {
+    const status = resolved ? "resolved" : "open";
     setBusyAction(`thread-${threadId}`);
     try {
       const res = await fetch(`/api/review/threads/${threadId}`, {
@@ -357,6 +352,17 @@ export default function PortalReviewPage() {
       setMessage(err instanceof Error ? err.message : "Falha ao atualizar thread.");
     } finally {
       setBusyAction(null);
+    }
+  };
+
+  const handleChecklistChange = (items: ApprovalChecklistItem[]) => {
+    setApprovalChecklist(items);
+  };
+
+  const handleJumpToTimecode = (seconds: number) => {
+    if (isVideo && videoRef.current && Number.isFinite(seconds)) {
+      videoRef.current.currentTime = Number(seconds);
+      void videoRef.current.play().catch(() => undefined);
     }
   };
 
@@ -376,7 +382,7 @@ export default function PortalReviewPage() {
     setBusyAction(`approval-${decision}`);
     setMessage(null);
     try {
-      const checklistSummary = `Checklist: som=${approvalChecklist.sound ? "ok" : "nok"}, cor=${approvalChecklist.color ? "ok" : "nok"}, textos=${approvalChecklist.text ? "ok" : "nok"}, branding=${approvalChecklist.branding ? "ok" : "nok"}`;
+      const checklistSummary = `Checklist: ${approvalChecklist.map((item) => `${item.id}=${item.checked ? "ok" : "nok"}`).join(", ")}`;
       const signatureSummary = approvalSigner.trim() ? `Assinatura: ${approvalSigner.trim()}` : "";
       const fullNote = [
         approvalNote.trim(),
@@ -399,7 +405,12 @@ export default function PortalReviewPage() {
 
       setApprovalNote("");
       setApprovalSigner("");
-      setApprovalChecklist({ sound: false, color: false, text: false, branding: false });
+      setApprovalChecklist([
+        { id: "sound", label: "Som validado", checked: false },
+        { id: "color", label: "Cor validada", checked: false },
+        { id: "text", label: "Textos/legendas", checked: false },
+        { id: "branding", label: "Branding aprovado", checked: false },
+      ]);
       setMessage(decision === "approved" ? "Versão aprovada." : "Pedido de alterações enviado.");
       setApprovalSaved(decision === "approved");
       if (decision === "approved") {
@@ -681,106 +692,52 @@ export default function PortalReviewPage() {
           </div>
 
           {payload.access.canApprove ? (
-            <div className="card rounded-[24px] p-4 md:p-5">
-              <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>
-                Aprovação da versão
-              </h2>
-              <p className="mt-1 text-xs" style={{ color: "var(--text-3)" }}>
-                Regista decisão formal com nota opcional e audit trail.
-              </p>
-
-              <textarea
-                className="input mt-3 min-h-24 w-full"
-                placeholder="Nota opcional (ex: pedido de ajustes em legendas)"
-                value={approvalNote}
-                onChange={(event) => setApprovalNote(event.target.value)}
+            <>
+              <ApprovalsPanel
+                deliverableTitle={payload.deliverable.title}
+                checklist={approvalChecklist}
+                onChecklistChange={handleChecklistChange}
+                signature={approvalSigner}
+                onSignatureChange={setApprovalSigner}
+                notes={approvalNote}
+                onNotesChange={setApprovalNote}
+                onApprove={submitApproval}
+                isSubmitting={busyAction?.startsWith("approval-") ?? false}
+                error={message}
               />
-
-              <div className="mt-3 rounded-2xl border p-3" style={{ borderColor: "var(--border)" }}>
-                <p className="text-xs font-semibold" style={{ color: "var(--text)" }}>
-                  Checklist de aprovação ({approvalChecklistCount}/4)
-                </p>
-                <div className="mt-2 grid gap-2 sm:grid-cols-2 text-xs" style={{ color: "var(--text-2)" }}>
-                  {[
-                    { key: "sound", label: "Som validado" },
-                    { key: "color", label: "Cor validada" },
-                    { key: "text", label: "Textos/legendas" },
-                    { key: "branding", label: "Branding aprovado" },
-                  ].map((item) => {
-                    const key = item.key as keyof typeof approvalChecklist;
-                    return (
-                      <label key={item.key} className="inline-flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={approvalChecklist[key]}
-                          onChange={(event) => setApprovalChecklist((prev) => ({ ...prev, [key]: event.target.checked }))}
-                        />
-                        {item.label}
-                      </label>
-                    );
-                  })}
-                </div>
-                <label className="label mt-3">
-                  Assinatura
-                  <input
-                    className="input mt-1 h-9 w-full"
-                    value={approvalSigner}
-                    onChange={(event) => setApprovalSigner(event.target.value)}
-                    placeholder="Nome da pessoa que aprova"
-                  />
-                </label>
-              </div>
-
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  className="btn btn-primary"
-                  disabled={busyAction === "approval-approved" || approvalChecklistCount < 4 || !approvalSigner.trim()}
-                  onClick={() => void submitApproval("approved")}
-                >
-                  {busyAction === "approval-approved" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                  Aprovar versão
-                </button>
-                <button
-                  className="btn btn-secondary"
-                  disabled={busyAction === "approval-changes_requested"}
-                  onClick={() => void submitApproval("changes_requested")}
-                >
-                  {busyAction === "approval-changes_requested" ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
-                  Pedir alterações
-                </button>
-              </div>
-              <div className="mt-2">
-                <SavedCheckmark show={approvalSaved} label="Approval guardada" />
-              </div>
-
               {payload.approvals.length > 0 ? (
-                <div className="mt-4 space-y-2">
-                  {payload.approvals.slice(0, 3).map((approval) => (
-                    <div key={approval.id} className="flex items-start justify-between rounded-2xl border p-3" style={{ borderColor: "var(--border)" }}>
-                      <div>
-                        <p className="text-sm font-medium" style={{ color: "var(--text)" }}>
-                          {approval.decision === "approved" ? "Aprovado" : approval.decision === "changes_requested" ? "Alterações pedidas" : "Rejeitado"}
-                        </p>
-                        <p className="text-xs" style={{ color: "var(--text-3)" }}>
-                          {new Date(approval.approved_at ?? approval.created_at).toLocaleString("pt-PT")}
-                        </p>
-                        {(approval.note || approval.comment) ? (
-                          <p className="mt-1 text-xs" style={{ color: "var(--text-2)" }}>
-                            {approval.note ?? approval.comment}
+                <div className="card rounded-[24px] p-4 md:p-5">
+                  <h3 className="text-sm font-semibold mb-3" style={{ color: "var(--text)" }}>
+                    Histórico de aprovações
+                  </h3>
+                  <div className="space-y-2">
+                    {payload.approvals.slice(0, 3).map((approval) => (
+                      <div key={approval.id} className="flex items-start justify-between rounded-2xl border p-3" style={{ borderColor: "var(--border)" }}>
+                        <div>
+                          <p className="text-sm font-medium" style={{ color: "var(--text)" }}>
+                            {approval.decision === "approved" ? "Aprovado" : approval.decision === "changes_requested" ? "Alterações pedidas" : "Rejeitado"}
                           </p>
-                        ) : null}
+                          <p className="text-xs" style={{ color: "var(--text-3)" }}>
+                            {new Date(approval.approved_at ?? approval.created_at).toLocaleString("pt-PT")}
+                          </p>
+                          {(approval.note || approval.comment) ? (
+                            <p className="mt-1 text-xs" style={{ color: "var(--text-2)" }}>
+                              {approval.note ?? approval.comment}
+                            </p>
+                          ) : null}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
               ) : null}
-            </div>
+            </>
           ) : null}
         </section>
 
         <aside className="space-y-5">
           <div className="card rounded-[24px] p-4 md:p-5">
-            <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
               <div>
                 <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>
                   Threads
@@ -800,87 +757,34 @@ export default function PortalReviewPage() {
                 </button>
               </div>
             </div>
+            <ThreadPanel
+              threads={threads}
+              selectedThreadId={selectedThreadId}
+              onSelectThread={setSelectedThreadId}
+              onResolveThread={handleResolveThread}
+              onJumpToTimecode={handleJumpToTimecode}
+              isLoading={busyAction?.startsWith("thread-") ?? false}
+            />
 
-            <MotionList className="mt-3 max-h-[52vh] space-y-3 overflow-y-auto pr-1">
-              {threads.length === 0 ? (
-                <div className="rounded-2xl border p-4 text-sm" style={{ borderColor: "var(--border)", color: "var(--text-2)" }}>
-                  Sem comentários nesta versão.
+            {selectedThreadId && (
+              <div className="mt-3 border-t pt-3" style={{ borderColor: "var(--border)" }}>
+                <div className="flex gap-2">
+                  <input
+                    className="input h-9 flex-1 text-xs"
+                    placeholder="Responder..."
+                    value={replyByThread[selectedThreadId] ?? ""}
+                    onChange={(event) => setReplyByThread((prev) => ({ ...prev, [selectedThreadId]: event.target.value }))}
+                  />
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    disabled={!(replyByThread[selectedThreadId] ?? "").trim() || busyAction === `reply-${selectedThreadId}`}
+                    onClick={() => void createReply(selectedThreadId)}
+                  >
+                    {busyAction === `reply-${selectedThreadId}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                  </button>
                 </div>
-              ) : (
-                <AnimatePresence initial={false}>
-                {threads.map((thread) => {
-                  const firstComment = thread.review_comments[0];
-                  const isSelected = selectedThreadId === thread.id;
-                  const resolving = busyAction === `thread-${thread.id}`;
-                  const replying = busyAction === `reply-${thread.id}`;
-
-                  return (
-                    <MotionListItem
-                      key={thread.id}
-                      kind="list"
-                      className="rounded-2xl border p-3"
-                      style={{ borderColor: isSelected ? "var(--accent-primary)" : "var(--border)" }}
-                    >
-                      <button className="w-full text-left" onClick={() => jumpToThread(thread)}>
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="pill text-[11px]">{formatTime(thread.timecode_seconds)}</span>
-                          <span className="text-[11px]" style={{ color: thread.status === "resolved" ? "#10b981" : "var(--text-3)" }}>
-                            {thread.status === "resolved" ? "Resolvido" : "Aberto"}
-                          </span>
-                        </div>
-                        <p className="mt-2 line-clamp-2 text-sm" style={{ color: "var(--text)" }}>
-                          {firstComment?.body ?? "Thread sem comentário"}
-                        </p>
-                      </button>
-
-                      <div className="mt-2 space-y-1">
-                        {thread.review_comments.slice(1).map((comment) => (
-                          <p key={comment.id} className="rounded-xl bg-[var(--surface-2)] px-2.5 py-2 text-xs" style={{ color: "var(--text-2)" }}>
-                            {comment.body}
-                          </p>
-                        ))}
-                      </div>
-
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <button
-                          className="btn btn-secondary btn-sm"
-                          onClick={() => void toggleThreadStatus(thread.id, thread.status === "resolved" ? "open" : "resolved")}
-                          disabled={resolving}
-                        >
-                          {resolving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                          {thread.status === "resolved" ? "Reabrir" : "Resolver"}
-                        </button>
-                        <button
-                          className="btn btn-secondary btn-sm"
-                          onClick={() => void createTaskFromThread(thread.id)}
-                          disabled={busyAction === `task-${thread.id}`}
-                        >
-                          {busyAction === `task-${thread.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Flag className="h-3.5 w-3.5" />}
-                          Criar tarefa
-                        </button>
-                      </div>
-
-                      <div className="mt-2 flex gap-2">
-                        <input
-                          className="input h-9 flex-1 text-xs"
-                          placeholder="Responder..."
-                          value={replyByThread[thread.id] ?? ""}
-                          onChange={(event) => setReplyByThread((prev) => ({ ...prev, [thread.id]: event.target.value }))}
-                        />
-                        <button
-                          className="btn btn-secondary btn-sm"
-                          disabled={!(replyByThread[thread.id] ?? "").trim() || replying}
-                          onClick={() => void createReply(thread.id)}
-                        >
-                          {replying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MessageSquare className="h-3.5 w-3.5" />}
-                        </button>
-                      </div>
-                    </MotionListItem>
-                  );
-                })}
-                </AnimatePresence>
-              )}
-            </MotionList>
+              </div>
+            )}
           </div>
 
           {payload.access.canWrite ? (

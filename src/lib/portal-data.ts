@@ -208,3 +208,42 @@ export async function sendConversationMessage(conversationId: string, body: stri
   });
   return res.ok;
 }
+
+export async function createReference(
+  projectId: string,
+  data: Omit<PortalReference, "id" | "created_at">
+) {
+  const res = await fetch("/api/portal/references", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ projectId, ...data }),
+  });
+  if (!res.ok) throw new Error("Failed to create reference");
+  const payload = (await res.json().catch(() => ({}))) as { reference?: PortalReference };
+  return payload.reference;
+}
+
+export async function updateReference(
+  projectId: string,
+  id: string,
+  data: Partial<PortalReference>
+) {
+  const res = await fetch(`/api/portal/references/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ projectId, ...data }),
+  });
+  if (!res.ok) throw new Error("Failed to update reference");
+  const payload = (await res.json().catch(() => ({}))) as { reference?: PortalReference };
+  return payload.reference;
+}
+
+export async function deleteReference(projectId: string, id: string) {
+  const res = await fetch(`/api/portal/references/${id}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ projectId }),
+  });
+  if (!res.ok) throw new Error("Failed to delete reference");
+  return true;
+}
