@@ -9,21 +9,33 @@ async function loginTeam(page: Page, credentials?: { email?: string; password?: 
   const loginEmail = (credentials?.email ?? email ?? "").trim().toLowerCase();
   const loginPassword = (credentials?.password ?? password ?? "").trim();
 
-  await page.goto("/login?mode=team");
+  await page.goto("/login");
   const teamCard = page.getByRole("button", { name: /equipa beyond/i });
   if (await teamCard.count()) {
     await teamCard.first().click();
   }
 
   await page.getByPlaceholder(/@/i).first().fill(loginEmail);
-  await page.getByPlaceholder(/••••/i).first().fill(loginPassword);
-  await page.getByRole("button", { name: /entrar|login|sign in/i }).click();
+
+  const continueButton = page.getByRole("button", { name: /continuar/i });
+  if (await continueButton.count()) {
+    await continueButton.first().click();
+  }
+
+  const passwordTab = page.getByRole("button", { name: /^password$/i });
+  if (await passwordTab.count()) {
+    await passwordTab.first().click();
+  }
+
+  await page.locator('input[type="password"]').first().fill(loginPassword);
+  await page.getByRole("button", { name: /^entrar$/i }).first().click();
 
   await page.waitForURL(/\/app/, { timeout: 30_000 });
 }
 
 async function createProjectAndGetId(page: Page) {
   await page.goto("/app/projects/new");
+  await page.getByRole("button", { name: /criar projeto/i }).first().click();
   await page.waitForURL((url) => {
     const path = url.pathname;
     return /^\/app\/projects\/[^/]+$/.test(path) && !path.endsWith("/new");
@@ -189,8 +201,8 @@ test.describe("Beyond Pricing smoke", () => {
     }
     expect(versionId).toBeTruthy();
 
-    await page.goto(`/portal/review/${deliverableId}`);
-    await expect(page).toHaveURL(new RegExp(`/portal/review/${deliverableId}`));
+    await page.goto(`/app/projects/${projectId}?tab=approvals`);
+    await page.waitForURL(/\/app\/projects\/[0-9a-f-]+/i, { timeout: 30_000 });
     await expect(page.getByText("Application error")).toHaveCount(0);
 
     const threadRes = await page.request.post("/api/review/threads", {
