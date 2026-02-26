@@ -56,10 +56,10 @@ export type PortalReference = {
   id: string;
   project_id: string;
   title: string;
-  status: string | null;
   platform: string | null;
   notes: string | null;
   url: string | null;
+  tags: string[] | null;
   created_at: string | null;
 };
 
@@ -211,7 +211,7 @@ export async function sendConversationMessage(conversationId: string, body: stri
 
 export async function createReference(
   projectId: string,
-  data: Omit<PortalReference, "id" | "created_at">
+  data: { title: string; url?: string | null; platform?: string | null; notes?: string | null; tags?: string[] | null }
 ) {
   const res = await fetch("/api/portal/references", {
     method: "POST",
@@ -226,7 +226,7 @@ export async function createReference(
 export async function updateReference(
   projectId: string,
   id: string,
-  data: Partial<PortalReference>
+  data: { title?: string; url?: string | null; platform?: string | null; notes?: string | null; tags?: string[] | null }
 ) {
   const res = await fetch(`/api/portal/references/${id}`, {
     method: "PATCH",

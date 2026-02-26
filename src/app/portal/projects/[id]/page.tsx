@@ -38,6 +38,7 @@ import {
 import { FilePreviewModal } from "@/app/portal/components/FilePreviewModal";
 import { FilePreviewLoader } from "@/app/portal/components/FilePreviewLoader";
 import { ReferencesManager } from "@/app/portal/components/ReferencesManager";
+import { Reference } from "@/app/portal/components/ReferenceCard";
 import { createReference, updateReference, deleteReference } from "@/lib/portal-data";
 
 type ProjectRow = {
@@ -279,7 +280,7 @@ export default function PortalProjectDetailPage() {
   const filteredReferences = useMemo(() => {
     if (!query) return references;
     return references.filter((ref) => {
-      const haystack = `${ref.title} ${ref.platform ?? ""} ${ref.status ?? ""} ${ref.notes ?? ""}`.toLowerCase();
+      const haystack = `${ref.title} ${ref.platform ?? ""} ${ref.notes ?? ""}`.toLowerCase();
       return haystack.includes(query);
     });
   }, [references, query]);
@@ -326,14 +327,14 @@ export default function PortalProjectDetailPage() {
     setRequestSending(false);
   };
 
-  const handleCreateReference = async (data: any) => {
+  const handleCreateReference = async (data: Omit<Reference, "id">) => {
     const created = await createReference(projectId, data);
     if (created) {
       setReferences([created, ...references]);
     }
   };
 
-  const handleUpdateReference = async (id: string, data: any) => {
+  const handleUpdateReference = async (id: string, data: Partial<Reference>) => {
     const updated = await updateReference(projectId, id, data);
     if (updated) {
       setReferences(references.map((ref) => (ref.id === id ? updated : ref)));
@@ -685,7 +686,7 @@ export default function PortalProjectDetailPage() {
 
           <ReferencesManager
             projectId={projectId}
-            references={filteredReferences as any}
+            references={filteredReferences}
             onCreateReference={handleCreateReference}
             onUpdateReference={handleUpdateReference}
             onDeleteReference={handleDeleteReference}
