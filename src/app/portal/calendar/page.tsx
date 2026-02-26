@@ -16,14 +16,11 @@ import {
 } from "lucide-react";
 import {
   getClientProjects,
-  getConversationForProject,
-  getMessages,
-  getProjectDeliverables,
   getProjectMilestones,
-  type PortalDeliverable,
-  type PortalMessage,
+  getProjectUpdates,
   type PortalMilestone,
   type PortalProject,
+  type PortalUpdate,
 } from "@/lib/portal-data";
 import { buttonMotionProps, useMotionEnabled, variants } from "@/lib/motion";
 
@@ -41,7 +38,7 @@ type RequestRow = {
 
 type UpdateItem = {
   id: string;
-  kind: "message" | "review" | "delivery";
+  kind: "message" | "review" | "delivery" | "request";
   title: string;
   subtitle: string;
   createdAt: string;
@@ -114,7 +111,9 @@ function formatDate(dateString: string | null) {
 
 export default function PortalCalendarPage() {
   const searchParams = useSearchParams();
-  const query = (searchParams.get("q") ?? "").trim().toLowerCase();
+  const initialQuery = (searchParams.get("q") ?? "").trim();
+  const [localQuery, setLocalQuery] = useState(initialQuery);
+  const query = localQuery.trim().toLowerCase();
   const motionEnabled = useMotionEnabled();
 
   const [loadingProjects, setLoadingProjects] = useState(true);
@@ -125,11 +124,15 @@ export default function PortalCalendarPage() {
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [view, setView] = useState<CalendarView>("milestones");
   const [selectedMilestone, setSelectedMilestone] = useState<PortalMilestone | null>(null);
+  const [updatesDrawerOpen, setUpdatesDrawerOpen] = useState(true);
 
   const [milestones, setMilestones] = useState<PortalMilestone[]>([]);
-  const [messages, setMessages] = useState<PortalMessage[]>([]);
-  const [deliveries, setDeliveries] = useState<PortalDeliverable[]>([]);
   const [requests, setRequests] = useState<RequestRow[]>([]);
+  const [updatesFromApi, setUpdatesFromApi] = useState<PortalUpdate[]>([]);
+
+  useEffect(() => {
+    setLocalQuery(initialQuery);
+  }, [initialQuery]);
 
   useEffect(() => {
     let cancelled = false;
@@ -161,14 +164,11 @@ export default function PortalCalendarPage() {
       setLoadingDetail(true);
       setError(null);
       try {
-        const [milestoneRows, deliveryRows, conversationId, requestRes] = await Promise.all([
+        const [milestoneRows, requestRes, updateRows] = await Promise.all([
           getProjectMilestones(selectedProjectId),
-          getProjectDeliverables(selectedProjectId),
-          getConversationForProject(selectedProjectId),
           fetch(`/api/portal/requests?projectId=${encodeURIComponent(selectedProjectId)}`, { cache: "no-store" }),
+          getProjectUpdates(selectedProjectId),
         ]);
-
-        const messageRows = conversationId ? await getMessages(conversationId) : [];
         const requestRows = requestRes.ok
           ? ((await requestRes.json().catch(() => [])) as RequestRow[])
           : [];
@@ -182,9 +182,8 @@ export default function PortalCalendarPage() {
             return dateA - dateB;
           }),
         );
-        setDeliveries(deliveryRows);
-        setMessages(messageRows);
         setRequests(requestRows);
+        setUpdatesFromApi(updateRows);
       } catch {
         if (!cancelled) setError("Falha ao carregar timeline do projeto.");
       } finally {
@@ -209,38 +208,19 @@ export default function PortalCalendarPage() {
   );
 
   const updates = useMemo<UpdateItem[]>(() => {
+    if (updatesFromApi.length > 0) {
+      return updatesFromApi.map((item) => ({
+        id: item.id,
+        kind: item.type,
+        title: item.title,
+        subtitle: item.type === "message" ? "Mensagem" : item.type === "delivery" ? "Entrega" : item.type === "request" ? "Pedido" : "Review",
+        createdAt: item.created_at,
+        href: item.href,
+      }));
+    }
     if (!selectedProjectId) return [];
-    const messageUpdates = messages.slice(-8).map((message) => ({
-      id: `msg-${message.id}`,
-      kind: "message" as const,
-      title: message.body.slice(0, 72),
-      subtitle: "Mensagem",
-      createdAt: message.created_at,
-      href: `/portal/projects/${selectedProjectId}?tab=inbox&highlight=msg-${message.id}`,
-    }));
-
-    const reviewUpdates = requests.slice(0, 8).map((request) => ({
-      id: `request-${request.id}`,
-      kind: "review" as const,
-      title: request.title,
-      subtitle: `Review • ${request.priority}`,
-      createdAt: request.created_at,
-      href: `/portal/projects/${selectedProjectId}?tab=approvals&highlight=request-${request.id}`,
-    }));
-
-    const deliveryUpdates = deliveries.slice(0, 8).map((delivery) => ({
-      id: `delivery-${delivery.id}`,
-      kind: "delivery" as const,
-      title: delivery.title,
-      subtitle: "Entrega publicada",
-      createdAt: delivery.created_at,
-      href: `/portal/projects/${selectedProjectId}?tab=deliveries&selected=${delivery.id}`,
-    }));
-
-    return [...messageUpdates, ...reviewUpdates, ...deliveryUpdates].sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-    );
-  }, [messages, requests, deliveries, selectedProjectId]);
+    return [];
+  }, [updatesFromApi, selectedProjectId]);
 
   const taskRows = useMemo(() => {
     const pendingMilestones = milestones
@@ -275,7 +255,7 @@ export default function PortalCalendarPage() {
 
   return (
     <LayoutGroup>
-      <div className="grid min-w-0 gap-4 xl:grid-cols-[320px_minmax(0,1fr)_340px]">
+      <div className="grid min-w-0 gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
         <motion.section
           layout
           variants={variants.cardEnter}
@@ -290,7 +270,7 @@ export default function PortalCalendarPage() {
 
           <label className="table-search-pill mb-3">
             <Search className="h-3.5 w-3.5" />
-            <input readOnly value={query} placeholder="Usa a pesquisa no topo" />
+            <input value={localQuery} onChange={(event) => setLocalQuery(event.target.value)} placeholder="Pesquisar projetos e updates" />
           </label>
 
           <div className="space-y-2">
@@ -411,6 +391,38 @@ export default function PortalCalendarPage() {
                         Sem milestones para este projeto.
                       </p>
                     ) : null}
+
+                    <div className="mt-4 border-t pt-4" style={{ borderColor: "var(--border)" }}>
+                      <div className="mb-2 flex items-center justify-between">
+                        <h4 className="text-xs font-semibold uppercase tracking-[0.11em]" style={{ color: "var(--text-3)" }}>
+                          Gestão do Projeto
+                        </h4>
+                        <span className="pill text-[10px]">{updates.length}</span>
+                      </div>
+                      <div className="max-h-[28vh] space-y-2 overflow-y-auto pr-1">
+                        {updates.slice(0, 12).map((update) => (
+                          <Link
+                            key={update.id}
+                            href={update.href}
+                            className="flex items-center justify-between rounded-xl border px-3 py-2"
+                            style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium" style={{ color: "var(--text)" }}>{update.title}</p>
+                              <p className="text-[11px]" style={{ color: "var(--text-3)" }}>
+                                {update.subtitle} • {new Date(update.createdAt).toLocaleString("pt-PT")}
+                              </p>
+                            </div>
+                            <span className="pill text-[10px]">Abrir</span>
+                          </Link>
+                        ))}
+                        {updates.length === 0 ? (
+                          <p className="rounded-xl border border-dashed p-3 text-xs" style={{ borderColor: "var(--border)", color: "var(--text-3)" }}>
+                            Sem updates recentes.
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
                   </div>
                 ) : null}
 
@@ -471,53 +483,70 @@ export default function PortalCalendarPage() {
           </div>
         </motion.section>
 
-        <motion.aside
-          layout
-          variants={variants.cardEnter}
-          initial={motionEnabled ? "initial" : false}
-          animate="animate"
-          className="card min-h-[68vh] p-5 lg:h-[calc(100dvh-180px)] lg:overflow-y-auto"
-        >
-          <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>Inbox / Updates</h3>
-          <p className="mt-1 text-xs" style={{ color: "var(--text-3)" }}>
-            Mensagens, comentários e entregas recentes do projeto.
-          </p>
-
-          <div className="mt-4 space-y-2">
-            {updates.slice(0, 12).map((update) => (
-              <motion.div
-                key={update.id}
-                layout
-                transition={timelineSpring}
-                className="rounded-2xl border p-3"
-                style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}
-              >
-                <div className="mb-1 flex items-center gap-2 text-[11px]" style={{ color: "var(--text-3)" }}>
-                  {update.kind === "message" ? <MessageSquare className="h-3.5 w-3.5" /> : null}
-                  {update.kind === "review" ? <TriangleAlert className="h-3.5 w-3.5" /> : null}
-                  {update.kind === "delivery" ? <Package className="h-3.5 w-3.5" /> : null}
-                  <span>{update.subtitle}</span>
-                </div>
-                <p className="line-clamp-2 text-sm font-medium" style={{ color: "var(--text)" }}>{update.title}</p>
-                <div className="mt-2 flex items-center justify-between gap-2">
-                  <p className="text-[10px]" style={{ color: "var(--text-3)" }}>
-                    {new Date(update.createdAt).toLocaleString("pt-PT")}
-                  </p>
-                  <Link className="btn btn-ghost btn-sm" href={update.href}>
-                    Abrir
-                  </Link>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-
-          {updates.length === 0 ? (
-            <p className="mt-3 rounded-xl border border-dashed p-4 text-xs" style={{ borderColor: "var(--border)", color: "var(--text-3)" }}>
-              Sem updates recentes.
-            </p>
-          ) : null}
-        </motion.aside>
       </div>
+
+      <div className="fixed bottom-6 right-6 z-30">
+        <button className="btn btn-secondary btn-sm" onClick={() => setUpdatesDrawerOpen((value) => !value)}>
+          {updatesDrawerOpen ? "Fechar inbox" : "Abrir inbox"}
+        </button>
+      </div>
+
+      <AnimatePresence>
+        {updatesDrawerOpen ? (
+          <motion.aside
+            layout
+            initial={{ opacity: 0, x: 24 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 24 }}
+            transition={timelineSpring}
+            className="fixed inset-y-0 right-0 z-40 w-full max-w-sm border-l bg-[var(--surface)] p-5 shadow-2xl"
+          >
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>Inbox / Updates</h3>
+              <button className="icon-btn" onClick={() => setUpdatesDrawerOpen(false)} aria-label="Fechar drawer">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="mt-1 text-xs" style={{ color: "var(--text-3)" }}>
+              Mensagens, comentários e entregas recentes do projeto.
+            </p>
+
+            <div className="mt-4 max-h-[calc(100dvh-120px)] space-y-2 overflow-y-auto pr-1">
+              {updates.slice(0, 24).map((update) => (
+                <motion.div
+                  key={update.id}
+                  layout
+                  transition={timelineSpring}
+                  className="rounded-2xl border p-3"
+                  style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}
+                >
+                  <div className="mb-1 flex items-center gap-2 text-[11px]" style={{ color: "var(--text-3)" }}>
+                    {update.kind === "message" ? <MessageSquare className="h-3.5 w-3.5" /> : null}
+                    {update.kind === "review" || update.kind === "request" ? <TriangleAlert className="h-3.5 w-3.5" /> : null}
+                    {update.kind === "delivery" ? <Package className="h-3.5 w-3.5" /> : null}
+                    <span>{update.subtitle}</span>
+                  </div>
+                  <p className="line-clamp-2 text-sm font-medium" style={{ color: "var(--text)" }}>{update.title}</p>
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <p className="text-[10px]" style={{ color: "var(--text-3)" }}>
+                      {new Date(update.createdAt).toLocaleString("pt-PT")}
+                    </p>
+                    <Link className="btn btn-ghost btn-sm" href={update.href}>
+                      Abrir
+                    </Link>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+
+            {updates.length === 0 ? (
+              <p className="mt-3 rounded-xl border border-dashed p-4 text-xs" style={{ borderColor: "var(--border)", color: "var(--text-3)" }}>
+                Sem updates recentes.
+              </p>
+            ) : null}
+          </motion.aside>
+        ) : null}
+      </AnimatePresence>
 
       <AnimatePresence>
         {selectedMilestone ? (

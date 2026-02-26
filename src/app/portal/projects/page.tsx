@@ -23,7 +23,9 @@ export default function PortalProjectsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const searchKey = searchParams.toString();
-  const query = (searchParams.get("q") ?? "").trim().toLowerCase();
+  const initialQuery = (searchParams.get("q") ?? "").trim();
+  const [localQuery, setLocalQuery] = useState(initialQuery);
+  const query = localQuery.trim().toLowerCase();
   const selectedFromUrl = searchParams.get("selected") ?? "";
 
   const [loading, setLoading] = useState(true);
@@ -39,6 +41,10 @@ export default function PortalProjectsPage() {
   const [messageInput, setMessageInput] = useState("");
   const [sending, setSending] = useState(false);
   const [rightTab, setRightTab] = useState<RightTab>("inbox");
+
+  useEffect(() => {
+    setLocalQuery(initialQuery);
+  }, [initialQuery]);
 
   useEffect(() => {
     let cancelled = false;
@@ -148,9 +154,9 @@ export default function PortalProjectsPage() {
           <Search className="h-3.5 w-3.5" />
           <input
             placeholder="Filtrar projetos"
-            value={query}
-            readOnly
-            aria-label="Filtro do topo"
+            value={localQuery}
+            onChange={(event) => setLocalQuery(event.target.value)}
+            aria-label="Filtro de projetos"
           />
         </label>
 

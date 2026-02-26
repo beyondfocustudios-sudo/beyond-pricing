@@ -589,4 +589,37 @@ test.describe("Portal client smoke", () => {
     expect(contentAfter.length).toBeGreaterThan(contentBefore.length / 2);
     assertNoConsoleErrors();
   });
+
+  test("portal deliveries preview drawer + calendar toggles", async ({ page }) => {
+    test.setTimeout(180_000);
+    const assertNoConsoleErrors = createConsoleGuard(page);
+
+    await loginClient(page);
+    await page.goto("/portal/projects");
+    await expect(page).toHaveURL(/selected=/);
+    const selectedId = new URL(page.url()).searchParams.get("selected");
+    if (!selectedId) return;
+
+    await page.goto(`/portal/projects/${selectedId}?tab=deliveries`);
+    await expect(page).toHaveURL(/tab=deliveries/);
+
+    const firstDeliveryCard = page.locator("section").nth(1).locator("button").first();
+    if (await firstDeliveryCard.count()) {
+      await firstDeliveryCard.click();
+      const previewButton = page.getByRole("button", { name: /abrir preview/i }).first();
+      if (await previewButton.count()) {
+        await previewButton.click();
+      }
+      await expect(page.getByRole("button", { name: /fechar/i }).first()).toBeVisible();
+    }
+
+    await page.goto("/portal/calendar");
+    await expect(page.getByRole("button", { name: /milestones/i }).first()).toBeVisible();
+    await page.getByRole("button", { name: /timeline/i }).first().click();
+    await page.getByRole("button", { name: /tasks/i }).first().click();
+    await page.getByRole("button", { name: /milestones/i }).first().click();
+    await page.getByRole("button", { name: /abrir inbox|fechar inbox/i }).first().click();
+
+    assertNoConsoleErrors();
+  });
 });

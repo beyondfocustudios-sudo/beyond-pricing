@@ -25,6 +25,12 @@ type DeliverableFileRow = {
   created_at: string;
   filename?: string | null;
   name?: string | null;
+  path?: string | null;
+  file_size?: number | null;
+  bytes?: number | null;
+  size_bytes?: number | null;
+  modified_at?: string | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 function toLink(file: DeliverableFileRow) {
@@ -53,6 +59,10 @@ export async function GET(req: NextRequest) {
   }
 
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const userId = user?.id ?? null;
 
   const { data: deliverablesData, error: deliverablesError } = await supabase
     .from("deliverables")
@@ -80,19 +90,55 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  let clientUserId: string | null = null;
+  if (userId) {
+    const { data: clientUser } = await supabase
+      .from("client_users")
+      .select("id")
+      .eq("user_id", userId)
+      .limit(1)
+      .maybeSingle();
+    clientUserId = (clientUser?.id as string | null) ?? null;
+  }
+
+  const fileIds = Array.from(filesByDeliverable.values()).map((file) => file.id);
+  const viewsByFile = new Map<string, string>();
+  if (clientUserId && fileIds.length > 0) {
+    const { data: views } = await supabase
+      .from("portal_file_views")
+      .select("file_id,last_seen_at")
+      .eq("client_user_id", clientUserId)
+      .eq("project_id", projectId)
+      .in("file_id", fileIds);
+    for (const row of (views ?? []) as Array<{ file_id: string; last_seen_at: string }>) {
+      viewsByFile.set(row.file_id, row.last_seen_at);
+    }
+  }
+
   const payload = deliverables.map((row) => {
     const file = filesByDeliverable.get(row.id);
     const createdAt = file?.created_at ?? row.created_at;
+    const modifiedAt = file?.modified_at ?? createdAt;
+    const lastSeenAt = file?.id ? viewsByFile.get(file.id) ?? null : null;
     const ageMs = Date.now() - new Date(createdAt).getTime();
     const status = row.status ?? (Number.isFinite(ageMs) && ageMs <= 7 * 24 * 60 * 60 * 1000 ? "new" : "active");
+    const isNew = !lastSeenAt || new Date(modifiedAt).getTime() > new Date(lastSeenAt).getTime();
     return {
       ...row,
       created_at: createdAt,
+      modified_at: modifiedAt,
       file_id: file?.id ?? null,
       file_type: file ? toFileType(file) : null,
       mime_type: file?.mime_type ?? file?.mime ?? null,
       filename: file?.filename ?? file?.name ?? null,
+      name: file?.name ?? file?.filename ?? null,
+      ext: String((file?.filename ?? file?.name ?? "").split(".").pop() ?? "").toLowerCase() || null,
+      path: file?.path ?? file?.dropbox_path ?? null,
+      size_bytes: file?.size_bytes ?? file?.file_size ?? file?.bytes ?? null,
+      metadata: file?.metadata ?? null,
       dropbox_url: file ? toLink(file) : null,
+      last_seen_at: lastSeenAt,
+      is_new: isNew,
       status,
       is_demo: false,
     };
@@ -118,5 +164,9 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  return NextResponse.json({ deliverables: payload, source: "dropbox" });
+  return NextResponse.json({
+    deliverables: payload,
+    source: "dropbox",
+    sync_needed: payload.length === 0,
+  });
 }

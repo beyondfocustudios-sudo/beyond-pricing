@@ -22,6 +22,11 @@ export function normalizeRoot(root: string) {
   if (!normalized || normalized === "/") {
     throw new Error("DROPBOX_ROOT_REQUIRED");
   }
+  const lower = normalized.toLowerCase();
+  if (lower === "/clientes") return "/Clientes";
+  if (lower.startsWith("/clientes/")) {
+    return `/Clientes/${normalized.split("/").slice(2).join("/")}`.replace(/\/{2,}/g, "/");
+  }
   return normalized;
 }
 
@@ -60,4 +65,3 @@ export function projectPath(root: string, clientName: string, projectName: strin
 export function normalizeAndAssertInsideRoot(root: string, path: string) {
   return assertInsideRoot(root, normalizeAnyPath(path));
 }
-

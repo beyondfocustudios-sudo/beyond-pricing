@@ -18,8 +18,16 @@ export type PortalDeliverable = {
   file_type: string | null;
   mime_type?: string | null;
   filename?: string | null;
+  name?: string | null;
+  ext?: string | null;
+  path?: string | null;
+  size_bytes?: number | null;
+  modified_at?: string | null;
+  metadata?: Record<string, unknown> | null;
   dropbox_url: string | null;
   created_at: string;
+  last_seen_at?: string | null;
+  is_new?: boolean;
   is_demo?: boolean;
 };
 
@@ -72,6 +80,18 @@ export type PortalMessage = {
   created_at: string;
 };
 
+export type PortalUpdate = {
+  id: string;
+  type: "message" | "review" | "delivery" | "request";
+  title: string;
+  body: string | null;
+  author: string | null;
+  created_at: string;
+  status: string | null;
+  milestone_id: string | null;
+  href: string;
+};
+
 type ProjectMemberRow = {
   project_id: string;
   projects: (
@@ -120,10 +140,17 @@ export async function getClientProjects() {
 }
 
 export async function getProjectDeliverables(projectId: string) {
-  const res = await fetch(`/api/portal/deliverables?projectId=${encodeURIComponent(projectId)}`, { cache: "no-store" });
+  const res = await fetch(`/api/portal/deliveries?projectId=${encodeURIComponent(projectId)}`, { cache: "no-store" });
   if (!res.ok) return [];
   const payload = (await res.json().catch(() => ({}))) as { deliverables?: PortalDeliverable[] };
   return Array.isArray(payload.deliverables) ? payload.deliverables : [];
+}
+
+export async function getProjectUpdates(projectId: string) {
+  const res = await fetch(`/api/portal/updates?projectId=${encodeURIComponent(projectId)}`, { cache: "no-store" });
+  if (!res.ok) return [];
+  const payload = (await res.json().catch(() => ({}))) as { updates?: PortalUpdate[] };
+  return Array.isArray(payload.updates) ? payload.updates : [];
 }
 
 export async function getProjectMilestones(projectId: string) {

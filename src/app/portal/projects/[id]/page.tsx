@@ -56,6 +56,8 @@ type RequestRow = {
 
 type PageTab = "overview" | "deliveries" | "inbox" | "calendar" | "approvals";
 type ExtendedPageTab = PageTab | "documents" | "references";
+type DeliveryViewMode = "grid" | "list";
+type DeliveryFilter = "all" | "video" | "image" | "document" | "audio" | "other";
 
 const TAB_LABELS: Record<ExtendedPageTab, string> = {
   overview: "Overview",
@@ -97,7 +99,9 @@ export default function PortalProjectDetailPage() {
 
   const projectId = params.id;
   const tab = sanitizeTab(searchParams.get("tab"));
-  const query = (searchParams.get("q") ?? "").trim().toLowerCase();
+  const initialQuery = (searchParams.get("q") ?? "").trim();
+  const [localQuery, setLocalQuery] = useState(initialQuery);
+  const query = localQuery.trim().toLowerCase();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -113,6 +117,12 @@ export default function PortalProjectDetailPage() {
 
   const [selectedDeliveryId, setSelectedDeliveryId] = useState<string | null>(null);
   const [deliveryLinkLoading, setDeliveryLinkLoading] = useState<string | null>(null);
+  const [deliveryViewMode, setDeliveryViewMode] = useState<DeliveryViewMode>("list");
+  const [deliveryFilter, setDeliveryFilter] = useState<DeliveryFilter>("all");
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewExpiresAt, setPreviewExpiresAt] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [messageInput, setMessageInput] = useState("");
   const [sending, setSending] = useState(false);
 
@@ -124,15 +134,23 @@ export default function PortalProjectDetailPage() {
   });
   const [requestSending, setRequestSending] = useState(false);
 
+  useEffect(() => {
+    setLocalQuery(initialQuery);
+  }, [initialQuery]);
+
   const setTab = (nextTab: ExtendedPageTab) => {
     const params = new URLSearchParams(searchParams.toString());
     params.set("tab", nextTab);
     router.replace(`/portal/projects/${projectId}?${params.toString()}`, { scroll: false });
   };
 
-  const openDeliveryLink = async (delivery: PortalDeliverable, mode: "preview" | "download") => {
+  const openDeliveryLink = async (delivery: PortalDeliverable, mode: "preview" | "download" | "copy") => {
     if (delivery.is_demo && delivery.dropbox_url) {
-      window.open(delivery.dropbox_url, "_blank", "noopener,noreferrer");
+      if (mode === "copy") {
+        await navigator.clipboard.writeText(delivery.dropbox_url);
+      } else {
+        window.open(delivery.dropbox_url, "_blank", "noopener,noreferrer");
+      }
       return;
     }
 
@@ -141,18 +159,29 @@ export default function PortalProjectDetailPage() {
     setDeliveryLinkLoading(loadingKey);
 
     try {
-      const response = await fetch("/api/portal/deliverables/link", {
+      const response = await fetch("/api/portal/deliveries/link", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileId, mode }),
+        body: JSON.stringify({ projectId, fileId, kind: mode === "copy" ? "download" : mode }),
       });
-      const payload = await response.json().catch(() => ({} as { error?: string; url?: string }));
+      const payload = await response.json().catch(() => ({} as { error?: string; url?: string; expires_at?: string | null }));
       if (!response.ok || !payload.url) {
         throw new Error(payload.error ?? "Não foi possível abrir o ficheiro.");
       }
-      window.open(payload.url, "_blank", "noopener,noreferrer");
+      if (mode === "preview") {
+        setPreviewError(null);
+        setPreviewUrl(payload.url);
+        setPreviewExpiresAt(payload.expires_at ?? null);
+        setPreviewOpen(true);
+      } else if (mode === "copy") {
+        await navigator.clipboard.writeText(payload.url);
+      } else {
+        window.open(payload.url, "_blank", "noopener,noreferrer");
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Não foi possível abrir o ficheiro.");
+      const msg = err instanceof Error ? err.message : "Não foi possível abrir o ficheiro.";
+      setPreviewError(msg);
+      setError(msg);
     } finally {
       setDeliveryLinkLoading(null);
     }
@@ -218,10 +247,22 @@ export default function PortalProjectDetailPage() {
   const filteredDeliveries = useMemo(() => {
     if (!query) return deliveries;
     return deliveries.filter((delivery) => {
-      const haystack = `${delivery.title} ${delivery.file_type ?? ""} ${delivery.status ?? ""}`.toLowerCase();
+      const haystack = `${delivery.title} ${delivery.name ?? ""} ${delivery.filename ?? ""} ${delivery.ext ?? ""} ${delivery.file_type ?? ""} ${delivery.status ?? ""}`.toLowerCase();
       return haystack.includes(query);
     });
   }, [deliveries, query]);
+
+  const visibleDeliveries = useMemo(() => {
+    if (deliveryFilter === "all") return filteredDeliveries;
+    return filteredDeliveries.filter((delivery) => {
+      const kind = String(delivery.file_type ?? "").toLowerCase();
+      if (deliveryFilter === "video") return kind.includes("video");
+      if (deliveryFilter === "image") return kind.includes("image") || kind.includes("photo");
+      if (deliveryFilter === "document") return kind.includes("document") || kind.includes("doc");
+      if (deliveryFilter === "audio") return kind.includes("audio");
+      return !kind.includes("video") && !kind.includes("image") && !kind.includes("photo") && !kind.includes("document") && !kind.includes("doc") && !kind.includes("audio");
+    });
+  }, [filteredDeliveries, deliveryFilter]);
 
   const filteredDocuments = useMemo(() => {
     if (!query) return documents;
@@ -245,8 +286,8 @@ export default function PortalProjectDetailPage() {
   }, [messages, query]);
 
   const selectedDelivery = useMemo(
-    () => filteredDeliveries.find((delivery) => delivery.id === selectedDeliveryId) ?? filteredDeliveries[0] ?? null,
-    [filteredDeliveries, selectedDeliveryId],
+    () => visibleDeliveries.find((delivery) => delivery.id === selectedDeliveryId) ?? visibleDeliveries[0] ?? null,
+    [visibleDeliveries, selectedDeliveryId],
   );
 
   const submitMessage = async () => {
@@ -378,23 +419,59 @@ export default function PortalProjectDetailPage() {
       ) : null}
 
       {tab === "deliveries" ? (
-        <div className="grid min-w-0 gap-4 lg:grid-cols-[340px_minmax(0,1fr)]">
+        <div className="relative grid min-w-0 gap-4 lg:grid-cols-[340px_minmax(0,1fr)]">
           <section className="card min-h-[62vh] p-4 lg:h-[calc(100dvh-220px)] lg:overflow-y-auto">
             <div className="mb-3 flex items-center justify-between gap-2">
               <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>Entregas</h2>
-              <span className="pill text-[11px]">{filteredDeliveries.length}</span>
+              <span className="pill text-[11px]">{visibleDeliveries.length}</span>
             </div>
 
             <label className="table-search-pill mb-3">
               <Search className="h-3.5 w-3.5" />
-              <input readOnly value={query} placeholder="Usa a pesquisa no topo" />
+              <input value={localQuery} onChange={(event) => setLocalQuery(event.target.value)} placeholder="Pesquisar entregas, docs e mensagens" />
             </label>
 
-            <div className="space-y-2">
-              {filteredDeliveries.map((delivery) => (
+            <div className="mb-3 flex flex-wrap gap-2">
+              {(["all", "video", "image", "document", "audio", "other"] as DeliveryFilter[]).map((item) => (
+                <button
+                  key={item}
+                  className="pill px-2.5 py-1 text-[11px]"
+                  style={{
+                    background: deliveryFilter === item ? "rgba(26,143,163,0.16)" : "var(--surface-2)",
+                    color: deliveryFilter === item ? "var(--accent-blue)" : "var(--text-3)",
+                  }}
+                  onClick={() => setDeliveryFilter(item)}
+                >
+                  {item === "all" ? "Todos" : item === "video" ? "Vídeo" : item === "image" ? "Foto" : item === "document" ? "Docs" : item === "audio" ? "Áudio" : "Outros"}
+                </button>
+              ))}
+            </div>
+
+            <div className="mb-3 flex gap-2">
+              <button
+                className="btn btn-ghost btn-sm"
+                style={{ background: deliveryViewMode === "list" ? "var(--surface-2)" : "transparent" }}
+                onClick={() => setDeliveryViewMode("list")}
+              >
+                Lista
+              </button>
+              <button
+                className="btn btn-ghost btn-sm"
+                style={{ background: deliveryViewMode === "grid" ? "var(--surface-2)" : "transparent" }}
+                onClick={() => setDeliveryViewMode("grid")}
+              >
+                Grid
+              </button>
+            </div>
+
+            <div className={deliveryViewMode === "grid" ? "grid grid-cols-1 gap-2 sm:grid-cols-2" : "space-y-2"}>
+              {visibleDeliveries.map((delivery) => (
                 <button
                   key={delivery.id}
-                  onClick={() => setSelectedDeliveryId(delivery.id)}
+                  onClick={() => {
+                    setSelectedDeliveryId(delivery.id);
+                    void openDeliveryLink(delivery, "preview");
+                  }}
                   className="card card-hover w-full p-3 text-left"
                   style={{
                     borderColor: selectedDelivery?.id === delivery.id ? "rgba(26,143,163,0.35)" : "var(--border)",
@@ -404,16 +481,22 @@ export default function PortalProjectDetailPage() {
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold" style={{ color: "var(--text)" }}>{delivery.title}</p>
-                      <p className="text-xs" style={{ color: "var(--text-3)" }}>
-                        {delivery.file_type ?? "ficheiro"} • {new Date(delivery.created_at).toLocaleDateString("pt-PT")}
+                      <p className="truncate text-xs" style={{ color: "var(--text-3)" }}>
+                        {(delivery.name ?? delivery.filename ?? "ficheiro")} • {delivery.ext ?? delivery.file_type ?? "ficheiro"}
+                      </p>
+                      <p className="text-[11px]" style={{ color: "var(--text-3)" }}>
+                        {new Date(delivery.modified_at ?? delivery.created_at).toLocaleString("pt-PT")} • {delivery.size_bytes ? `${Math.round(delivery.size_bytes / 1024)} KB` : "—"}
                       </p>
                     </div>
-                    <span className="pill text-[10px]">{delivery.status ?? "novo"}</span>
+                    <div className="flex flex-col items-end gap-1">
+                      {delivery.is_new ? <span className="pill text-[10px]" style={{ color: "#0f766e", background: "rgba(13,148,136,0.12)" }}>Novo</span> : null}
+                      <span className="pill text-[10px]">{delivery.status ?? "ativo"}</span>
+                    </div>
                   </div>
                 </button>
               ))}
 
-              {filteredDeliveries.length === 0 ? (
+              {visibleDeliveries.length === 0 ? (
                 <p className="rounded-xl border border-dashed p-4 text-xs" style={{ borderColor: "var(--border)", color: "var(--text-3)" }}>
                   Sem entregas para este filtro.
                 </p>
@@ -474,6 +557,14 @@ export default function PortalProjectDetailPage() {
                       <Download className="h-4 w-4" />
                       Download
                     </button>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => void openDeliveryLink(selectedDelivery, "copy")}
+                      disabled={deliveryLinkLoading === `${selectedDelivery.file_id ?? selectedDelivery.id}:copy`}
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                      Copy link
+                    </button>
                     <button className="btn btn-secondary btn-sm" onClick={() => {
                       setTab("approvals");
                       setRequestForm((prev) => ({ ...prev, title: `Alteração: ${selectedDelivery.title}` }));
@@ -495,6 +586,41 @@ export default function PortalProjectDetailPage() {
               <p className="text-sm" style={{ color: "var(--text-3)" }}>Seleciona uma entrega.</p>
             )}
           </section>
+
+          {previewOpen && selectedDelivery ? (
+            <aside className="fixed inset-y-0 right-0 z-40 w-full max-w-xl border-l bg-[var(--surface)] p-4 shadow-2xl md:w-[520px]">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold" style={{ color: "var(--text)" }}>{selectedDelivery.title}</p>
+                  <p className="text-xs" style={{ color: "var(--text-3)" }}>
+                    {selectedDelivery.name ?? selectedDelivery.filename ?? "ficheiro"} {previewExpiresAt ? `• expira ${new Date(previewExpiresAt).toLocaleTimeString("pt-PT")}` : ""}
+                  </p>
+                </div>
+                <button className="btn btn-ghost btn-sm" onClick={() => setPreviewOpen(false)}>Fechar</button>
+              </div>
+
+              <div className="h-[calc(100dvh-140px)] overflow-auto rounded-2xl border p-2" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
+                {previewError ? (
+                  <p className="p-3 text-sm" style={{ color: "var(--error)" }}>{previewError}</p>
+                ) : !previewUrl ? (
+                  <p className="p-3 text-sm" style={{ color: "var(--text-3)" }}>A carregar preview…</p>
+                ) : (selectedDelivery.mime_type ?? "").startsWith("video/") || (selectedDelivery.file_type ?? "").includes("video") ? (
+                  <video className="h-auto w-full rounded-xl" controls src={previewUrl} />
+                ) : (selectedDelivery.mime_type ?? "").startsWith("image/") || (selectedDelivery.file_type ?? "").includes("image") ? (
+                  <img src={previewUrl} alt={selectedDelivery.title} className="h-auto w-full rounded-xl object-contain" />
+                ) : (selectedDelivery.mime_type ?? "").includes("pdf") ? (
+                  <iframe src={previewUrl} className="h-full min-h-[70vh] w-full rounded-xl" />
+                ) : (
+                  <div className="p-4">
+                    <p className="text-sm" style={{ color: "var(--text-3)" }}>Sem preview para este tipo de ficheiro.</p>
+                    <button className="btn btn-primary btn-sm mt-3" onClick={() => void openDeliveryLink(selectedDelivery, "download")}>
+                      Download
+                    </button>
+                  </div>
+                )}
+              </div>
+            </aside>
+          ) : null}
         </div>
       ) : null}
 

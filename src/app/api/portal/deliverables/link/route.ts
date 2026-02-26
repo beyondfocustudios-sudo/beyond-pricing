@@ -97,15 +97,22 @@ async function loadConnectionForProject(projectId: string, userId: string) {
 }
 
 export async function POST(request: NextRequest) {
-  const payload = await request.json().catch(() => ({} as { fileId?: string; mode?: "preview" | "download" }));
+  const payload = await request.json().catch(() => ({} as {
+    projectId?: string;
+    fileId?: string;
+    kind?: "preview" | "download";
+    mode?: "preview" | "download";
+  }));
   const fileId = String(payload.fileId ?? "").trim();
+  const projectIdInput = String(payload.projectId ?? "").trim() || null;
+  const kind = (payload.kind ?? payload.mode ?? "download") as "preview" | "download";
   if (!fileId) {
     return NextResponse.json({ error: "fileId obrigatório" }, { status: 400 });
   }
 
   const demo = getDemoFileById(fileId);
   if (demo) {
-    return NextResponse.json({ ok: true, url: demo.url, demo: true, mode: payload.mode ?? "download" });
+    return NextResponse.json({ ok: true, url: demo.url, demo: true, mode: kind, expires_at: null });
   }
 
   const sb = await createClient();
@@ -127,6 +134,9 @@ export async function POST(request: NextRequest) {
   if (!file?.project_id) {
     return NextResponse.json({ error: "Ficheiro não encontrado" }, { status: 404 });
   }
+  if (projectIdInput && String(file.project_id) !== projectIdInput) {
+    return NextResponse.json({ error: "Ficheiro não pertence ao projeto selecionado" }, { status: 400 });
+  }
 
   try {
     await requireProjectAccess(String(file.project_id));
@@ -135,7 +145,12 @@ export async function POST(request: NextRequest) {
   }
 
   if (file.preview_url || file.shared_link) {
-    return NextResponse.json({ ok: true, url: file.preview_url || file.shared_link });
+    return NextResponse.json({
+      ok: true,
+      url: file.preview_url || file.shared_link,
+      mode: kind,
+      expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+    });
   }
 
   if (!file.dropbox_path) {
@@ -196,5 +211,28 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Não foi possível gerar link temporário" }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true, url: temporaryLink, mode: payload.mode ?? "download" });
+  const { data: clientUser } = await sb
+    .from("client_users")
+    .select("id")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (clientUser?.id) {
+    await sb.from("portal_file_views").upsert(
+      {
+        client_user_id: clientUser.id,
+        project_id: file.project_id,
+        file_id: file.id,
+        last_seen_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "client_user_id,file_id" },
+    );
+  }
+
+  return NextResponse.json({
+    ok: true,
+    url: temporaryLink,
+    mode: kind,
+    expires_at: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
+  });
 }
