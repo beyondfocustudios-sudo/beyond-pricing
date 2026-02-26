@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   Clock3,
   Download,
+  Eye,
   ExternalLink,
   FileText,
   Film,
@@ -111,6 +112,7 @@ export default function PortalProjectDetailPage() {
   const [requests, setRequests] = useState<RequestRow[]>([]);
 
   const [selectedDeliveryId, setSelectedDeliveryId] = useState<string | null>(null);
+  const [deliveryLinkLoading, setDeliveryLinkLoading] = useState<string | null>(null);
   const [messageInput, setMessageInput] = useState("");
   const [sending, setSending] = useState(false);
 
@@ -126,6 +128,34 @@ export default function PortalProjectDetailPage() {
     const params = new URLSearchParams(searchParams.toString());
     params.set("tab", nextTab);
     router.replace(`/portal/projects/${projectId}?${params.toString()}`, { scroll: false });
+  };
+
+  const openDeliveryLink = async (delivery: PortalDeliverable, mode: "preview" | "download") => {
+    if (delivery.is_demo && delivery.dropbox_url) {
+      window.open(delivery.dropbox_url, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    const fileId = delivery.file_id ?? delivery.id;
+    const loadingKey = `${fileId}:${mode}`;
+    setDeliveryLinkLoading(loadingKey);
+
+    try {
+      const response = await fetch("/api/portal/deliverables/link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileId, mode }),
+      });
+      const payload = await response.json().catch(() => ({} as { error?: string; url?: string }));
+      if (!response.ok || !payload.url) {
+        throw new Error(payload.error ?? "Não foi possível abrir o ficheiro.");
+      }
+      window.open(payload.url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível abrir o ficheiro.");
+    } finally {
+      setDeliveryLinkLoading(null);
+    }
   };
 
   const loadAll = async () => {
@@ -402,7 +432,11 @@ export default function PortalProjectDetailPage() {
                       {selectedDelivery.file_type ?? "ficheiro"} • {new Date(selectedDelivery.created_at).toLocaleString("pt-PT")}
                     </p>
                   </div>
-                  <Link href={`/portal/review/${selectedDelivery.id}`} className="btn btn-secondary btn-sm">Abrir Aprovações</Link>
+                  {selectedDelivery.is_demo ? (
+                    <span className="pill text-xs">Demo Mode</span>
+                  ) : (
+                    <Link href={`/portal/review/${selectedDelivery.id}`} className="btn btn-secondary btn-sm">Abrir Aprovações</Link>
+                  )}
                 </div>
 
                 <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
@@ -424,12 +458,22 @@ export default function PortalProjectDetailPage() {
                   )}
 
                   <div className="mt-4 flex flex-wrap gap-2">
-                    {selectedDelivery.dropbox_url ? (
-                      <a className="btn btn-primary btn-sm" href={selectedDelivery.dropbox_url} target="_blank" rel="noreferrer">
-                        <Download className="h-4 w-4" />
-                        Download
-                      </a>
-                    ) : null}
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => void openDeliveryLink(selectedDelivery, "preview")}
+                      disabled={deliveryLinkLoading === `${selectedDelivery.file_id ?? selectedDelivery.id}:preview`}
+                    >
+                      <Eye className="h-4 w-4" />
+                      Abrir preview
+                    </button>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={() => void openDeliveryLink(selectedDelivery, "download")}
+                      disabled={deliveryLinkLoading === `${selectedDelivery.file_id ?? selectedDelivery.id}:download`}
+                    >
+                      <Download className="h-4 w-4" />
+                      Download
+                    </button>
                     <button className="btn btn-secondary btn-sm" onClick={() => {
                       setTab("approvals");
                       setRequestForm((prev) => ({ ...prev, title: `Alteração: ${selectedDelivery.title}` }));

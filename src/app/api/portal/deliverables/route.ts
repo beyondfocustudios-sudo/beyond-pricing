@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 import { requireProjectAccess } from "@/lib/authz";
+import { toDemoPortalDeliverables } from "@/lib/dropbox-demo";
 
 type DeliverableRow = {
   id: string;
@@ -11,15 +13,33 @@ type DeliverableRow = {
 };
 
 type DeliverableFileRow = {
+  id: string;
+  project_id: string;
   deliverable_id: string | null;
   file_type?: string | null;
+  mime_type?: string | null;
+  mime?: string | null;
   shared_link?: string | null;
   preview_url?: string | null;
   dropbox_path?: string | null;
+  created_at: string;
+  filename?: string | null;
+  name?: string | null;
 };
 
 function toLink(file: DeliverableFileRow) {
-  return file.shared_link || file.preview_url || file.dropbox_path || null;
+  return file.shared_link || file.preview_url || null;
+}
+
+function toFileType(file: DeliverableFileRow) {
+  const raw = String(file.file_type ?? "").toLowerCase();
+  if (raw.includes("video")) return "video";
+  if (raw.includes("image") || raw.includes("photo")) return "image";
+
+  const mime = String(file.mime_type ?? file.mime ?? "").toLowerCase();
+  if (mime.startsWith("video/")) return "video";
+  if (mime.startsWith("image/")) return "image";
+  return "document";
 }
 
 export async function GET(req: NextRequest) {
@@ -39,20 +59,16 @@ export async function GET(req: NextRequest) {
     .select("id, project_id, title, status, created_at")
     .eq("project_id", projectId)
     .order("created_at", { ascending: false })
-    .limit(80);
-
-  if (deliverablesError) {
-    return NextResponse.json({ deliverables: [] });
-  }
+    .limit(120);
 
   const deliverables = (deliverablesData ?? []) as DeliverableRow[];
   const deliverableIds = deliverables.map((row) => row.id);
-
   const filesByDeliverable = new Map<string, DeliverableFileRow>();
+
   if (deliverableIds.length > 0) {
     const { data: fileRows } = await supabase
       .from("deliverable_files")
-      .select("deliverable_id, file_type, shared_link, preview_url, dropbox_path, created_at")
+      .select("id, project_id, deliverable_id, file_type, mime_type, mime, shared_link, preview_url, dropbox_path, created_at, filename, name")
       .eq("project_id", projectId)
       .in("deliverable_id", deliverableIds)
       .order("created_at", { ascending: false });
@@ -66,12 +82,41 @@ export async function GET(req: NextRequest) {
 
   const payload = deliverables.map((row) => {
     const file = filesByDeliverable.get(row.id);
+    const createdAt = file?.created_at ?? row.created_at;
+    const ageMs = Date.now() - new Date(createdAt).getTime();
+    const status = row.status ?? (Number.isFinite(ageMs) && ageMs <= 7 * 24 * 60 * 60 * 1000 ? "new" : "active");
     return {
       ...row,
-      file_type: file?.file_type ?? null,
+      created_at: createdAt,
+      file_id: file?.id ?? null,
+      file_type: file ? toFileType(file) : null,
+      mime_type: file?.mime_type ?? file?.mime ?? null,
+      filename: file?.filename ?? file?.name ?? null,
       dropbox_url: file ? toLink(file) : null,
+      status,
+      is_demo: false,
     };
   });
 
-  return NextResponse.json({ deliverables: payload });
+  if (!deliverablesError && payload.length > 0) {
+    return NextResponse.json({ deliverables: payload, source: "dropbox" });
+  }
+
+  // Demo fallback when no Dropbox files are available.
+  const service = createServiceClient();
+  const { data: hasConnection } = await service
+    .from("dropbox_connections")
+    .select("id")
+    .is("revoked_at", null)
+    .limit(1)
+    .maybeSingle();
+
+  if (!hasConnection) {
+    return NextResponse.json({
+      deliverables: toDemoPortalDeliverables(projectId),
+      source: "demo",
+    });
+  }
+
+  return NextResponse.json({ deliverables: payload, source: "dropbox" });
 }

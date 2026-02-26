@@ -23,9 +23,11 @@ export async function GET(req: NextRequest) {
 
   if (category && category !== "all") query = query.eq("category", category);
   if (phase && phase !== "all") query = query.eq("folder_phase", phase);
-  if (search) query = query.ilike("file_name", `%${search}%`);
+  if (search) {
+    query = query.or(`filename.ilike.%${search}%,name.ilike.%${search}%`);
+  }
 
-  query = query.order("file_name", { ascending: true }).limit(200);
+  query = query.order("filename", { ascending: true }).limit(200);
 
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

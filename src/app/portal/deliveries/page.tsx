@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Download, Film, FileText, Image as ImageIcon, MessageSquare, Search, TriangleAlert } from "lucide-react";
+import { Download, Eye, Film, FileText, Image as ImageIcon, MessageSquare, Search, TriangleAlert } from "lucide-react";
 import { getClientProjects, getProjectDeliverables, type PortalDeliverable, type PortalProject } from "@/lib/portal-data";
 
 export default function PortalDeliveriesPage() {
@@ -14,6 +14,7 @@ export default function PortalDeliveriesPage() {
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<Array<PortalDeliverable & { projectName: string }>>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [linkLoading, setLinkLoading] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -54,6 +55,32 @@ export default function PortalDeliveriesPage() {
   }, [items, query]);
 
   const selected = useMemo(() => filtered.find((item) => item.id === selectedId) ?? filtered[0] ?? null, [filtered, selectedId]);
+
+  const openLink = async (item: PortalDeliverable, mode: "preview" | "download") => {
+    if (item.is_demo && item.dropbox_url) {
+      window.open(item.dropbox_url, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    const fileId = item.file_id ?? item.id;
+    setLinkLoading(`${fileId}:${mode}`);
+    try {
+      const res = await fetch("/api/portal/deliverables/link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileId, mode }),
+      });
+      const json = await res.json().catch(() => ({} as { error?: string; url?: string }));
+      if (!res.ok || !json.url) {
+        throw new Error(json.error ?? "Não foi possível abrir o ficheiro.");
+      }
+      window.open(json.url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível abrir o ficheiro.");
+    } finally {
+      setLinkLoading(null);
+    }
+  };
 
   if (loading) return <div className="skeleton h-[72vh] rounded-3xl" />;
 
@@ -121,11 +148,20 @@ export default function PortalDeliveriesPage() {
             </div>
 
             <div className="mt-4 flex flex-wrap gap-2">
-              {selected.dropbox_url ? (
-                <a className="btn btn-primary btn-sm" href={selected.dropbox_url} target="_blank" rel="noreferrer">
-                  <Download className="h-4 w-4" /> Download
-                </a>
-              ) : null}
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => void openLink(selected, "preview")}
+                disabled={linkLoading === `${selected.file_id ?? selected.id}:preview`}
+              >
+                <Eye className="h-4 w-4" /> Abrir preview
+              </button>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => void openLink(selected, "download")}
+                disabled={linkLoading === `${selected.file_id ?? selected.id}:download`}
+              >
+                <Download className="h-4 w-4" /> Download
+              </button>
               <Link className="btn btn-secondary btn-sm" href={`/portal/projects/${selected.project_id}?tab=approvals`}>
                 <TriangleAlert className="h-4 w-4" /> Pedir alteração
               </Link>

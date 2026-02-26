@@ -11,12 +11,16 @@ export type PortalProject = {
 
 export type PortalDeliverable = {
   id: string;
+  file_id?: string | null;
   project_id: string;
   title: string;
   status: string | null;
   file_type: string | null;
+  mime_type?: string | null;
+  filename?: string | null;
   dropbox_url: string | null;
   created_at: string;
+  is_demo?: boolean;
 };
 
 export type PortalMilestone = {

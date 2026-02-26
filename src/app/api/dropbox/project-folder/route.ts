@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { resolveProjectManageAccess } from "@/lib/project-access";
 import { createFolder, createSharedLink, refreshAccessToken } from "@/lib/dropbox";
+import { decryptDropboxToken, encryptDropboxToken } from "@/lib/dropbox-crypto";
 
 function sanitizeFolderName(value: string) {
   return value
@@ -10,6 +11,54 @@ function sanitizeFolderName(value: string) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 120);
+}
+
+type DropboxConnectionRow = {
+  id: string;
+  access_token: string | null;
+  refresh_token: string | null;
+  access_token_enc: string | null;
+  refresh_token_enc: string | null;
+  access_token_encrypted: string | null;
+  refresh_token_encrypted: string | null;
+  token_expires_at: string | null;
+  expires_at: string | null;
+};
+
+function pickToken(row: DropboxConnectionRow, kind: "access" | "refresh") {
+  if (kind === "access") {
+    if (row.access_token_enc) {
+      try {
+        return decryptDropboxToken(row.access_token_enc);
+      } catch {
+        // noop
+      }
+    }
+    if (row.access_token_encrypted) {
+      try {
+        return decryptDropboxToken(row.access_token_encrypted);
+      } catch {
+        // noop
+      }
+    }
+    return row.access_token ?? null;
+  }
+
+  if (row.refresh_token_enc) {
+    try {
+      return decryptDropboxToken(row.refresh_token_enc);
+    } catch {
+      // noop
+    }
+  }
+  if (row.refresh_token_encrypted) {
+    try {
+      return decryptDropboxToken(row.refresh_token_encrypted);
+    } catch {
+      // noop
+    }
+  }
+  return row.refresh_token ?? null;
 }
 
 export async function POST(request: NextRequest) {
@@ -43,27 +92,56 @@ export async function POST(request: NextRequest) {
 
   const admin = createServiceClient();
 
-  const { data: connection } = await admin
-    .from("dropbox_connections")
-    .select("id, access_token, refresh_token, token_expires_at")
-    .eq("project_id", projectId)
+  const { data: teamRow } = await admin
+    .from("team_members")
+    .select("org_id")
+    .eq("user_id", user.id)
     .maybeSingle();
+  const orgId = (teamRow?.org_id as string | null) ?? null;
+
+  let orgConnection: DropboxConnectionRow | null = null;
+  if (orgId) {
+    const { data } = await admin
+      .from("dropbox_connections")
+      .select("id, access_token, refresh_token, access_token_enc, refresh_token_enc, access_token_encrypted, refresh_token_encrypted, token_expires_at, expires_at")
+      .eq("org_id", orgId)
+      .is("project_id", null)
+      .is("revoked_at", null)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    orgConnection = (data as DropboxConnectionRow | null) ?? null;
+  }
+
+  const { data: projectConnection } = await admin
+    .from("dropbox_connections")
+    .select("id, access_token, refresh_token, access_token_enc, refresh_token_enc, access_token_encrypted, refresh_token_encrypted, token_expires_at, expires_at")
+    .eq("project_id", projectId)
+    .is("revoked_at", null)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const connection = (orgConnection ?? projectConnection) as DropboxConnectionRow | null;
 
   if (!connection) {
     return NextResponse.json({ error: "Liga primeiro a conta Dropbox deste projeto." }, { status: 400 });
   }
 
-  let accessToken = String((connection as { access_token?: string } | null)?.access_token ?? "");
-  const refreshToken = String((connection as { refresh_token?: string } | null)?.refresh_token ?? "");
-  const tokenExpiresAt = String((connection as { token_expires_at?: string } | null)?.token_expires_at ?? "");
+  let accessToken = pickToken(connection, "access") ?? "";
+  const refreshToken = pickToken(connection, "refresh") ?? "";
+  const tokenExpiresAt = String(connection.token_expires_at ?? connection.expires_at ?? "");
 
   if (tokenExpiresAt && new Date(tokenExpiresAt).getTime() <= Date.now() && refreshToken) {
     const fresh = await refreshAccessToken(refreshToken);
     accessToken = fresh.access_token;
+    const encryptedToken = encryptDropboxToken(fresh.access_token);
     await admin
       .from("dropbox_connections")
       .update({
         access_token: fresh.access_token,
+        access_token_enc: encryptedToken,
+        access_token_encrypted: encryptedToken,
         token_expires_at: new Date(Date.now() + fresh.expires_in * 1000).toISOString(),
       })
       .eq("id", connection.id as string);

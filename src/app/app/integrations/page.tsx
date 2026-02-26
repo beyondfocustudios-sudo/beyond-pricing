@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { AlertCircle, CheckCircle2, Copy, ExternalLink, Loader2, RefreshCw, Unplug } from "lucide-react";
 import { MotionCard, MotionPage, Pressable } from "@/components/motion-system";
 
@@ -31,6 +32,23 @@ type IntegrationsPayload = {
     feedUrl: string | null;
     downloadUrl: string;
   };
+};
+
+type DropboxStatusPayload = {
+  connected: boolean;
+  connectUrl: string;
+  config: {
+    ready: boolean;
+    missing: string[];
+  };
+  connection: {
+    id: string;
+    accountEmail: string | null;
+    accountId: string | null;
+    updatedAt: string | null;
+    expiresAt: string | null;
+    lastSyncedAt: string | null;
+  } | null;
 };
 
 function formatRelativeTime(value: string | null) {
@@ -100,6 +118,7 @@ export default function IntegrationsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [payload, setPayload] = useState<IntegrationsPayload | null>(null);
+  const [dropbox, setDropbox] = useState<DropboxStatusPayload | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -151,9 +170,36 @@ export default function IntegrationsPage() {
     setLoading(false);
   }, []);
 
+  const loadDropbox = useCallback(async () => {
+    const response = await fetch("/api/dropbox/health", { cache: "no-store" });
+    const json = (await response.json().catch(() => ({}))) as Partial<DropboxStatusPayload> & { error?: string };
+    if (!response.ok) {
+      setDropbox({
+        connected: false,
+        connectUrl: "/api/integrations/dropbox/auth",
+        config: {
+          ready: false,
+          missing: json.error ? [json.error] : ["Não foi possível carregar estado Dropbox"],
+        },
+        connection: null,
+      });
+      return;
+    }
+    setDropbox({
+      connected: Boolean(json.connected),
+      connectUrl: json.connectUrl ?? "/api/integrations/dropbox/auth",
+      config: {
+        ready: Boolean(json.config?.ready),
+        missing: json.config?.missing ?? [],
+      },
+      connection: json.connection ?? null,
+    });
+  }, []);
+
   useEffect(() => {
     void load();
-  }, [load]);
+    void loadDropbox();
+  }, [load, loadDropbox]);
 
   const runAction = useCallback(async (busyKey: string, run: () => Promise<Response>) => {
     setBusy(busyKey);
@@ -211,6 +257,24 @@ export default function IntegrationsPage() {
       }),
     );
   }, [runAction]);
+
+  const disconnectDropbox = useCallback(async () => {
+    setBusy("dropbox:disconnect");
+    setError(null);
+    const response = await fetch("/api/dropbox/health", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "disconnect" }),
+    });
+    const payload = (await response.json().catch(() => ({}))) as { error?: string };
+    if (!response.ok) {
+      setError(payload.error ?? "Falha ao desligar Dropbox.");
+      setBusy(null);
+      return;
+    }
+    await loadDropbox();
+    setBusy(null);
+  }, [loadDropbox]);
 
   const providers = useMemo(() => payload?.providers ?? [], [payload]);
 
@@ -459,10 +523,72 @@ export default function IntegrationsPage() {
               <p className="text-sm" style={{ color: "var(--text-2)" }}>Conectores de entregas e storage.</p>
             </div>
             <MotionCard className="card rounded-[20px] p-4">
-              <p className="text-sm font-medium" style={{ color: "var(--text)" }}>Dropbox / Vimeo / YouTube</p>
-              <p className="mt-1 text-xs" style={{ color: "var(--text-3)" }}>
-                Disponivel em breve nesta pagina. Usa o modulo de Entregas para as ações atuais.
-              </p>
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-base font-semibold" style={{ color: "var(--text)" }}>
+                    Dropbox
+                  </p>
+                  <p className="mt-1 text-xs" style={{ color: "var(--text-3)" }}>
+                    Conexão global da Beyond para previews e downloads no portal.
+                  </p>
+                </div>
+                <span
+                  className="pill text-xs"
+                  style={{
+                    background: dropbox?.connected ? "var(--success-bg)" : "var(--surface-2)",
+                    color: dropbox?.connected ? "var(--success)" : "var(--text-2)",
+                  }}
+                >
+                  {dropbox?.connected ? "Connected" : "Disconnected"}
+                </span>
+              </div>
+
+              {dropbox?.connected ? (
+                <div className="mt-3 rounded-xl border p-3 text-xs" style={{ borderColor: "var(--border)", background: "var(--surface-2)", color: "var(--text-2)" }}>
+                  <p>
+                    Conta: <span style={{ color: "var(--text)" }}>{dropbox.connection?.accountEmail ?? "—"}</span>
+                  </p>
+                  <p className="mt-1">
+                    Última atualização: <span style={{ color: "var(--text)" }}>{formatRelativeTime(dropbox.connection?.updatedAt ?? null)}</span>
+                  </p>
+                </div>
+              ) : (
+                <p className="mt-3 text-xs" style={{ color: "var(--text-3)" }}>
+                  Sem Dropbox conectado. O portal usa Demo Mode com ficheiros locais até conectares.
+                </p>
+              )}
+
+              {dropbox && !dropbox.config.ready ? (
+                <p className="mt-3 text-xs" style={{ color: "var(--warning)" }}>
+                  Configuração em falta: {dropbox.config.missing.join(", ")}
+                </p>
+              ) : null}
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                {dropbox?.connected ? (
+                  <Pressable
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => void disconnectDropbox()}
+                    disabled={busy === "dropbox:disconnect"}
+                  >
+                    {busy === "dropbox:disconnect" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Unplug className="h-3.5 w-3.5" />}
+                    Disconnect
+                  </Pressable>
+                ) : dropbox && !dropbox.config.ready ? (
+                  <button className="btn btn-secondary btn-sm" disabled title={dropbox.config.missing.join(", ")}>
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    Connect Dropbox
+                  </button>
+                ) : (
+                  <a className="btn btn-secondary btn-sm" href={dropbox?.connectUrl ?? "/api/integrations/dropbox/auth"}>
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    Connect Dropbox
+                  </a>
+                )}
+                <Link className="btn btn-secondary btn-sm" href="/app/projects">
+                  Abrir projetos
+                </Link>
+              </div>
             </MotionCard>
           </section>
 

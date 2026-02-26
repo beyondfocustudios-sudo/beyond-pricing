@@ -26,8 +26,8 @@ export async function refreshAccessToken(refreshToken: string): Promise<{
   access_token: string;
   expires_in: number;
 }> {
-  const appKey = process.env.DROPBOX_APP_KEY;
-  const appSecret = process.env.DROPBOX_APP_SECRET;
+  const appKey = process.env.DROPBOX_CLIENT_ID || process.env.DROPBOX_APP_KEY;
+  const appSecret = process.env.DROPBOX_CLIENT_SECRET || process.env.DROPBOX_APP_SECRET;
   if (!appKey || !appSecret) throw new Error("Missing Dropbox app credentials");
 
   const resp = await fetch(TOKEN_URL, {
