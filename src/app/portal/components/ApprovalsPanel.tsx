@@ -23,7 +23,7 @@ type ApprovalsPanelProps = {
 };
 
 export function ApprovalsPanel({
-  deliverableTitle: _deliverableTitle,
+  deliverableTitle,
   checklist,
   onChecklistChange,
   signature,

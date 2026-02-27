@@ -135,7 +135,7 @@ export function buttonMotionProps(opts: {
 export function cardHoverProps(enabled: boolean): Pick<MotionProps, "whileHover" | "transition"> {
   if (!enabled) return {};
   return {
-    whileHover: { y: -4, scale: 1.004 },
+    whileHover: { y: -2 },
     transition: transitions.ui,
   };
 }

@@ -6,7 +6,7 @@ import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard";
 export default async function PortalOnboardingPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/portal/login?mode=client");
+  if (!user) redirect("/portal/login");
 
   const access = await resolveAccessRole(supabase, user);
   if (!access.isClient) {

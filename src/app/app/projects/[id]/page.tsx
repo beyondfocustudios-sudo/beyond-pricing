@@ -10,6 +10,7 @@ import {
   CATEGORIAS,
   IVA_REGIMES,
   PROJECT_STATUS,
+  normalizeProjectStatus,
   type ProjectItem,
   type ProjectInputs,
   type ProjectCalc,
@@ -50,7 +51,9 @@ import {
 import Link from "next/link";
 import { CatalogModal } from "@/components/CatalogModal";
 import { ProjectLogisticsTab } from "@/components/ProjectLogisticsTab";
+import { ProjectWeatherTab } from "@/components/ProjectWeatherTab";
 import { useToast } from "@/components/Toast";
+import { assertInsideRoot, join as joinDropboxPath, normalizeRoot } from "@/lib/dropboxPaths";
 
 // ── Default inputs ────────────────────────────────────────────
 const DEFAULT_INPUTS: ProjectInputs = {
@@ -215,21 +218,22 @@ export default function ProjectPage() {
   const projectId = params.id as string;
   const toast = useToast();
 
-  const [projectName, setProjectName] = useState("Novo Projeto");
+  const [projectName, setProjectName] = useState("Projeto sem nome");
   const [clientName, setClientName] = useState("");
-  const [status, setStatus] = useState<ProjectStatus>("rascunho");
+  const [status, setStatus] = useState<ProjectStatus>("draft");
   const [inputs, setInputs] = useState<ProjectInputs>(DEFAULT_INPUTS);
   const [calc, setCalc] = useState<ProjectCalc | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [activeTab, setActiveTab] = useState<"resumo" | "items" | "logistica" | "tempo" | "brief" | "entregas" | "aprovacoes">("items");
+  const [activeTab, setActiveTab] = useState<"resumo" | "items" | "logistica" | "iva_margens" | "tempo" | "brief" | "entregas" | "aprovacoes">("items");
   const [expandedCat, setExpandedCat] = useState<string | null>("crew");
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [catalogCat, setCatalogCat] = useState<Categoria>("crew");
   const [editingName, setEditingName] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
+  const lastSyncedProjectNameRef = useRef<string>("");
 
   // ── Logistics state ─────────────────────────────────────────
   const [locationText, setLocationText] = useState<string | null>(null);
@@ -240,6 +244,7 @@ export default function ProjectPage() {
   const [travelMinutes, setTravelMinutes] = useState<number | null>(null);
   const [logisticsStartDate, setLogisticsStartDate] = useState<string | null>(null);
   const [logisticsEndDate, setLogisticsEndDate] = useState<string | null>(null);
+  const [shootDays, setShootDays] = useState<string[]>([]);
 
   // ── Entregas state ────────────────────────────────────────
   interface DelivFile {
@@ -251,11 +256,22 @@ export default function ProjectPage() {
   const [delivFilterType, setDelivFilterType] = useState("all");
   const [delivFilterCol, setDelivFilterCol] = useState("all");
   const [dropboxPath, setDropboxPath] = useState("");
+  const [dropboxDeliveriesPath, setDropboxDeliveriesPath] = useState("");
+  const [dropboxBasePath, setDropboxBasePath] = useState("");
+  const [dropboxFolderId, setDropboxFolderId] = useState<string | null>(null);
+  const [dropboxFolderUrl, setDropboxFolderUrl] = useState<string | null>(null);
+  const [dropboxDeliveriesUrl, setDropboxDeliveriesUrl] = useState<string | null>(null);
   const [dropboxConfigured, setDropboxConfigured] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<string | null>(null);
   const [editingDropboxPath, setEditingDropboxPath] = useState(false);
   const [savingDropboxPath, setSavingDropboxPath] = useState(false);
+  const [showDropboxCreateModal, setShowDropboxCreateModal] = useState(false);
+  const [creatingDropboxFolder, setCreatingDropboxFolder] = useState(false);
+  const [dropboxFolderNameInput, setDropboxFolderNameInput] = useState("");
+  const [showDropboxDeleteModal, setShowDropboxDeleteModal] = useState(false);
+  const [dropboxDeleteConfirmed, setDropboxDeleteConfirmed] = useState(false);
+  const [deletingDropboxFolder, setDeletingDropboxFolder] = useState(false);
 
   // ── Load ──────────────────────────────────────────────────
   const loadProject = useCallback(async () => {
@@ -275,8 +291,9 @@ export default function ProjectPage() {
       }
 
       setProjectName(data.project_name ?? "");
+      lastSyncedProjectNameRef.current = String(data.project_name ?? "");
       setClientName(data.client_name ?? "");
-      setStatus(data.status ?? "rascunho");
+      setStatus(normalizeProjectStatus(data.status));
 
       const inp = data.inputs as ProjectInputs;
       setInputs({
@@ -296,19 +313,43 @@ export default function ProjectPage() {
       setTravelMinutes(typeof d2.travel_minutes === "number" ? (d2.travel_minutes as number) : null);
       setLogisticsStartDate((d2.logistics_start_date as string | null) ?? null);
       setLogisticsEndDate((d2.logistics_end_date as string | null) ?? null);
+      const rowShootDays = Array.isArray(d2.shoot_days)
+        ? (d2.shoot_days as unknown[]).map((value) => String(value)).filter(Boolean)
+        : [];
+      if (rowShootDays.length > 0) {
+        setShootDays(rowShootDays);
+      } else {
+        const fallbackStart = String((inp as unknown as Record<string, unknown>)?.shoot_date_start ?? "").slice(0, 10);
+        const fallbackEnd = String((inp as unknown as Record<string, unknown>)?.shoot_date_end ?? "").slice(0, 10);
+        const fallbackDays = [fallbackStart, fallbackEnd].filter(Boolean);
+        setShootDays(fallbackDays);
+      }
 
       // Load Dropbox config + files
       const sb2 = createClient();
       const [pdRes, filesRes] = await Promise.all([
-        sb2.from("project_dropbox").select("root_path, last_sync_at").eq("project_id", projectId).single(),
+        sb2
+          .from("project_dropbox")
+          .select("root_path, folder_path, deliveries_path, base_path, folder_id, folder_url, deliveries_url, last_sync_at")
+          .eq("project_id", projectId)
+          .maybeSingle(),
         sb2.from("deliverable_files").select("id, filename, ext, file_type, collection, shared_link, bytes, captured_at, created_at").eq("project_id", projectId).order("captured_at", { ascending: false }),
       ]);
       if (pdRes.data) {
-        setDropboxPath(pdRes.data.root_path ?? "");
+        setDropboxPath((pdRes.data as { folder_path?: string | null }).folder_path ?? pdRes.data.root_path ?? "");
+        setDropboxDeliveriesPath((pdRes.data as { deliveries_path?: string | null }).deliveries_path ?? "");
+        setDropboxBasePath((pdRes.data as { base_path?: string | null }).base_path ?? "");
+        setDropboxFolderId((pdRes.data as { folder_id?: string | null }).folder_id ?? null);
+        setDropboxFolderUrl((pdRes.data as { folder_url?: string | null }).folder_url ?? null);
+        setDropboxDeliveriesUrl((pdRes.data as { deliveries_url?: string | null }).deliveries_url ?? null);
         setDropboxConfigured(true);
         setLastSync(pdRes.data.last_sync_at ?? null);
       } else {
         setDropboxConfigured(false);
+        setDropboxFolderId(null);
+        setDropboxFolderUrl(null);
+        setDropboxDeliveriesPath("");
+        setDropboxDeliveriesUrl(null);
       }
       setDelivFiles((filesRes.data ?? []) as DelivFile[]);
     } catch {
@@ -358,6 +399,7 @@ export default function ProjectPage() {
         travel_minutes: travelMinutes,
         logistics_start_date: logisticsStartDate,
         logistics_end_date: logisticsEndDate,
+        shoot_days: shootDays,
         updated_at: new Date().toISOString(),
       })
       .eq("id", projectId);
@@ -368,8 +410,31 @@ export default function ProjectPage() {
     } else {
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
+
+      const previousName = lastSyncedProjectNameRef.current;
+      const currentName = projectName.trim() || "Sem nome";
+      if (!editingName && previousName !== currentName) {
+        lastSyncedProjectNameRef.current = currentName;
+        void fetch("/api/dropbox/ensure-project-folder", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ projectId }),
+        }).then(async (response) => {
+          if (!response.ok) return;
+          const payload = await response.json().catch(() => ({} as {
+            folderPath?: string;
+            deliveriesPath?: string;
+            folderUrl?: string | null;
+            deliveriesUrl?: string | null;
+          }));
+          if (payload.folderPath) setDropboxPath(payload.folderPath);
+          if (payload.deliveriesPath) setDropboxDeliveriesPath(payload.deliveriesPath);
+          if (payload.folderUrl !== undefined) setDropboxFolderUrl(payload.folderUrl ?? null);
+          if (payload.deliveriesUrl !== undefined) setDropboxDeliveriesUrl(payload.deliveriesUrl ?? null);
+        });
+      }
     }
-  }, [calc, projectName, clientName, status, inputs, projectId, toast, locationText, locationLat, locationLng, locationAddress, travelKm, travelMinutes, logisticsStartDate, logisticsEndDate]);
+  }, [calc, projectName, clientName, status, inputs, projectId, toast, locationText, locationLat, locationLng, locationAddress, travelKm, travelMinutes, logisticsStartDate, logisticsEndDate, shootDays, editingName]);
 
   // Auto-save on changes (debounced)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -382,7 +447,7 @@ export default function ProjectPage() {
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
-  }, [inputs, projectName, clientName, status, loading, handleSave, locationText, locationLat, locationLng, locationAddress, travelKm, travelMinutes, logisticsStartDate, logisticsEndDate]);
+  }, [inputs, projectName, clientName, status, loading, handleSave, locationText, locationLat, locationLng, locationAddress, travelKm, travelMinutes, logisticsStartDate, logisticsEndDate, shootDays]);
 
   // ── Item CRUD ─────────────────────────────────────────────
   const updateItem = (id: string, updated: ProjectItem) => {
@@ -437,9 +502,26 @@ export default function ProjectPage() {
     if (!res.ok) {
       toast.error(`Erro ao apagar projeto: ${payload.error ?? "falha inesperada"}`);
     } else {
-      toast.success("Projeto arquivado com sucesso");
+      toast.success("Projeto apagado com sucesso");
       router.push("/app/projects");
     }
+  };
+
+  const handleArchiveProject = async () => {
+    const confirmed = window.confirm("Arquivar este projeto? Vai sair dos ativos mas mantém histórico.");
+    if (!confirmed) return;
+    const res = await fetch(`/api/projects/${projectId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "archive" }),
+    });
+    const payload = await res.json().catch(() => ({} as { error?: string }));
+    if (!res.ok) {
+      toast.error(`Erro ao arquivar projeto: ${payload.error ?? "falha inesperada"}`);
+      return;
+    }
+    setStatus("archived");
+    toast.success("Projeto arquivado com sucesso");
   };
 
   const handleCreateCollaboratorInvite = async () => {
@@ -591,6 +673,7 @@ export default function ProjectPage() {
 
   const totalItems = inputs.itens.length;
   const statusInfo = PROJECT_STATUS.find((s) => s.value === status);
+  const suggestedDropboxFolderName = `${new Date().toISOString().slice(0, 10)} ${clientName || "Cliente"} — ${projectName || "Projeto"}`.replace(/\s+/g, " ").trim();
 
   return (
     <div className="space-y-5 pb-8">
@@ -721,9 +804,16 @@ export default function ProjectPage() {
             {saving ? "…" : <span className="hidden sm:inline">Guardar</span>}
           </button>
           <button
+            onClick={() => void handleArchiveProject()}
+            className="btn btn-ghost btn-sm"
+            title="Arquivar projeto"
+          >
+            Arquivar
+          </button>
+          <button
             onClick={() => setShowDeleteModal(true)}
             className="btn btn-ghost btn-icon-sm"
-            title="Arquivar projeto"
+            title="Apagar projeto"
             style={{ color: "var(--error)" }}
           >
             <Trash2 className="h-4 w-4" />
@@ -757,12 +847,12 @@ export default function ProjectPage() {
                   <Trash2 className="h-5 w-5" style={{ color: "var(--error)" }} />
                 </div>
                 <div>
-                  <p className="font-semibold" style={{ color: "var(--text)" }}>Arquivar Projeto</p>
-                  <p className="text-xs" style={{ color: "var(--text-3)" }}>Esta ação é reversível</p>
+                  <p className="font-semibold" style={{ color: "var(--text)" }}>Apagar Projeto</p>
+                  <p className="text-xs" style={{ color: "var(--text-3)" }}>Soft delete (reversível em base de dados)</p>
                 </div>
               </div>
               <p className="text-sm" style={{ color: "var(--text-2)" }}>
-                O projeto <strong style={{ color: "var(--text)" }}>&quot;{projectName}&quot;</strong> será arquivado e removido da lista principal. Podes recuperá-lo mais tarde.
+                O projeto <strong style={{ color: "var(--text)" }}>&quot;{projectName}&quot;</strong> será removido da lista principal (soft delete).
               </p>
               <div className="flex gap-2">
                 <button
@@ -777,7 +867,7 @@ export default function ProjectPage() {
                   className="btn btn-sm flex-1"
                   style={{ background: "var(--error)", color: "white", borderRadius: "var(--r-full)" }}
                 >
-                  {deleting ? "A arquivar…" : "Arquivar"}
+                  {deleting ? "A apagar…" : "Apagar"}
                 </button>
               </div>
             </motion.div>
@@ -878,9 +968,183 @@ export default function ProjectPage() {
         )}
       </AnimatePresence>
 
+      {/* ── Dropbox create folder modal ── */}
+      <AnimatePresence>
+        {showDropboxCreateModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+            onClick={(e) => { if (e.target === e.currentTarget) setShowDropboxCreateModal(false); }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 12, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.95, y: 12, opacity: 0 }}
+              className="card w-full max-w-lg space-y-4"
+            >
+              <div>
+                <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>Criar pasta Dropbox</p>
+                <p className="text-xs mt-1" style={{ color: "var(--text-3)" }}>
+                  Sugestão: YYYY-MM-DD Cliente — Projeto
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="label">Base path</label>
+                <input
+                  className="input"
+                  value={dropboxBasePath}
+                  onChange={(e) => setDropboxBasePath(e.target.value)}
+                  placeholder="/Clientes"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="label">Nome da pasta</label>
+                <input
+                  className="input"
+                  value={dropboxFolderNameInput}
+                  onChange={(e) => setDropboxFolderNameInput(e.target.value)}
+                  placeholder={suggestedDropboxFolderName}
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button className="btn btn-secondary flex-1" onClick={() => setShowDropboxCreateModal(false)}>
+                  Cancelar
+                </button>
+                <button
+                  className="btn btn-primary flex-1"
+                  disabled={creatingDropboxFolder || !dropboxFolderNameInput.trim()}
+                  onClick={async () => {
+                    setCreatingDropboxFolder(true);
+                    try {
+                      const res = await fetch("/api/dropbox/project-folder", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          projectId,
+                          folderName: dropboxFolderNameInput.trim(),
+                        }),
+                      });
+                      const json = await res.json().catch(() => ({} as {
+                        error?: string;
+                        path?: string;
+                        folderId?: string | null;
+                        folderUrl?: string | null;
+                        deliveriesPath?: string;
+                        deliveriesUrl?: string | null;
+                      }));
+                      if (!res.ok) {
+                        throw new Error(json.error ?? "Falha ao criar pasta Dropbox");
+                      }
+
+                      if (json.path) setDropboxPath(json.path);
+                      if (json.deliveriesPath) setDropboxDeliveriesPath(json.deliveriesPath);
+                      setDropboxFolderId(json.folderId ?? null);
+                      setDropboxFolderUrl(json.folderUrl ?? null);
+                      if (json.deliveriesUrl !== undefined) setDropboxDeliveriesUrl(json.deliveriesUrl ?? null);
+                      setDropboxConfigured(true);
+                      setShowDropboxCreateModal(false);
+                      toast.success("Pasta Dropbox criada/ligada com sucesso.");
+                    } catch (error) {
+                      toast.error(error instanceof Error ? error.message : "Falha ao criar pasta Dropbox");
+                    } finally {
+                      setCreatingDropboxFolder(false);
+                    }
+                  }}
+                >
+                  {creatingDropboxFolder ? "A criar…" : "Criar pasta Dropbox"}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Dropbox hard delete modal ── */}
+      <AnimatePresence>
+        {showDropboxDeleteModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+            onClick={(e) => { if (e.target === e.currentTarget) setShowDropboxDeleteModal(false); }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 12, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.95, y: 12, opacity: 0 }}
+              className="card w-full max-w-md space-y-4"
+            >
+              <div className="space-y-1">
+                <p className="text-sm font-semibold" style={{ color: "var(--error)" }}>Hard delete Dropbox folder</p>
+                <p className="text-xs" style={{ color: "var(--text-3)" }}>
+                  Esta ação é irreversível e apaga a pasta na Dropbox.
+                </p>
+              </div>
+
+              <div className="rounded-xl border px-3 py-2 text-xs font-mono break-all" style={{ borderColor: "var(--border)", background: "var(--surface-2)", color: "var(--text-2)" }}>
+                {dropboxPath || "Sem path configurado"}
+              </div>
+
+              <label className="flex items-center gap-2 text-xs" style={{ color: "var(--text-2)" }}>
+                <input
+                  type="checkbox"
+                  checked={dropboxDeleteConfirmed}
+                  onChange={(e) => setDropboxDeleteConfirmed(e.target.checked)}
+                />
+                Entendo que é irreversível
+              </label>
+
+              <div className="flex gap-2">
+                <button
+                  className="btn btn-secondary flex-1"
+                  onClick={() => setShowDropboxDeleteModal(false)}
+                  disabled={deletingDropboxFolder}
+                >
+                  Cancelar
+                </button>
+                <button
+                  className="btn btn-sm flex-1"
+                  disabled={!dropboxDeleteConfirmed || deletingDropboxFolder || !dropboxPath}
+                  style={{ background: "var(--error)", color: "#fff", borderRadius: "var(--r-full)" }}
+                  onClick={async () => {
+                    if (!dropboxPath) return;
+                    setDeletingDropboxFolder(true);
+                    const response = await fetch("/api/dropbox/delete-folder", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        path: dropboxPath,
+                        confirmIrreversible: true,
+                      }),
+                    });
+                    const payload = await response.json().catch(() => ({} as { error?: string }));
+                    setDeletingDropboxFolder(false);
+                    if (!response.ok) {
+                      toast.error(payload.error ?? "Falha ao apagar pasta na Dropbox");
+                      return;
+                    }
+                    setShowDropboxDeleteModal(false);
+                    toast.success("Pasta apagada na Dropbox.");
+                  }}
+                >
+                  {deletingDropboxFolder ? "A apagar…" : "Apagar pasta"}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* ── Tabs ── */}
       <div className="tabs-list">
-        {(["resumo", "items", "logistica", "tempo", "brief", "entregas", "aprovacoes"] as const).map((tab) => (
+        {(["resumo", "items", "logistica", "iva_margens", "tempo", "brief", "entregas", "aprovacoes"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -889,6 +1153,7 @@ export default function ProjectPage() {
             {tab === "resumo" && "Resumo"}
             {tab === "items" && `Items (${totalItems})`}
             {tab === "logistica" && "Logística"}
+            {tab === "iva_margens" && "IVA & Margens"}
             {tab === "tempo" && "Tempo"}
             {tab === "brief" && "Brief"}
             {tab === "entregas" && "Entregas"}
@@ -1014,9 +1279,9 @@ export default function ProjectPage() {
           </motion.div>
         )}
 
-        {activeTab === "tempo" && (
+        {activeTab === "iva_margens" && (
           <motion.div
-            key="tempo"
+            key="iva_margens"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
@@ -1109,6 +1374,58 @@ export default function ProjectPage() {
                 color="#f87171"
               />
             </div>
+          </motion.div>
+        )}
+
+        {activeTab === "tempo" && (
+          <motion.div
+            key="tempo"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="space-y-4"
+          >
+            <ProjectWeatherTab
+              locationText={locationText}
+              locationLat={locationLat}
+              locationLng={locationLng}
+              shootDays={shootDays}
+              onSaveShootDays={async (days) => {
+                const uniqueDays = Array.from(new Set(days)).sort((a, b) => a.localeCompare(b));
+                setShootDays(uniqueDays);
+
+                const nextStart = uniqueDays[0] ?? "";
+                const nextEnd = uniqueDays[uniqueDays.length - 1] ?? "";
+                setInputs((prev) => ({
+                  ...prev,
+                  shoot_date_start: nextStart || undefined,
+                  shoot_date_end: nextEnd || undefined,
+                }));
+
+                const existing = new Set(shootDays);
+                const added = uniqueDays.filter((day) => !existing.has(day));
+                for (const day of added) {
+                  try {
+                    await fetch("/api/calendar/events", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        title: `Shoot day — ${projectName}`,
+                        startsAt: `${day}T08:00:00.000Z`,
+                        endsAt: `${day}T19:00:00.000Z`,
+                        type: "shoot",
+                        projectId,
+                        description: `Dia de rodagem ${projectName}`,
+                        location: locationText ?? undefined,
+                      }),
+                    });
+                  } catch {
+                    // Ignore event sync failures
+                  }
+                }
+              }}
+            />
           </motion.div>
         )}
 
@@ -1519,62 +1836,210 @@ export default function ProjectPage() {
               </div>
 
               {editingDropboxPath || !dropboxConfigured ? (
-                <div className="flex gap-2">
+                <div className="grid gap-2 md:grid-cols-[1fr_1fr_1fr_auto]">
                   <input
-                    className="input flex-1"
+                    className="input"
+                    value={dropboxBasePath}
+                    onChange={(e) => setDropboxBasePath(e.target.value)}
+                    placeholder="/Clientes"
+                  />
+                  <input
+                    className="input"
                     value={dropboxPath}
                     onChange={(e) => setDropboxPath(e.target.value)}
-                    placeholder="/Beyond/Clients/NomeCliente/NomeProjeto"
+                    placeholder="/Clientes/NomeCliente/NomeProjeto"
+                  />
+                  <input
+                    className="input"
+                    value={dropboxDeliveriesPath}
+                    onChange={(e) => setDropboxDeliveriesPath(e.target.value)}
+                    placeholder="/Clientes/NomeCliente/NomeProjeto/01_Entregas"
                   />
                   <button
                     className="btn btn-primary btn-sm"
                     disabled={savingDropboxPath || !dropboxPath.trim()}
                     onClick={async () => {
-                      setSavingDropboxPath(true);
-                      const sb = createClient();
-                      await sb.from("project_dropbox").upsert(
-                        { project_id: projectId, root_path: dropboxPath.trim() },
-                        { onConflict: "project_id" }
-                      );
-                      setDropboxConfigured(true);
-                      setEditingDropboxPath(false);
-                      setSavingDropboxPath(false);
+                      try {
+                        setSavingDropboxPath(true);
+                        const root = normalizeRoot(dropboxBasePath.trim());
+                        const folder = assertInsideRoot(root, dropboxPath.trim());
+                        const deliveries = assertInsideRoot(
+                          root,
+                          dropboxDeliveriesPath.trim() || joinDropboxPath(folder, "01_Entregas")
+                        );
+                        const sb = createClient();
+                        await sb.from("project_dropbox").upsert(
+                          {
+                            project_id: projectId,
+                            folder_path: folder,
+                            root_path: folder,
+                            deliveries_path: deliveries,
+                            base_path: root,
+                          },
+                          { onConflict: "project_id" }
+                        );
+                        setDropboxConfigured(true);
+                        setEditingDropboxPath(false);
+                      } catch (error) {
+                        const message = error instanceof Error ? error.message : String(error ?? "");
+                        if (message === "DROPBOX_PATH_OUTSIDE_ROOT") {
+                          toast.error("A pasta tem de estar dentro de /Clientes");
+                        } else {
+                          toast.error("Não foi possível guardar os caminhos Dropbox.");
+                        }
+                      } finally {
+                        setSavingDropboxPath(false);
+                      }
                     }}
                   >
                     {savingDropboxPath ? "…" : "Guardar"}
                   </button>
                 </div>
               ) : (
-                <div className="flex items-center gap-3">
-                  <FolderOpen className="h-4 w-4 shrink-0" style={{ color: "var(--accent)" }} />
-                  <span className="text-sm flex-1 truncate font-mono" style={{ color: "var(--text-2)" }}>{dropboxPath}</span>
-                  <button className="btn btn-secondary btn-sm" onClick={() => setEditingDropboxPath(true)}>
-                    Editar
-                  </button>
-                  <button
-                    className="btn btn-primary btn-sm"
-                    disabled={syncing}
-                    onClick={async () => {
-                      setSyncing(true);
-                      try {
-                        const res = await fetch(`/api/dropbox/sync?projectId=${projectId}`, { method: "POST" });
-                        const json = await res.json() as { synced?: number; new?: number };
-                        if (json.synced !== undefined) {
-                          setLastSync(new Date().toISOString());
-                          // Reload files
-                          const sb = createClient();
-                          const { data } = await sb.from("deliverable_files").select("id, filename, ext, file_type, collection, shared_link, bytes, captured_at, created_at").eq("project_id", projectId).order("captured_at", { ascending: false });
-                          setDelivFiles((data ?? []) as DelivFile[]);
+                <div className="space-y-3">
+                  <div className="rounded-xl border px-3 py-2" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
+                    <div className="flex items-center gap-2">
+                      <FolderOpen className="h-4 w-4 shrink-0" style={{ color: "var(--accent)" }} />
+                      <span className="text-xs" style={{ color: "var(--text-3)" }}>Pasta do projeto</span>
+                    </div>
+                    <p className="text-xs font-mono mt-1 break-all" style={{ color: "var(--text-2)" }}>{dropboxPath || "—"}</p>
+                    <p className="text-[11px] mt-2" style={{ color: "var(--text-3)" }}>Entregas:</p>
+                    <p className="text-xs font-mono break-all" style={{ color: "var(--text-2)" }}>{dropboxDeliveriesPath || "—"}</p>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => {
+                        setDropboxFolderNameInput(suggestedDropboxFolderName);
+                        setShowDropboxCreateModal(true);
+                      }}
+                    >
+                      Criar pasta Dropbox
+                    </button>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={async () => {
+                        const response = await fetch("/api/dropbox/ensure-project-folder", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ projectId }),
+                        });
+                        const payload = await response.json().catch(() => ({} as {
+                          error?: string;
+                          folderPath?: string;
+                          deliveriesPath?: string;
+                          folderUrl?: string | null;
+                          deliveriesUrl?: string | null;
+                        }));
+                        if (!response.ok) {
+                          toast.error(payload.error ?? "Falha ao recriar estrutura Dropbox");
+                          return;
                         }
-                      } catch { /* ignore */ }
-                      setSyncing(false);
-                    }}
-                  >
-                    <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
-                    {syncing ? "A sincronizar…" : "Sincronizar agora"}
-                  </button>
+                        if (payload.folderPath) setDropboxPath(payload.folderPath);
+                        if (payload.deliveriesPath) setDropboxDeliveriesPath(payload.deliveriesPath);
+                        if (payload.folderUrl !== undefined) setDropboxFolderUrl(payload.folderUrl ?? null);
+                        if (payload.deliveriesUrl !== undefined) setDropboxDeliveriesUrl(payload.deliveriesUrl ?? null);
+                        setDropboxConfigured(true);
+                        toast.success("Estrutura Dropbox validada/recriada.");
+                      }}
+                    >
+                      Recriar estrutura
+                    </button>
+                    {dropboxFolderUrl ? (
+                      <a className="btn btn-ghost btn-sm" href={dropboxFolderUrl} target="_blank" rel="noreferrer">
+                        <ExternalLink className="h-3.5 w-3.5" />
+                        Abrir Dropbox
+                      </a>
+                    ) : null}
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={async () => {
+                        if (dropboxDeliveriesUrl) {
+                          window.open(dropboxDeliveriesUrl, "_blank", "noopener,noreferrer");
+                          return;
+                        }
+                        const response = await fetch("/api/dropbox/ensure-project-folder", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ projectId }),
+                        });
+                        const payload = await response.json().catch(() => ({} as {
+                          error?: string;
+                          deliveriesUrl?: string | null;
+                          deliveriesPath?: string;
+                        }));
+                        if (!response.ok || !payload.deliveriesUrl) {
+                          toast.error(payload.error ?? "Não foi possível abrir entregas na Dropbox");
+                          return;
+                        }
+                        if (payload.deliveriesPath) setDropboxDeliveriesPath(payload.deliveriesPath);
+                        setDropboxDeliveriesUrl(payload.deliveriesUrl);
+                        window.open(payload.deliveriesUrl, "_blank", "noopener,noreferrer");
+                      }}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      Abrir Entregas na Dropbox
+                    </button>
+                    <button className="btn btn-secondary btn-sm" onClick={() => setEditingDropboxPath(true)}>
+                      Editar
+                    </button>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => {
+                        setDropboxDeleteConfirmed(false);
+                        setShowDropboxDeleteModal(true);
+                      }}
+                      style={{ color: "var(--error)" }}
+                    >
+                      Hard delete folder
+                    </button>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      disabled={syncing}
+                      onClick={async () => {
+                        setSyncing(true);
+                        try {
+                          const res = await fetch("/api/dropbox/sync", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              projectId,
+                              ...(dropboxDeliveriesPath || dropboxPath ? { path: (dropboxDeliveriesPath || dropboxPath).trim() } : {}),
+                            }),
+                          });
+                          const json = await res.json().catch(() => ({} as { error?: string; totalProcessed?: number }));
+                          if (!res.ok) {
+                            throw new Error(json.error ?? "Falha ao sincronizar Dropbox");
+                          }
+                          if (typeof json.totalProcessed === "number") {
+                            setLastSync(new Date().toISOString());
+                            const sb = createClient();
+                            const { data } = await sb.from("deliverable_files").select("id, filename, ext, file_type, collection, shared_link, bytes, captured_at, created_at").eq("project_id", projectId).order("captured_at", { ascending: false });
+                            setDelivFiles((data ?? []) as DelivFile[]);
+                            toast.success(`Sync concluído (${json.totalProcessed} ficheiros).`);
+                          }
+                        } catch (error) {
+                          toast.error(error instanceof Error ? error.message : "Falha ao sincronizar Dropbox");
+                        }
+                        setSyncing(false);
+                      }}
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+                      {syncing ? "A sincronizar…" : "Sincronizar agora"}
+                    </button>
+                  </div>
                 </div>
               )}
+
+              {dropboxConfigured ? (
+                <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: "var(--border)", background: "var(--surface-2)", color: "var(--text-2)" }}>
+                  Pasta ligada: <span style={{ color: "var(--text)" }}>{dropboxPath || "—"}</span>
+                  <br />
+                  Entregas: <span style={{ color: "var(--text)" }}>{dropboxDeliveriesPath || "—"}</span>
+                  {dropboxFolderId ? <> · ID: <span style={{ color: "var(--text)" }}>{dropboxFolderId}</span></> : null}
+                </div>
+              ) : null}
             </div>
 
             {/* Files */}

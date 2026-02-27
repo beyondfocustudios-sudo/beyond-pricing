@@ -3,25 +3,31 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
-import { LayoutGroup } from "framer-motion";
+import { AnimatePresence, LayoutGroup } from "framer-motion";
 import {
   AlertCircle,
+  Check,
+  CheckCircle2,
   Copy,
   Download,
   ExternalLink,
   FileText,
+  Flag,
   Loader2,
+  MessageSquare,
   PauseCircle,
   PlayCircle,
   Plus,
   Send,
   Sparkles,
+  XCircle,
 } from "lucide-react";
 import { buttonMotionProps, useMotionEnabled } from "@/lib/motion";
-import { CopyToast, MotionPage } from "@/components/motion-system";
+import { CopyToast, MotionList, MotionListItem, MotionPage, SavedCheckmark } from "@/components/motion-system";
 import { useMotionConfig } from "@/lib/motion-config";
 import { fireCelebration } from "@/lib/celebration";
 import { useOptionalSmoothScroll } from "@/lib/smooth-scroll";
+import { ReviewProvider } from "@/app/portal/context/ReviewContext";
 import { ApprovalsPanel, ApprovalChecklistItem } from "@/app/portal/components/ApprovalsPanel";
 import { ThreadPanel } from "@/app/portal/components/ThreadPanel";
 
@@ -141,7 +147,7 @@ export default function PortalReviewPage() {
   const [compareEnabled, setCompareEnabled] = useState(false);
   const [compareVersionId, setCompareVersionId] = useState<string>("");
   const [approvalSigner, setApprovalSigner] = useState("");
-  const [_approvalSaved, setApprovalSaved] = useState(false);
+  const [approvalSaved, setApprovalSaved] = useState(false);
   const [showCopyToast, setShowCopyToast] = useState(false);
   const [approvalChecklist, setApprovalChecklist] = useState<ApprovalChecklistItem[]>([
     { id: "sound", label: "Som validado", checked: false },
@@ -419,7 +425,7 @@ export default function PortalReviewPage() {
     }
   };
 
-  const _createTaskFromThread = async (threadId: string) => {
+  const createTaskFromThread = async (threadId: string) => {
     setBusyAction(`task-${threadId}`);
     setMessage(null);
     try {

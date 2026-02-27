@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase-server";
 import { resolveAccessRole } from "@/lib/access-role";
@@ -27,14 +26,15 @@ type CalendarMapRow = {
   last_sync_at: string | null;
 };
 
+type ProviderConfig = {
+  ready: boolean;
+  missing: string[];
+};
+
 function parseProvider(value: unknown): CalendarProvider | null {
   const provider = String(value ?? "").toLowerCase();
   if (provider === "google" || provider === "microsoft") return provider;
   return null;
-}
-
-function makeFeedToken() {
-  return randomBytes(24).toString("hex");
 }
 
 async function requireTeamUser() {
@@ -60,12 +60,14 @@ export async function GET(request: NextRequest) {
   if ("error" in access) return access.error;
 
   const { sb, user } = access;
+  const requestedProvider = parseProvider(request.nextUrl.searchParams.get("provider"));
+  const providerList = requestedProvider ? [requestedProvider] : (["google", "microsoft"] as const);
 
   const { data: integrationRows } = await sb
     .from("calendar_integrations")
     .select("id, provider, last_sync_at, last_sync_error, last_sync_status, created_at")
     .eq("user_id", user.id)
-    .in("provider", ["google", "microsoft"])
+    .in("provider", [...providerList])
     .order("provider", { ascending: true });
 
   const integrations = (integrationRows ?? []) as IntegrationRow[];
@@ -90,7 +92,6 @@ export async function GET(request: NextRequest) {
     calendarsByIntegration.set(row.integration_id, list);
   }
 
-  let feedToken = "";
   const existingToken = await sb
     .from("calendar_feed_tokens")
     .select("token")
@@ -100,27 +101,36 @@ export async function GET(request: NextRequest) {
     .limit(1)
     .maybeSingle();
 
-  if (existingToken.data?.token) {
-    feedToken = existingToken.data.token;
-  } else {
-    const generatedToken = makeFeedToken();
-    const inserted = await sb
-      .from("calendar_feed_tokens")
-      .insert({ user_id: user.id, token: generatedToken })
-      .select("token")
-      .single();
-
-    feedToken = inserted.data?.token ?? "";
-  }
+  const feedToken = existingToken.data?.token ?? "";
 
   const baseUrl = request.nextUrl.origin;
-  const providers = (["google", "microsoft"] as const).map((provider) => {
+  const providerConfig: Record<CalendarProvider, ProviderConfig> = {
+    google: {
+      ready: Boolean(process.env.GOOGLE_CALENDAR_CLIENT_ID && process.env.GOOGLE_CALENDAR_CLIENT_SECRET),
+      missing: [
+        ...(!process.env.GOOGLE_CALENDAR_CLIENT_ID ? ["GOOGLE_CALENDAR_CLIENT_ID"] : []),
+        ...(!process.env.GOOGLE_CALENDAR_CLIENT_SECRET ? ["GOOGLE_CALENDAR_CLIENT_SECRET"] : []),
+      ],
+    },
+    microsoft: {
+      ready: Boolean(process.env.MICROSOFT_CALENDAR_CLIENT_ID && process.env.MICROSOFT_CALENDAR_CLIENT_SECRET),
+      missing: [
+        ...(!process.env.MICROSOFT_CALENDAR_CLIENT_ID ? ["MICROSOFT_CALENDAR_CLIENT_ID"] : []),
+        ...(!process.env.MICROSOFT_CALENDAR_CLIENT_SECRET ? ["MICROSOFT_CALENDAR_CLIENT_SECRET"] : []),
+      ],
+    },
+  };
+
+  const providers = providerList.map((provider) => {
     const integration = integrationByProvider.get(provider) ?? null;
     const calendars = integration ? (calendarsByIntegration.get(integration.id) ?? []) : [];
+    const config = providerConfig[provider];
 
     return {
       provider,
       connected: Boolean(integration),
+      configReady: config.ready,
+      missingEnv: config.missing,
       connectUrl: `/api/integrations/${provider}/connect`,
       disconnectAction: "disconnect",
       syncAction: "sync",
@@ -141,6 +151,7 @@ export async function GET(request: NextRequest) {
     providers,
     ics: {
       feedToken,
+      hasToken: Boolean(feedToken),
       feedUrl: feedToken ? `${baseUrl}/api/calendar/feed.ics?token=${feedToken}` : null,
       downloadUrl: feedToken ? `/api/calendar/feed.ics?token=${feedToken}` : "/api/calendar/feed.ics",
     },

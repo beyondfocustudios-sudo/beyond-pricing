@@ -28,8 +28,30 @@ export async function GET(req: NextRequest) {
 
   const country = (req.nextUrl.searchParams.get("country") ?? "PT").toUpperCase();
   const fuelType = parseFuelType(req.nextUrl.searchParams.get("type"));
-
+  const fuelPriceType = fuelType === "diesel" ? "gasoleo" : "gasolina95";
   const ttlMs = ttlFromRegistry("fuel") * 1000;
+
+  const { data: weeklyCache } = await supabase
+    .from("fuel_price_cache")
+    .select("price_per_l, source, updated_at")
+    .eq("fuel_type", fuelPriceType)
+    .maybeSingle();
+
+  const weeklyPrice = Number((weeklyCache as { price_per_l?: unknown } | null)?.price_per_l);
+  if (Number.isFinite(weeklyPrice) && weeklyPrice > 0) {
+    await logPluginRun({ pluginKey: "fuel", status: "ok", cacheHit: true, meta: { country, fuelType, source: "fuel_price_cache" } });
+    return NextResponse.json({
+      ok: true,
+      price_per_liter: weeklyPrice,
+      source: String((weeklyCache as { source?: string } | null)?.source ?? "fuel_price_cache"),
+      updated_at: (weeklyCache as { updated_at?: string } | null)?.updated_at ?? null,
+      cacheHit: true,
+      stale: false,
+      country,
+      fuel_type: fuelType,
+      data: {},
+    });
+  }
 
   const { data: cachedRows } = await supabase
     .from("fuel_cache")
@@ -88,19 +110,20 @@ export async function GET(req: NextRequest) {
     const fetchedAt = new Date();
     const expiresAt = new Date(fetchedAt.getTime() + ttlMs);
 
-    await supabase.from("fuel_cache").upsert({
-      country,
-      fuel_type: fuelType,
-      price_per_liter: price,
-      source,
-      data: {
-        note: source === "org_settings"
-          ? "Preco configurado na organizacao"
-          : "Fallback publico",
+    await supabase.from("fuel_cache").upsert(
+      {
+        country,
+        fuel_type: fuelType,
+        price_per_liter: price,
+        source,
+        data: {
+          note: source === "org_settings" ? "Preco configurado na organizacao" : "Fallback publico",
+        },
+        fetched_at: fetchedAt.toISOString(),
+        expires_at: expiresAt.toISOString(),
       },
-      fetched_at: fetchedAt.toISOString(),
-      expires_at: expiresAt.toISOString(),
-    }, { onConflict: "country,fuel_type" });
+      { onConflict: "country,fuel_type" },
+    );
 
     await logPluginRun({ pluginKey: "fuel", status: "ok", cacheHit: false, meta: { country, fuelType, source } });
 

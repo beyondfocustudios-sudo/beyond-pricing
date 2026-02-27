@@ -10,7 +10,7 @@ import { transitions, variants } from "@/lib/motion";
 import {
   Plus, Users, X, Building2, User,
   Shield, FolderOpen, Check, Copy, Mail,
-  Loader2, Lock,
+  Loader2, Lock, ExternalLink,
 } from "lucide-react";
 
 interface Client {
@@ -18,6 +18,7 @@ interface Client {
   name: string;
   slug: string;
   created_at: string;
+  dropbox_folder_path?: string | null;
   _projectCount?: number;
   _memberCount?: number;
 }
@@ -69,6 +70,7 @@ export default function ClientsPage() {
   const [selectedMemberProjectId, setSelectedMemberProjectId] = useState("");
   const [allProjects, setAllProjects] = useState<Project[]>([]);
   const [showCopyToast, setShowCopyToast] = useState(false);
+  const [openingDropboxClientId, setOpeningDropboxClientId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -86,7 +88,7 @@ export default function ClientsPage() {
 
     const { data: clientsData, error: clientsErr } = await sb
       .from("clients")
-      .select("id, name, slug, created_at")
+      .select("id, name, slug, created_at, dropbox_folder_path")
       .order("created_at", { ascending: false });
 
     if (clientsErr) {
@@ -101,7 +103,8 @@ export default function ClientsPage() {
         const { count: projCount } = await sb
           .from("projects")
           .select("id", { count: "exact", head: true })
-          .eq("client_id", c.id);
+          .eq("client_id", c.id)
+          .is("deleted_at", null);
         const { count: memberCount } = await sb
           .from("client_users")
           .select("id", { count: "exact", head: true })
@@ -128,12 +131,33 @@ export default function ClientsPage() {
     setSaving(true);
     const sb = createClient();
     const slug = slugify(newClientName);
-    const { error } = await sb.from("clients").insert({ name: newClientName.trim(), slug });
+    const { data, error } = await sb
+      .from("clients")
+      .insert({ name: newClientName.trim(), slug })
+      .select("id")
+      .single();
     setSaving(false);
     if (error) {
       toast.error(`Erro ao criar cliente: ${error.message}`);
       return;
     }
+
+    if (data?.id) {
+      try {
+        const response = await fetch("/api/dropbox/ensure-client-folder", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clientId: data.id }),
+        });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({} as { error?: string }));
+          toast.info(payload.error ?? "Cliente criado. Sync Dropbox pendente.");
+        }
+      } catch {
+        toast.info("Cliente criado. Sync Dropbox pendente.");
+      }
+    }
+
     toast.success(`Cliente "${newClientName.trim()}" criado`);
     setNewClientName("");
     setModal(null);
@@ -202,6 +226,21 @@ export default function ClientsPage() {
       toast.error(`Erro ao associar projeto: ${error.message}`);
       return;
     }
+
+    try {
+      const response = await fetch("/api/dropbox/ensure-project-folder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: selectedProjectId }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({} as { error?: string }));
+        toast.info(payload.error ?? "Projeto associado. Sync Dropbox pendente.");
+      }
+    } catch {
+      toast.info("Projeto associado. Sync Dropbox pendente.");
+    }
+
     toast.success("Projeto associado ao cliente");
     setSelectedProjectId("");
     setModal(null);
@@ -356,6 +395,11 @@ export default function ClientsPage() {
                 <div>
                   <p className="font-semibold text-sm" style={{ color: "var(--text)" }}>{client.name}</p>
                   <p className="text-xs" style={{ color: "var(--text-3)" }}>/{client.slug}</p>
+                  {client.dropbox_folder_path ? (
+                    <p className="text-xs mt-1 font-mono truncate" style={{ color: "var(--text-3)", maxWidth: "16rem" }}>
+                      Dropbox: {client.dropbox_folder_path}
+                    </p>
+                  ) : null}
                 </div>
               </div>
               <button
@@ -422,6 +466,31 @@ export default function ClientsPage() {
                   className="btn btn-secondary btn-sm text-xs"
                 >
                   <Shield className="w-3.5 h-3.5" /> Membros
+                </button>
+                <button
+                  onClick={async () => {
+                    setOpeningDropboxClientId(client.id);
+                    try {
+                      const response = await fetch("/api/dropbox/ensure-client-folder", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ clientId: client.id }),
+                      });
+                      const payload = await response.json().catch(() => ({} as { error?: string; folderUrl?: string }));
+                      if (!response.ok || !payload.folderUrl) {
+                        toast.error(payload.error ?? "Não foi possível abrir pasta Dropbox");
+                        return;
+                      }
+                      window.open(payload.folderUrl, "_blank", "noopener,noreferrer");
+                    } finally {
+                      setOpeningDropboxClientId(null);
+                    }
+                  }}
+                  className="btn btn-secondary btn-sm text-xs"
+                  disabled={openingDropboxClientId === client.id}
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  {openingDropboxClientId === client.id ? "A abrir…" : "Open in Dropbox"}
                 </button>
               </div>
             )}

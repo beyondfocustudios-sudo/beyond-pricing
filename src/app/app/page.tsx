@@ -6,7 +6,7 @@ import { resolveAccessRole } from "@/lib/access-role";
 export default async function AppHomePage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login?mode=team");
+  if (!user) redirect("/login");
 
   const access = await resolveAccessRole(supabase, user);
   if (access.isCollaborator && !access.isTeam) {

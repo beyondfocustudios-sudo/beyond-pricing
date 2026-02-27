@@ -83,15 +83,16 @@ async function triggerNotifications(
   senderType: "client" | "team",
   senderId: string
 ) {
+  const INTERNAL_NOTIFY_ROLES = ["owner", "admin", "editor", "producer", "member"];
+
   if (senderType === "client") {
-    // Notify all team members of project
+    // Notify only internal team members of project (exclude client/freelancer/collaborator)
     const { data: members } = await admin.from("project_members")
-      .select("user_id")
-      .eq("project_id", projectId)
-      .not("role", "in", '("client_viewer","client_approver")');
+      .select("user_id, role")
+      .eq("project_id", projectId);
     if (members?.length) {
       const notifs = members
-        .filter((m) => m.user_id !== senderId)
+        .filter((m) => m.user_id !== senderId && INTERNAL_NOTIFY_ROLES.includes(String(m.role ?? "").toLowerCase()))
         .map((m) => ({
           user_id: m.user_id,
           type: "new_message" as const,
@@ -99,15 +100,15 @@ async function triggerNotifications(
         }));
       if (notifs.length) await admin.from("notifications").insert(notifs);
 
-      // Enqueue emails
-      if (process.env.RESEND_API_KEY || process.env.SMTP_HOST) {
-        const emails = members.filter((m) => m.user_id !== senderId).map((m) => ({
-          to_email: `team+${m.user_id}@placeholder`,
+      // Always enqueue outbox entries (provider dispatch decides sent/skipped)
+      const emails = members
+        .filter((m) => m.user_id !== senderId && INTERNAL_NOTIFY_ROLES.includes(String(m.role ?? "").toLowerCase()))
+        .map((m) => ({
+          to_email: `team+${m.user_id}@beyond.local`,
           template: "new_message",
           payload: { message_id: msg.id, project_id: projectId, sender_type: senderType },
         }));
-        if (emails.length) await admin.from("email_outbox").insert(emails);
-      }
+      if (emails.length) await admin.from("email_outbox").insert(emails);
     }
   } else {
     // Notify client users
@@ -120,14 +121,12 @@ async function triggerNotifications(
       }));
       await admin.from("notifications").insert(notifs);
 
-      if (process.env.RESEND_API_KEY || process.env.SMTP_HOST) {
-        const emails = clientUsers.map((cu) => ({
-          to_email: `client+${cu.user_id}@placeholder`,
-          template: "new_message",
-          payload: { message_id: msg.id, project_id: projectId, sender_type: senderType },
-        }));
-        await admin.from("email_outbox").insert(emails);
-      }
+      const emails = clientUsers.map((cu) => ({
+        to_email: `client+${cu.user_id}@beyond.local`,
+        template: "new_message",
+        payload: { message_id: msg.id, project_id: projectId, sender_type: senderType },
+      }));
+      await admin.from("email_outbox").insert(emails);
     }
   }
 }

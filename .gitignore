@@ -46,6 +46,7 @@ supabase/.temp/
 # playwright test results
 test-results/
 playwright-report/
+e2e/storageState-*.json
 
 # design tokens (actual export from Figma — only example is committed)
 design-tokens/tokens.json

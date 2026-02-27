@@ -108,9 +108,9 @@ export default function TemplatesPage() {
       .insert({
         user_id: user.user.id,
         owner_user_id: user.user.id,  // triggers auto project_member(owner)
-        project_name: `${t.name} — Novo Projeto`,
+        project_name: `${t.name} — Projeto`,
         client_name: "",
-        status: "rascunho",
+        status: "draft",
         inputs: {
           itens: templateItems.map((item) => ({
             id: generateId(),

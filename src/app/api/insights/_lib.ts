@@ -16,7 +16,7 @@ type ProjectMetricRow = {
 };
 
 const ADMIN_ROLES = new Set(["owner", "admin"]);
-const EXCLUDED_STATUSES = new Set(["archived", "deleted", "arquivado", "apagado"]);
+const EXCLUDED_STATUSES = new Set(["archived", "deleted", "arquivado", "apagado", "cancelled", "cancelado"]);
 
 function isMissingRelationError(error: { code?: string; message?: string } | null) {
   if (!error) return false;
@@ -105,7 +105,7 @@ export async function recalculateInsightsSnapshot() {
   const activeRows = rows.filter((row) => !isExcludedProject(row));
   const withPrice = activeRows.filter((row) => Number(row.calc?.preco_recomendado ?? 0) > 0);
   const totalRevenue = withPrice.reduce((sum, row) => sum + Number(row.calc?.preco_recomendado ?? 0), 0);
-  const sent = activeRows.filter((row) => ["enviado", "sent"].includes((row.status ?? "").toLowerCase())).length;
+  const sent = activeRows.filter((row) => ["enviado", "sent", "in_review"].includes((row.status ?? "").toLowerCase())).length;
   const approved = activeRows.filter((row) => ["aprovado", "approved"].includes((row.status ?? "").toLowerCase())).length;
 
   return {

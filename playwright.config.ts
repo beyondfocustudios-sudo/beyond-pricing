@@ -1,6 +1,7 @@
 import { defineConfig } from "@playwright/test";
 
-const baseURL = process.env.E2E_BASE_URL ?? "http://127.0.0.1:3000";
+const testPort = process.env.E2E_PORT ?? "3100";
+const baseURL = process.env.E2E_BASE_URL ?? `http://127.0.0.1:${testPort}`;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -16,7 +17,7 @@ export default defineConfig({
   webServer: process.env.E2E_BASE_URL
     ? undefined
     : {
-        command: "npm run dev",
+        command: `npm run dev -- --port ${testPort}`,
         url: baseURL,
         reuseExistingServer: true,
         timeout: 240_000,

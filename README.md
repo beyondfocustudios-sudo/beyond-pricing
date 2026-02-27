@@ -31,8 +31,12 @@ OWNER_EMAIL=daniellopes@beyondfocus.pt
 ### Dropbox (para sync de entregas)
 
 ```env
-DROPBOX_APP_KEY=xxx
-DROPBOX_APP_SECRET=xxx
+DROPBOX_CLIENT_ID=xxx
+DROPBOX_CLIENT_SECRET=xxx
+DROPBOX_REDIRECT_URI=https://beyond-pricing.vercel.app/api/dropbox/callback
+DROPBOX_TOKEN_SECRET=uma-chave-longa-e-segura
+# Opcional para fallback automático do redirect:
+NEXT_PUBLIC_SITE_URL=https://beyond-pricing.vercel.app
 ```
 
 ### Email (opcional — sem estes, apenas notificações in-app)
@@ -96,9 +100,15 @@ curl -X POST https://beyond-pricing.vercel.app/api/admin/bootstrap
 
 1. Criar app em [dropbox.com/developers](https://www.dropbox.com/developers)
 2. **Redirect URI**: `https://beyond-pricing.vercel.app/api/dropbox/callback`
-3. Permissões: `files.metadata.read`, `files.content.read`
-4. Copiar `App key` e `App secret` para `.env`
-5. Ligar em `/app/projects/[id]` → aba "Entregas" → "Conectar Dropbox"
+3. Permissões:
+   - `files.metadata.read`
+   - `files.content.read`
+   - `files.content.write`
+   - `sharing.read`
+   - `sharing.write`
+4. Copiar `Client ID` e `Client secret` para `.env`
+5. Ligar em `/app/integrations` → card Dropbox → **Connect Dropbox**
+6. Definir root path (default `/Clientes`) e correr **Sync now**
 
 ---
 
@@ -242,6 +252,11 @@ Criar `vercel.json` na raiz do projeto:
 - [ ] Export markdown
 - [ ] Summarize heurístico
 
+### Console QA (Dev)
+- [ ] Ignorar ruído de extensões: `chrome-extension://`, `FrameDoesNotExistError`, `manifest/permissions`, `background.js`, `localhost:8081`
+- [ ] Validar apenas erros com origem na app: `/_next/`, `src/`, `api/`
+- [ ] Referência: `docs/qa-console-noise-filter.md`
+
 ---
 
 ## Segurança
@@ -293,3 +308,12 @@ Criar `vercel.json` na raiz do projeto:
 9. Abrir `/app/insights` e confirmar métricas sem contar projetos deleted/archived.
 10. Abrir `/app/diagnostics` e confirmar checks verdes (DB + plugins + support logs).
 
+## Playwright QA (equipa + cliente)
+
+1. Gerar storage states:
+   - `E2E_EMAIL=... E2E_PASSWORD=... npm run test:e2e:prepare-auth`
+2. Correr smoke suite:
+   - `E2E_EMAIL=... E2E_PASSWORD=... npm run test:smoke`
+3. Ficheiros gerados (não comitados):
+   - `e2e/storageState-team.json`
+   - `e2e/storageState-client.json`
