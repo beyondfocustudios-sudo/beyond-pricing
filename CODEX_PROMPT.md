@@ -5,6 +5,24 @@
 
 ---
 
+## ⚠️ CRITICAL: Doc-Feed Entry Point
+
+**ALWAYS run this FIRST before touching any code:**
+
+```bash
+npx tsx scripts/agent/doc-feed.ts --task "your task description"
+```
+
+**This generates:**
+- `docs/agent/FEED.md` - All docs you need for this task
+- `docs/agent/FEED.json` - Machine-readable checklist
+
+**Read `docs/agent/FEED.md` completely before coding.**
+
+See `PROJECT_AGENTS.md` for full agent instructions.
+
+---
+
 ## Project Context
 
 **Beyond Pricing** is a production management + budgeting SaaS for audiovisual production companies.
