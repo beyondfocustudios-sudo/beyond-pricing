@@ -9,6 +9,7 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "preflight": "tsx scripts/preflight.ts",
+    "verify-deployment": "tsx scripts/verify-deployment.ts",
     "tokens:build": "tsx scripts/build-tokens.ts",
     "tokens:validate": "tsx scripts/build-tokens.ts --validate",
     "db:push": "supabase db push",
