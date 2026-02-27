@@ -92,6 +92,90 @@ export type PortalUpdate = {
   href: string;
 };
 
+// ─── Project Phase types (for Milestone Timeline) ─────────────────────────────
+
+export type PhaseStatus = "done" | "in_progress" | "delayed" | "pending";
+
+export type ProjectPhase = {
+  key: "pre_producao" | "rodagem" | "pos_producao" | "entrega";
+  label: string;
+  status: PhaseStatus;
+  due_date: string | null;
+  /** 0–100 */
+  progress_percent: number;
+  milestones: PortalMilestone[];
+};
+
+const PHASE_ORDER = [
+  "pre_producao",
+  "rodagem",
+  "pos_producao",
+  "entrega",
+] as const;
+
+const PHASE_LABELS: Record<(typeof PHASE_ORDER)[number], string> = {
+  pre_producao: "Pré-Produção",
+  rodagem: "Rodagem",
+  pos_producao: "Pós-Produção",
+  entrega: "Entrega",
+};
+
+function phaseStatusFrom(phaseMilestones: PortalMilestone[]): PhaseStatus {
+  if (phaseMilestones.length === 0) return "pending";
+  const allDone = phaseMilestones.every(
+    (m) => (m.status ?? "pending").toLowerCase() === "done",
+  );
+  if (allDone) return "done";
+  const anyDelayed = phaseMilestones.some((m) => {
+    const s = (m.status ?? "").toLowerCase();
+    return s === "delayed" || s === "blocked" || s === "at-risk";
+  });
+  if (anyDelayed) return "delayed";
+  const anyInProgress = phaseMilestones.some((m) => {
+    const s = (m.status ?? "").toLowerCase();
+    return s === "in_progress" || s === "in progress";
+  });
+  if (anyInProgress) return "in_progress";
+  return "pending";
+}
+
+/**
+ * Aggregates raw milestones into the 4 canonical project phases.
+ * Pure function – safe to call client-side.
+ */
+export function computeProjectPhases(
+  milestones: PortalMilestone[],
+): ProjectPhase[] {
+  return PHASE_ORDER.map((key) => {
+    const phaseMilestones = milestones.filter((m) => m.phase === key);
+    const status = phaseStatusFrom(phaseMilestones);
+
+    const progressSum = phaseMilestones.reduce((acc, m) => {
+      if ((m.status ?? "").toLowerCase() === "done") return acc + 100;
+      return acc + (m.progress_percent ?? 0);
+    }, 0);
+    const progress_percent =
+      phaseMilestones.length > 0
+        ? Math.round(progressSum / phaseMilestones.length)
+        : 0;
+
+    const dueDates = phaseMilestones
+      .map((m) => m.due_date)
+      .filter((d): d is string => d !== null)
+      .sort();
+    const due_date = dueDates.at(-1) ?? null;
+
+    return {
+      key,
+      label: PHASE_LABELS[key],
+      status,
+      due_date,
+      progress_percent,
+      milestones: phaseMilestones,
+    };
+  });
+}
+
 type ProjectMemberRow = {
   project_id: string;
   projects: (

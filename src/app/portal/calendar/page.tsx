@@ -1,630 +1,566 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { AnimatePresence, LayoutGroup, motion } from "framer-motion";
+/**
+ * Portal › Calendarização
+ *
+ * Two-state layout:
+ *   • LIST  — animated grid of project cards
+ *   • DETAIL — project selected: back button + horizontal milestone timeline
+ *              + milestone list (left) + inbox panel (right on xl+, below on mobile)
+ *
+ * Animations: spring L→R timeline fill, staggered card entrance, layoutId morph.
+ * Fully respects prefers-reduced-motion and dark / light CSS variables.
+ */
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "framer-motion";
 import {
+  ArrowLeft,
   CalendarDays,
-  Download,
-  Flag,
+  CheckCircle2,
+  Clock,
   MessageSquare,
-  Package,
-  Search,
   TriangleAlert,
-  X,
 } from "lucide-react";
 import {
+  computeProjectPhases,
   getClientProjects,
   getProjectMilestones,
   getProjectUpdates,
   type PortalMilestone,
   type PortalProject,
   type PortalUpdate,
+  type ProjectPhase,
 } from "@/lib/portal-data";
-import { buttonMotionProps, useMotionEnabled, variants } from "@/lib/motion";
+import {
+  buttonMotionProps,
+  spring,
+  useMotionEnabled,
+  variants,
+} from "@/lib/motion";
+import { MilestoneTimeline } from "./_components/MilestoneTimeline";
+import { ProjectInboxPanel } from "./_components/ProjectInboxPanel";
 
-type CalendarView = "milestones" | "timeline" | "tasks";
+// ─── Helpers ────────────────────────────────────────────────────────────────
 
-type RequestRow = {
-  id: string;
-  title: string;
-  description: string | null;
-  status: string;
-  type: string;
-  priority: string;
-  created_at: string;
+type MilestoneStatus = "done" | "at-risk" | "in_progress" | "pending";
+
+function normStatus(raw: string | null): MilestoneStatus {
+  const s = (raw ?? "pending").toLowerCase();
+  if (s === "done") return "done";
+  if (s === "blocked" || s === "at-risk" || s === "delayed") return "at-risk";
+  if (s === "in_progress" || s === "in progress") return "in_progress";
+  return "pending";
+}
+
+const STATUS_META: Record<
+  MilestoneStatus,
+  { label: string; color: string; tone: string; Icon: React.ElementType }
+> = {
+  done: {
+    label: "Concluído",
+    color: "#15803d",
+    tone: "rgba(22,163,74,0.12)",
+    Icon: CheckCircle2,
+  },
+  "at-risk": {
+    label: "Em risco",
+    color: "#b91c1c",
+    tone: "rgba(220,38,38,0.10)",
+    Icon: TriangleAlert,
+  },
+  in_progress: {
+    label: "Em curso",
+    color: "var(--accent-blue)",
+    tone: "rgba(26,143,163,0.12)",
+    Icon: Clock,
+  },
+  pending: {
+    label: "Pendente",
+    color: "var(--text-3)",
+    tone: "var(--surface-2)",
+    Icon: CalendarDays,
+  },
 };
 
-type UpdateItem = {
-  id: string;
-  kind: "message" | "review" | "delivery" | "request";
-  title: string;
-  subtitle: string;
-  createdAt: string;
-  href: string;
-};
-
-const timelineSpring = { type: "spring", stiffness: 290, damping: 28, mass: 0.85 } as const;
-
-function toIsoRange(dateString: string | null) {
-  if (!dateString) {
-    const start = new Date();
-    const end = new Date(start.getTime() + 30 * 60 * 1000);
-    return { start: start.toISOString(), end: end.toISOString() };
-  }
-  const start = new Date(dateString);
-  const end = new Date(start.getTime() + 30 * 60 * 1000);
-  return { start: start.toISOString(), end: end.toISOString() };
-}
-
-function buildGoogleLink(title: string, startIso: string, endIso: string, details?: string) {
-  const start = new Date(startIso).toISOString().replace(/[-:]/g, "").replace(".000", "");
-  const end = new Date(endIso).toISOString().replace(/[-:]/g, "").replace(".000", "");
-  const params = new URLSearchParams({
-    action: "TEMPLATE",
-    text: title,
-    dates: `${start}/${end}`,
-  });
-  if (details) params.set("details", details);
-  return `https://calendar.google.com/calendar/render?${params.toString()}`;
-}
-
-function toIcsLink(title: string, startIso: string, endIso: string, description?: string) {
-  const params = new URLSearchParams({ title, start: startIso, end: endIso });
-  if (description) params.set("description", description);
-  return `/api/calendar/event.ics?${params.toString()}`;
-}
-
-function milestoneType(milestone: PortalMilestone) {
-  const title = milestone.title.toLowerCase();
-  if (title.includes("kickoff")) return "kickoff";
-  if (title.includes("shoot") || title.includes("rodagem")) return "shoot day";
-  if (title.includes("v1")) return "delivery v1";
-  if (title.includes("v2")) return "delivery v2";
-  if (title.includes("final")) return "final";
-  if (milestone.phase === "pre_producao") return "kickoff";
-  if (milestone.phase === "rodagem") return "shoot day";
-  if (milestone.phase === "pos_producao") return "delivery";
-  return "milestone";
-}
-
-function milestoneState(status: string | null) {
-  const normalized = (status ?? "pending").toLowerCase();
-  if (normalized === "done") {
-    return { label: "done", tone: "rgba(22,163,74,0.16)", color: "#15803d" };
-  }
-  if (normalized === "blocked" || normalized === "at-risk") {
-    return { label: "at-risk", tone: "rgba(220,38,38,0.14)", color: "#b91c1c" };
-  }
-  return { label: "pending", tone: "rgba(245,158,11,0.18)", color: "#92400e" };
-}
-
-function formatDate(dateString: string | null) {
-  if (!dateString) return "Sem data";
-  return new Date(dateString).toLocaleDateString("pt-PT", {
+function formatDate(d: string | null): string {
+  if (!d) return "Sem data";
+  return new Date(d).toLocaleDateString("pt-PT", {
     day: "2-digit",
     month: "short",
     year: "numeric",
   });
 }
 
-export default function PortalCalendarPage() {
-  const searchParams = useSearchParams();
-  const initialQuery = (searchParams.get("q") ?? "").trim();
-  const [localQuery, setLocalQuery] = useState(initialQuery);
-  const query = localQuery.trim().toLowerCase();
-  const motionEnabled = useMotionEnabled();
+function formatRelative(d: string): string {
+  return new Date(d).toLocaleDateString("pt-PT", {
+    day: "2-digit",
+    month: "short",
+  });
+}
 
+function isDelivered(project: PortalProject, phases: ProjectPhase[]): boolean {
+  const s = (project.status ?? "").toLowerCase();
+  if (s === "entregue" || s === "delivered" || s === "completed") return true;
+  return phases.length > 0 && phases.every((p) => p.status === "done");
+}
+
+/** Four grey placeholder dots for project cards (milestones are loaded lazily on click) */
+function PlaceholderDots() {
+  return (
+    <div className="flex items-center gap-1">
+      {[0, 1, 2, 3].map((i) => (
+        <span
+          key={i}
+          className="h-2 w-2 rounded-full"
+          style={{ background: "var(--border)" }}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ─── Page Component ──────────────────────────────────────────────────────────
+
+export default function PortalCalendarPage() {
+  const motionEnabled = useMotionEnabled();
+  const reduced = useReducedMotion();
+
+  // ── Data ─────────────────────────────────────────────────────────────────
   const [loadingProjects, setLoadingProjects] = useState(true);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [projects, setProjects] = useState<PortalProject[]>([]);
-  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
-  const [view, setView] = useState<CalendarView>("milestones");
-  const [selectedMilestone, setSelectedMilestone] = useState<PortalMilestone | null>(null);
-  const [updatesDrawerOpen, setUpdatesDrawerOpen] = useState(true);
-
   const [milestones, setMilestones] = useState<PortalMilestone[]>([]);
-  const [requests, setRequests] = useState<RequestRow[]>([]);
-  const [updatesFromApi, setUpdatesFromApi] = useState<PortalUpdate[]>([]);
+  const [updates, setUpdates] = useState<PortalUpdate[]>([]);
 
-  useEffect(() => {
-    setLocalQuery(initialQuery);
-  }, [initialQuery]);
+  // ── UI ────────────────────────────────────────────────────────────────────
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [inboxOpen, setInboxOpen] = useState(true);
 
+  // ── Fetch projects ────────────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
-    const loadProjects = async () => {
+    const load = async () => {
       setLoadingProjects(true);
       setError(null);
       try {
         const list = await getClientProjects();
-        if (cancelled) return;
-        setProjects(list);
-        setSelectedProjectId((previous) => previous || list[0]?.id || "");
+        if (!cancelled) setProjects(list);
       } catch {
         if (!cancelled) setError("Falha ao carregar projetos.");
       } finally {
         if (!cancelled) setLoadingProjects(false);
       }
     };
-    void loadProjects();
-    return () => {
-      cancelled = true;
-    };
+    void load();
+    return () => { cancelled = true; };
   }, []);
 
+  // ── Fetch detail when project selected ────────────────────────────────────
   useEffect(() => {
-    if (!selectedProjectId) return;
+    if (!selectedId) {
+      setMilestones([]);
+      setUpdates([]);
+      return;
+    }
     let cancelled = false;
-
-    const loadProjectData = async () => {
+    const load = async () => {
       setLoadingDetail(true);
-      setError(null);
       try {
-        const [milestoneRows, requestRes, updateRows] = await Promise.all([
-          getProjectMilestones(selectedProjectId),
-          fetch(`/api/portal/requests?projectId=${encodeURIComponent(selectedProjectId)}`, { cache: "no-store" }),
-          getProjectUpdates(selectedProjectId),
+        const [ms, upd] = await Promise.all([
+          getProjectMilestones(selectedId),
+          getProjectUpdates(selectedId),
         ]);
-        const requestRows = requestRes.ok
-          ? ((await requestRes.json().catch(() => [])) as RequestRow[])
-          : [];
-
-        if (cancelled) return;
-
-        setMilestones(
-          milestoneRows.sort((a, b) => {
-            const dateA = a.due_date ? new Date(a.due_date).getTime() : Number.MAX_SAFE_INTEGER;
-            const dateB = b.due_date ? new Date(b.due_date).getTime() : Number.MAX_SAFE_INTEGER;
-            return dateA - dateB;
-          }),
-        );
-        setRequests(requestRows);
-        setUpdatesFromApi(updateRows);
+        if (!cancelled) {
+          setMilestones(
+            ms.sort((a, b) => {
+              const ta = a.due_date ? new Date(a.due_date).getTime() : Number.MAX_SAFE_INTEGER;
+              const tb = b.due_date ? new Date(b.due_date).getTime() : Number.MAX_SAFE_INTEGER;
+              return ta - tb;
+            }),
+          );
+          setUpdates(upd);
+        }
       } catch {
-        if (!cancelled) setError("Falha ao carregar timeline do projeto.");
+        // milestones stay empty — non-fatal
       } finally {
         if (!cancelled) setLoadingDetail(false);
       }
     };
+    void load();
+    return () => { cancelled = true; };
+  }, [selectedId]);
 
-    void loadProjectData();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedProjectId]);
-
-  const filteredProjects = useMemo(() => {
-    if (!query) return projects;
-    return projects.filter((project) => project.name.toLowerCase().includes(query));
-  }, [projects, query]);
-
+  // ── Derived ──────────────────────────────────────────────────────────────
   const selectedProject = useMemo(
-    () => projects.find((project) => project.id === selectedProjectId) ?? null,
-    [projects, selectedProjectId],
+    () => projects.find((p) => p.id === selectedId) ?? null,
+    [projects, selectedId],
   );
 
-  const updates = useMemo<UpdateItem[]>(() => {
-    if (updatesFromApi.length > 0) {
-      return updatesFromApi.map((item) => ({
-        id: item.id,
-        kind: item.type,
-        title: item.title,
-        subtitle: item.type === "message" ? "Mensagem" : item.type === "delivery" ? "Entrega" : item.type === "request" ? "Pedido" : "Review",
-        createdAt: item.created_at,
-        href: item.href,
-      }));
-    }
-    if (!selectedProjectId) return [];
-    return [];
-  }, [updatesFromApi, selectedProjectId]);
+  const phases = useMemo<ProjectPhase[]>(
+    () => computeProjectPhases(milestones),
+    [milestones],
+  );
 
-  const taskRows = useMemo(() => {
-    const pendingMilestones = milestones
-      .filter((milestone) => (milestone.status ?? "pending") !== "done")
-      .map((milestone) => ({
-        id: `milestone-${milestone.id}`,
-        title: milestone.title,
-        subtitle: `Milestone • ${milestoneType(milestone)}`,
-        dueDate: milestone.due_date,
-      }));
+  const handleSelectProject = useCallback((id: string) => {
+    setSelectedId(id);
+    setInboxOpen(true);
+  }, []);
 
-    const requestTasks = requests.map((request) => ({
-      id: `request-${request.id}`,
-      title: request.title,
-      subtitle: `Pedido • ${request.priority}`,
-      dueDate: null,
-    }));
+  const handleBack = useCallback(() => {
+    setSelectedId(null);
+  }, []);
 
-    return [...pendingMilestones, ...requestTasks];
-  }, [milestones, requests]);
-
-  if (loadingProjects) return <div className="skeleton h-[74vh] rounded-3xl" />;
+  // ── Guards ────────────────────────────────────────────────────────────────
+  if (loadingProjects) {
+    return <div className="skeleton h-[74vh] rounded-3xl" />;
+  }
 
   if (error) {
     return (
       <div className="card p-6">
         <p className="text-sm" style={{ color: "var(--error)" }}>{error}</p>
-        <button className="btn btn-secondary mt-3" onClick={() => window.location.reload()}>Retry</button>
+        <button className="btn btn-secondary mt-3" onClick={() => window.location.reload()}>
+          Retry
+        </button>
       </div>
     );
   }
 
-  return (
-    <LayoutGroup>
-      <div className="grid min-w-0 gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
-        <motion.section
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  DETAIL VIEW
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (selectedProject) {
+    const delivered = isDelivered(selectedProject, phases);
+
+    return (
+      <LayoutGroup>
+        <motion.div
+          className="flex min-h-[74vh] flex-col gap-4"
+          layoutId={`project-root-${selectedProject.id}`}
           layout
-          variants={variants.cardEnter}
-          initial={motionEnabled ? "initial" : false}
-          animate="animate"
-          className="card min-h-[68vh] p-4 lg:h-[calc(100dvh-180px)] lg:overflow-y-auto"
+          transition={spring.soft}
         >
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <h1 className="text-sm font-semibold" style={{ color: "var(--text)" }}>Projects</h1>
-            <span className="pill text-[11px]">{filteredProjects.length}</span>
+          {/* ── Header ── */}
+          <div className="flex items-center gap-3">
+            <motion.button
+              className="icon-btn"
+              onClick={handleBack}
+              aria-label="Voltar"
+              {...buttonMotionProps({ enabled: motionEnabled, tapScale: 0.92 })}
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </motion.button>
+            <div className="min-w-0">
+              <p className="text-xs uppercase tracking-[0.11em]" style={{ color: "var(--text-3)" }}>
+                Calendarização
+              </p>
+              <h1 className="truncate text-xl font-semibold" style={{ color: "var(--text)" }}>
+                {selectedProject.name}
+              </h1>
+            </div>
+            {delivered && (
+              <span
+                className="pill ml-auto shrink-0 text-[10px]"
+                style={{ background: "rgba(22,163,74,0.14)", color: "#15803d" }}
+              >
+                Entregue ✓
+              </span>
+            )}
           </div>
 
-          <label className="table-search-pill mb-3">
-            <Search className="h-3.5 w-3.5" />
-            <input value={localQuery} onChange={(event) => setLocalQuery(event.target.value)} placeholder="Pesquisar projetos e updates" />
-          </label>
+          {/* ── Milestone Timeline ── */}
+          <div
+            className="card px-6 py-2"
+            style={{
+              background: delivered ? "rgba(22,163,74,0.04)" : "var(--surface)",
+            }}
+          >
+            {loadingDetail ? (
+              <div className="skeleton my-2 h-16 rounded-xl" />
+            ) : (
+              <MilestoneTimeline phases={phases} animateIn />
+            )}
+          </div>
 
-          <div className="space-y-2">
-            {filteredProjects.map((project) => {
-              const active = project.id === selectedProjectId;
+          {/* ── Content grid: milestones (left) + inbox (right) ── */}
+          <div className="flex min-h-0 flex-1 flex-col gap-3 xl:grid xl:grid-cols-[minmax(0,1fr)_300px]">
+
+            {/* Left column */}
+            <motion.div
+              className="flex flex-col gap-3"
+              variants={variants.cardEnter}
+              initial={motionEnabled ? "initial" : false}
+              animate="animate"
+            >
+              {/* Milestones card */}
+              <div className="card p-4">
+                <h2
+                  className="mb-3 text-xs font-semibold uppercase tracking-[0.11em]"
+                  style={{ color: "var(--text-3)" }}
+                >
+                  Milestones
+                </h2>
+
+                {loadingDetail ? (
+                  <div className="space-y-2">
+                    {[1, 2, 3].map((i) => <div key={i} className="skeleton h-14 rounded-xl" />)}
+                  </div>
+                ) : milestones.length === 0 ? (
+                  <p
+                    className="rounded-xl border border-dashed p-4 text-xs"
+                    style={{ borderColor: "var(--border)", color: "var(--text-3)" }}
+                  >
+                    Sem milestones definidos para este projeto.
+                  </p>
+                ) : (
+                  <motion.div
+                    className="space-y-2"
+                    variants={variants.containerStagger}
+                    initial={motionEnabled ? "initial" : false}
+                    animate="animate"
+                  >
+                    {milestones.map((ms) => {
+                      const st = normStatus(ms.status);
+                      const meta = STATUS_META[st];
+                      const { Icon } = meta;
+                      return (
+                        <motion.div
+                          key={ms.id}
+                          className="flex items-start gap-3 rounded-2xl border p-3"
+                          style={{ borderColor: "var(--border)", background: meta.tone }}
+                          variants={variants.itemEnter}
+                        >
+                          <Icon
+                            className="mt-0.5 h-4 w-4 shrink-0"
+                            style={{ color: meta.color }}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-semibold" style={{ color: "var(--text)" }}>
+                              {ms.title}
+                            </p>
+                            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                              <span className="text-xs" style={{ color: "var(--text-3)" }}>
+                                {formatDate(ms.due_date)}
+                              </span>
+                              <span
+                                className="pill text-[10px]"
+                                style={{ background: meta.tone, color: meta.color }}
+                              >
+                                {meta.label}
+                              </span>
+                            </div>
+                            {ms.description && (
+                              <p className="mt-1 line-clamp-2 text-xs" style={{ color: "var(--text-2)" }}>
+                                {ms.description}
+                              </p>
+                            )}
+                          </div>
+                          {ms.progress_percent !== null && ms.progress_percent > 0 && (
+                            <span className="shrink-0 text-xs font-semibold" style={{ color: meta.color }}>
+                              {ms.progress_percent}%
+                            </span>
+                          )}
+                        </motion.div>
+                      );
+                    })}
+                  </motion.div>
+                )}
+              </div>
+
+              {/* Updates card */}
+              {updates.length > 0 && (
+                <div className="card p-4">
+                  <h2
+                    className="mb-3 text-xs font-semibold uppercase tracking-[0.11em]"
+                    style={{ color: "var(--text-3)" }}
+                  >
+                    Últimas atualizações
+                  </h2>
+                  <div className="space-y-2">
+                    {updates.slice(0, 8).map((upd) => (
+                      <a
+                        key={upd.id}
+                        href={upd.href}
+                        className="flex items-center gap-3 rounded-xl border px-3 py-2 transition-colors hover:bg-[var(--surface-2)]"
+                        style={{ borderColor: "var(--border)" }}
+                      >
+                        <span
+                          className="shrink-0 text-[10px] uppercase tracking-[0.1em]"
+                          style={{ color: "var(--text-3)" }}
+                        >
+                          {upd.type}
+                        </span>
+                        <p className="min-w-0 flex-1 truncate text-sm" style={{ color: "var(--text)" }}>
+                          {upd.title}
+                        </p>
+                        <span className="shrink-0 text-[10px]" style={{ color: "var(--text-3)" }}>
+                          {formatRelative(upd.created_at)}
+                        </span>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Mobile inbox toggle */}
+              <button
+                className="btn btn-secondary btn-sm w-full gap-2 xl:hidden"
+                onClick={() => setInboxOpen((v) => !v)}
+              >
+                <MessageSquare className="h-4 w-4" />
+                {inboxOpen ? "Fechar Inbox" : "Abrir Inbox"}
+              </button>
+
+              {/* Mobile inbox (inline, below milestones) */}
+              <AnimatePresence>
+                {inboxOpen && (
+                  <motion.div
+                    className="xl:hidden"
+                    style={{ minHeight: 360 }}
+                    initial={reduced ? false : { opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={reduced ? undefined : { opacity: 0, y: 12 }}
+                    transition={spring.ui}
+                  >
+                    <ProjectInboxPanel
+                      projectId={selectedProject.id}
+                      projectName={selectedProject.name}
+                      onClose={() => setInboxOpen(false)}
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
+
+            {/* Right column: inbox panel (desktop) */}
+            <AnimatePresence>
+              {inboxOpen && (
+                <div className="hidden xl:flex xl:flex-col" style={{ minHeight: 400 }}>
+                  <ProjectInboxPanel
+                    projectId={selectedProject.id}
+                    projectName={selectedProject.name}
+                    onClose={() => setInboxOpen(false)}
+                  />
+                </div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* Floating "open inbox" when closed on desktop */}
+          <AnimatePresence>
+            {!inboxOpen && (
+              <motion.button
+                className="fixed bottom-6 right-6 z-30 btn btn-secondary btn-sm gap-2 shadow-lg"
+                onClick={() => setInboxOpen(true)}
+                initial={reduced ? false : { opacity: 0, scale: 0.88 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={reduced ? undefined : { opacity: 0, scale: 0.88 }}
+                transition={spring.fast}
+              >
+                <MessageSquare className="h-4 w-4" />
+                Inbox
+              </motion.button>
+            )}
+          </AnimatePresence>
+        </motion.div>
+      </LayoutGroup>
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  LIST VIEW — project cards grid
+  // ═══════════════════════════════════════════════════════════════════════════
+  return (
+    <LayoutGroup>
+      <motion.div
+        className="flex flex-col gap-5"
+        variants={variants.page}
+        initial={motionEnabled ? "initial" : false}
+        animate="animate"
+      >
+        {/* Header */}
+        <div className="flex items-center gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-[0.11em]" style={{ color: "var(--text-3)" }}>
+              Calendarização
+            </p>
+            <h1 className="text-xl font-semibold" style={{ color: "var(--text)" }}>
+              Os teus projetos
+            </h1>
+          </div>
+          <span className="pill ml-auto text-[11px]">{projects.length}</span>
+        </div>
+
+        {/* Empty state */}
+        {projects.length === 0 ? (
+          <p
+            className="rounded-2xl border border-dashed p-8 text-center text-sm"
+            style={{ borderColor: "var(--border)", color: "var(--text-3)" }}
+          >
+            Nenhum projeto associado à tua conta.
+          </p>
+        ) : (
+          /* Cards grid */
+          <motion.div
+            className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+            variants={variants.containerStagger}
+            initial={motionEnabled ? "initial" : false}
+            animate="animate"
+          >
+            {projects.map((project) => {
+              const delivered =
+                (project.status ?? "").toLowerCase() === "entregue" ||
+                (project.status ?? "").toLowerCase() === "delivered";
+
               return (
                 <motion.button
                   key={project.id}
-                  layoutId={`portal-project-${project.id}`}
+                  layoutId={`project-root-${project.id}`}
                   layout
-                  onClick={() => setSelectedProjectId(project.id)}
-                  className="w-full rounded-2xl border p-3 text-left"
+                  className="group rounded-2xl border p-4 text-left"
                   style={{
-                    borderColor: active ? "rgba(26,143,163,0.35)" : "var(--border)",
-                    background: active ? "rgba(26,143,163,0.10)" : "var(--surface)",
+                    borderColor: delivered ? "rgba(22,163,74,0.30)" : "var(--border)",
+                    background: delivered ? "rgba(22,163,74,0.06)" : "var(--surface)",
                   }}
-                  transition={timelineSpring}
-                  {...buttonMotionProps({ enabled: motionEnabled, hoverY: -1 })}
+                  onClick={() => handleSelectProject(project.id)}
+                  variants={variants.itemEnter}
+                  transition={spring.soft}
+                  {...buttonMotionProps({ enabled: motionEnabled, hoverY: -3 })}
                 >
-                  <p className="truncate text-sm font-semibold" style={{ color: "var(--text)" }}>{project.name}</p>
-                  <p className="text-xs" style={{ color: "var(--text-3)" }}>
-                    {project.status ?? "active"} • {new Date(project.updated_at).toLocaleDateString("pt-PT")}
-                  </p>
+                  {/* Name row */}
+                  <div className="mb-2 flex items-start justify-between gap-2">
+                    <p className="truncate text-sm font-semibold" style={{ color: "var(--text)" }}>
+                      {project.name}
+                    </p>
+                    {delivered && (
+                      <CheckCircle2
+                        className="mt-0.5 h-4 w-4 shrink-0"
+                        style={{ color: "#15803d" }}
+                      />
+                    )}
+                  </div>
+
+                  {/* Phase dots — placeholder (we don't pre-load all projects' milestones) */}
+                  <PlaceholderDots />
+
+                  {/* Footer */}
+                  <div className="mt-3 flex items-center justify-between gap-2">
+                    <span className="text-xs" style={{ color: "var(--text-3)" }}>
+                      {formatRelative(project.updated_at)}
+                    </span>
+                    <span className="pill text-[10px] opacity-0 transition-opacity group-hover:opacity-100">
+                      Ver →
+                    </span>
+                  </div>
                 </motion.button>
               );
             })}
-          </div>
-
-          {filteredProjects.length === 0 ? (
-            <p className="mt-3 rounded-xl border border-dashed p-4 text-xs" style={{ borderColor: "var(--border)", color: "var(--text-3)" }}>
-              Sem projetos para este filtro.
-            </p>
-          ) : null}
-        </motion.section>
-
-        <motion.section
-          layout
-          variants={variants.cardEnter}
-          initial={motionEnabled ? "initial" : false}
-          animate="animate"
-          className="card min-w-0 min-h-[68vh] p-5 lg:h-[calc(100dvh-180px)] lg:overflow-hidden"
-        >
-          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-xs uppercase tracking-[0.11em]" style={{ color: "var(--text-3)" }}>Calendarização</p>
-              <h2 className="truncate text-[1.15rem] font-semibold" style={{ color: "var(--text)" }}>
-                {selectedProject?.name ?? "Seleciona um projeto"}
-              </h2>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {(["milestones", "timeline", "tasks"] as CalendarView[]).map((item) => (
-                <motion.button
-                  key={item}
-                  onClick={() => setView(item)}
-                  className="pill px-3 py-1.5 text-xs capitalize"
-                  style={{
-                    background: view === item ? "rgba(26,143,163,0.16)" : "var(--surface-2)",
-                    color: view === item ? "var(--accent-blue)" : "var(--text-3)",
-                  }}
-                  transition={timelineSpring}
-                  {...buttonMotionProps({ enabled: motionEnabled })}
-                >
-                  {item}
-                </motion.button>
-              ))}
-            </div>
-          </div>
-
-          <div className="min-h-0 flex-1">
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={`${selectedProjectId}-${view}`}
-                initial={motionEnabled ? { opacity: 0, y: 10 } : false}
-                animate={{ opacity: 1, y: 0 }}
-                exit={motionEnabled ? { opacity: 0, y: -8 } : {}}
-                transition={timelineSpring}
-                className="h-full"
-              >
-                {loadingDetail ? <div className="skeleton h-[52vh] rounded-2xl" /> : null}
-
-                {!loadingDetail && view === "milestones" ? (
-                  <div className="flex h-full min-h-[52vh] flex-col">
-                    <div className="hidden pb-2 md:block">
-                      <div className="h-px w-full" style={{ background: "var(--border)" }} />
-                    </div>
-                    <div className="min-h-0 md:overflow-x-auto md:pb-3">
-                      <div className="space-y-3 md:flex md:min-w-max md:snap-x md:gap-4 md:space-y-0">
-                        {milestones.map((milestone) => {
-                          const state = milestoneState(milestone.status);
-                          return (
-                            <motion.button
-                              key={milestone.id}
-                              layout
-                              onClick={() => setSelectedMilestone(milestone)}
-                              className="w-full snap-start rounded-2xl border p-4 text-left md:w-[280px]"
-                              style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}
-                              transition={timelineSpring}
-                              {...buttonMotionProps({ enabled: motionEnabled, hoverY: -2 })}
-                            >
-                              <div className="mb-2 flex items-center justify-between gap-2">
-                                <span className="pill text-[10px]" style={{ background: state.tone, color: state.color }}>
-                                  {state.label}
-                                </span>
-                                <span className="text-[10px] uppercase tracking-[0.1em]" style={{ color: "var(--text-3)" }}>
-                                  {milestoneType(milestone)}
-                                </span>
-                              </div>
-                              <p className="line-clamp-2 text-sm font-semibold" style={{ color: "var(--text)" }}>{milestone.title}</p>
-                              <p className="mt-2 text-xs" style={{ color: "var(--text-3)" }}>{formatDate(milestone.due_date)}</p>
-                            </motion.button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {milestones.length === 0 ? (
-                      <p className="mt-2 rounded-xl border border-dashed p-4 text-xs" style={{ borderColor: "var(--border)", color: "var(--text-3)" }}>
-                        Sem milestones para este projeto.
-                      </p>
-                    ) : null}
-
-                    <div className="mt-4 border-t pt-4" style={{ borderColor: "var(--border)" }}>
-                      <div className="mb-2 flex items-center justify-between">
-                        <h4 className="text-xs font-semibold uppercase tracking-[0.11em]" style={{ color: "var(--text-3)" }}>
-                          Gestão do Projeto
-                        </h4>
-                        <span className="pill text-[10px]">{updates.length}</span>
-                      </div>
-                      <div className="max-h-[28vh] space-y-2 overflow-y-auto pr-1">
-                        {updates.slice(0, 12).map((update) => (
-                          <Link
-                            key={update.id}
-                            href={update.href}
-                            className="flex items-center justify-between rounded-xl border px-3 py-2"
-                            style={{ borderColor: "var(--border)", background: "var(--surface)" }}
-                          >
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-medium" style={{ color: "var(--text)" }}>{update.title}</p>
-                              <p className="text-[11px]" style={{ color: "var(--text-3)" }}>
-                                {update.subtitle} • {new Date(update.createdAt).toLocaleString("pt-PT")}
-                              </p>
-                            </div>
-                            <span className="pill text-[10px]">Abrir</span>
-                          </Link>
-                        ))}
-                        {updates.length === 0 ? (
-                          <p className="rounded-xl border border-dashed p-3 text-xs" style={{ borderColor: "var(--border)", color: "var(--text-3)" }}>
-                            Sem updates recentes.
-                          </p>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-
-                {!loadingDetail && view === "timeline" ? (
-                  <div className="max-h-[58vh] space-y-3 overflow-y-auto pr-1">
-                    {milestones.map((milestone) => {
-                      const state = milestoneState(milestone.status);
-                      return (
-                        <motion.button
-                          key={milestone.id}
-                          layout
-                          onClick={() => setSelectedMilestone(milestone)}
-                          className="w-full rounded-2xl border p-3 text-left"
-                          style={{ borderColor: "var(--border)", background: "var(--surface)" }}
-                          transition={timelineSpring}
-                          {...buttonMotionProps({ enabled: motionEnabled, hoverY: -1.5 })}
-                        >
-                          <div className="flex items-start gap-3">
-                            <span className="mt-1 h-2.5 w-2.5 rounded-full" style={{ background: state.color }} />
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-semibold" style={{ color: "var(--text)" }}>{milestone.title}</p>
-                              <p className="text-xs" style={{ color: "var(--text-3)" }}>
-                                {formatDate(milestone.due_date)} • {milestoneType(milestone)} • {state.label}
-                              </p>
-                            </div>
-                          </div>
-                        </motion.button>
-                      );
-                    })}
-                  </div>
-                ) : null}
-
-                {!loadingDetail && view === "tasks" ? (
-                  <div className="max-h-[58vh] space-y-2 overflow-y-auto pr-1">
-                    {taskRows.map((task) => (
-                      <motion.article
-                        key={task.id}
-                        layout
-                        className="rounded-2xl border p-3"
-                        style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}
-                        transition={timelineSpring}
-                      >
-                        <p className="truncate text-sm font-semibold" style={{ color: "var(--text)" }}>{task.title}</p>
-                        <p className="text-xs" style={{ color: "var(--text-3)" }}>
-                          {task.subtitle} {task.dueDate ? `• ${formatDate(task.dueDate)}` : ""}
-                        </p>
-                      </motion.article>
-                    ))}
-                    {taskRows.length === 0 ? (
-                      <p className="rounded-xl border border-dashed p-4 text-xs" style={{ borderColor: "var(--border)", color: "var(--text-3)" }}>
-                        Sem tarefas pendentes.
-                      </p>
-                    ) : null}
-                  </div>
-                ) : null}
-              </motion.div>
-            </AnimatePresence>
-          </div>
-        </motion.section>
-
-      </div>
-
-      <div className="fixed bottom-6 right-6 z-30">
-        <button className="btn btn-secondary btn-sm" onClick={() => setUpdatesDrawerOpen((value) => !value)}>
-          {updatesDrawerOpen ? "Fechar inbox" : "Abrir inbox"}
-        </button>
-      </div>
-
-      <AnimatePresence>
-        {updatesDrawerOpen ? (
-          <motion.aside
-            layout
-            initial={{ opacity: 0, x: 24 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 24 }}
-            transition={timelineSpring}
-            className="fixed inset-y-0 right-0 z-40 w-full max-w-sm border-l bg-[var(--surface)] p-5 shadow-2xl"
-          >
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>Inbox / Updates</h3>
-              <button className="icon-btn" onClick={() => setUpdatesDrawerOpen(false)} aria-label="Fechar drawer">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <p className="mt-1 text-xs" style={{ color: "var(--text-3)" }}>
-              Mensagens, comentários e entregas recentes do projeto.
-            </p>
-
-            <div className="mt-4 max-h-[calc(100dvh-120px)] space-y-2 overflow-y-auto pr-1">
-              {updates.slice(0, 24).map((update) => (
-                <motion.div
-                  key={update.id}
-                  layout
-                  transition={timelineSpring}
-                  className="rounded-2xl border p-3"
-                  style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}
-                >
-                  <div className="mb-1 flex items-center gap-2 text-[11px]" style={{ color: "var(--text-3)" }}>
-                    {update.kind === "message" ? <MessageSquare className="h-3.5 w-3.5" /> : null}
-                    {update.kind === "review" || update.kind === "request" ? <TriangleAlert className="h-3.5 w-3.5" /> : null}
-                    {update.kind === "delivery" ? <Package className="h-3.5 w-3.5" /> : null}
-                    <span>{update.subtitle}</span>
-                  </div>
-                  <p className="line-clamp-2 text-sm font-medium" style={{ color: "var(--text)" }}>{update.title}</p>
-                  <div className="mt-2 flex items-center justify-between gap-2">
-                    <p className="text-[10px]" style={{ color: "var(--text-3)" }}>
-                      {new Date(update.createdAt).toLocaleString("pt-PT")}
-                    </p>
-                    <Link className="btn btn-ghost btn-sm" href={update.href}>
-                      Abrir
-                    </Link>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-
-            {updates.length === 0 ? (
-              <p className="mt-3 rounded-xl border border-dashed p-4 text-xs" style={{ borderColor: "var(--border)", color: "var(--text-3)" }}>
-                Sem updates recentes.
-              </p>
-            ) : null}
-          </motion.aside>
-        ) : null}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {selectedMilestone ? (
-          <motion.div
-            className="fixed inset-0 z-50 flex items-end justify-end bg-black/25 p-3 sm:p-6"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setSelectedMilestone(null)}
-          >
-            <motion.div
-              className="card w-full max-w-[420px] p-5"
-              initial={{ x: 40, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: 30, opacity: 0 }}
-              transition={timelineSpring}
-              onClick={(event) => event.stopPropagation()}
-            >
-              <div className="mb-3 flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-xs uppercase tracking-[0.11em]" style={{ color: "var(--text-3)" }}>
-                    {milestoneType(selectedMilestone)}
-                  </p>
-                  <h4 className="line-clamp-2 text-lg font-semibold" style={{ color: "var(--text)" }}>{selectedMilestone.title}</h4>
-                </div>
-                <button className="icon-btn" onClick={() => setSelectedMilestone(null)} aria-label="Fechar detalhe">
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-
-              <div className="space-y-2 text-xs" style={{ color: "var(--text-2)" }}>
-                <p className="flex items-center gap-2"><CalendarDays className="h-3.5 w-3.5" /> {formatDate(selectedMilestone.due_date)}</p>
-                <p className="flex items-center gap-2"><Flag className="h-3.5 w-3.5" /> Estado: {milestoneState(selectedMilestone.status).label}</p>
-                {selectedMilestone.description ? (
-                  <p className="rounded-xl border p-2.5 text-xs" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
-                    {selectedMilestone.description}
-                  </p>
-                ) : null}
-              </div>
-
-              <div className="mt-4 flex flex-wrap gap-2">
-                <a
-                  className="btn btn-secondary btn-sm"
-                  href={buildGoogleLink(
-                    selectedMilestone.title,
-                    toIsoRange(selectedMilestone.due_date).start,
-                    toIsoRange(selectedMilestone.due_date).end,
-                    selectedMilestone.description ?? undefined,
-                  )}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  <CalendarDays className="h-4 w-4" />
-                  Add to Google
-                </a>
-                <a
-                  className="btn btn-ghost btn-sm"
-                  href={toIcsLink(
-                    selectedMilestone.title,
-                    toIsoRange(selectedMilestone.due_date).start,
-                    toIsoRange(selectedMilestone.due_date).end,
-                    selectedMilestone.description ?? undefined,
-                  )}
-                >
-                  <Download className="h-4 w-4" />
-                  Download ICS
-                </a>
-                {selectedProject ? (
-                  <Link className="btn btn-ghost btn-sm" href={`/portal/projects/${selectedProject.id}?tab=inbox`}>
-                    <MessageSquare className="h-4 w-4" />
-                    Abrir projeto
-                  </Link>
-                ) : null}
-              </div>
-            </motion.div>
           </motion.div>
-        ) : null}
-      </AnimatePresence>
+        )}
+      </motion.div>
     </LayoutGroup>
   );
 }
