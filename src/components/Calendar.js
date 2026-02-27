@@ -1,8 +1,15 @@
 import React from 'react';
 
 function Calendar() {
+    const milestones = [
+        { name: 'Budget Planning', date: '2026-01-01' },
+        { name: 'Decision Request', date: '2026-02-15' },
+        { name: 'This is a very long milestone name', date: '2026-02-20' },
+        { name: 'Yet Another Milestone', date: '2026-03-01' },
+    ];
+
     return (
-        <div className="calendar-layout">
+        <div className="calendar-container">
             <header className="calendar-header">
                 <h2>Golden Garden</h2>
                 <div className="navigation">
@@ -12,23 +19,13 @@ function Calendar() {
                 </div>
             </header>
             <div className="timeline">
-                {/* Implementação da linha do tempo */}
-                <div className="milestone">
-                    <span className="milestone-icon">🎮</span>
-                    <span>Budget Planning</span>
-                </div>
-                <div className="milestone">
-                    <span className="milestone-icon">📝</span>
-                    <span>This is a very long milestone name</span>
-                </div>
-                <div className="milestone">
-                    <span className="milestone-icon">📅</span>
-                    <span>Yet Another Milestone</span>
-                </div>
+                {milestones.map((milestone, index) => (
+                    <div key={index} className="milestone">
+                        <span className="icon">🏁</span>
+                        <span>{milestone.name}</span>
+                    </div>
+                ))}
             </div>
-            <footer className="version-info">
-                <p><small>Version: 1.0.0</small></p>
-            </footer>
         </div>
     );
 }

@@ -214,7 +214,9 @@ Criar `vercel.json` na raiz do projeto:
 - [ ] Login portal OTP → /portal
 - [ ] Logout funcional
 
-### Projetos
+### Projeto
+
+> **Disclaimer:** As alterações em `main` só devem ser feitas mediante PR.s
 - [ ] Criar projeto + itens + calcular
 - [ ] Export PPTX (download)
 - [ ] Export PDF
