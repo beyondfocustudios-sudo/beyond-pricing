@@ -3,10 +3,16 @@ import { fetchMilestones } from '@/lib/api';
 import { CheckCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
 
+interface Milestone {
+    id: number;
+    name: string;
+    date: string;
+}
+
 const Calendar = () => {
-    const [milestones, setMilestones] = useState([]);
+    const [milestones, setMilestones] = useState<Milestone[]>([]);
     const [loading, setLoading] = useState(true);
-    const [selectedMilestone, setSelectedMilestone] = useState(null);
+    const [selectedMilestone, setSelectedMilestone] = useState<Milestone | null>(null);
 
     useEffect(() => {
         const getMilestones = async () => {
