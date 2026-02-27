@@ -1,0 +1,130 @@
+{
+  "version": "1.0",
+  "last_updated": "2026-02-27",
+  "description": "Registry of agent documentation with tags, priority, and relationships",
+  "docs": [
+    {
+      "id": "source-of-truth-main",
+      "path": "../SOURCE_OF_TRUTH_MAIN.md",
+      "title": "Source of Truth: Main Branch Guardrails",
+      "priority": 1,
+      "tags": ["guardrails", "main", "branch", "production", "rules"],
+      "when_to_read": "Always first - fundamental rules that can never be broken",
+      "must_read_before_commit": true,
+      "must_read_before_push": true,
+      "related_features": ["all"]
+    },
+    {
+      "id": "runbook-branching",
+      "path": "RUNBOOK_BRANCHING.md",
+      "title": "Branching Strategy & Merge Rules",
+      "priority": 2,
+      "tags": ["git", "branch", "feature", "agent", "jarvis", "main"],
+      "when_to_read": "Before creating any branch or making commits",
+      "must_read_before_commit": true,
+      "related_features": ["all"]
+    },
+    {
+      "id": "runbook-deploy-vercel",
+      "path": "RUNBOOK_DEPLOY_VERCEL.md",
+      "title": "Vercel Deployment & Anti-Old-Versions",
+      "priority": 2,
+      "tags": ["vercel", "deploy", "alias", "version", "production", "ci-cd"],
+      "when_to_read": "When deploying to production, handling aliases, or debugging version mismatches",
+      "must_read_before_commit": false,
+      "must_read_before_push": true,
+      "related_features": ["deployment", "preview", "production"]
+    },
+    {
+      "id": "runbook-supabase",
+      "path": "RUNBOOK_SUPABASE.md",
+      "title": "Supabase Configuration & Pitfalls",
+      "priority": 3,
+      "tags": ["supabase", "env", "rls", "auth", "prerender", "migrations"],
+      "when_to_read": "When touching env vars, RLS policies, auth, or migrations",
+      "must_read_before_commit": true,
+      "related_features": ["auth", "portal", "reset-password", "api", "database"]
+    },
+    {
+      "id": "runbook-qa",
+      "path": "RUNBOOK_QA.md",
+      "title": "QA Checklist & Test Procedures",
+      "priority": 3,
+      "tags": ["qa", "testing", "playwright", "e2e", "smoke", "criteria"],
+      "when_to_read": "Before submitting PR or claiming 'Terminado ✅'",
+      "must_read_before_commit": true,
+      "related_features": ["all"]
+    },
+    {
+      "id": "runbook-portal-client",
+      "path": "RUNBOOK_PORTAL_CLIENT.md",
+      "title": "Portal Client Features & Architecture",
+      "priority": 3,
+      "tags": ["portal", "client", "review", "deliverables", "dropbox", "rls"],
+      "when_to_read": "When working on portal features, client deliveries, or review flows",
+      "must_read_before_commit": true,
+      "related_features": ["portal", "client-login", "deliveries", "review", "dropbox"]
+    },
+    {
+      "id": "known-issues",
+      "path": "KNOWN_ISSUES.md",
+      "title": "Known Issues & Historical Fixes",
+      "priority": 2,
+      "tags": ["tailwind", "rebase", "prerender", "scroll", "dark-mode", "crashes", "debug"],
+      "when_to_read": "When debugging mysterious errors or getting build crashes",
+      "must_read_before_commit": false,
+      "related_features": ["tailwind", "auth", "portal", "prerender"]
+    },
+    {
+      "id": "workflow-30s",
+      "path": "../WORKFLOW_30S.md",
+      "title": "Quick Workflow (30 seconds)",
+      "priority": 1,
+      "tags": ["quick-start", "workflow", "7-steps", "beginners"],
+      "when_to_read": "If you just need the bare minimum workflow",
+      "must_read_before_commit": false,
+      "related_features": ["all"]
+    }
+  ],
+  "keywords_to_docs": {
+    "supabase": ["runbook-supabase", "known-issues"],
+    "env": ["runbook-supabase"],
+    "prerender": ["runbook-supabase", "known-issues"],
+    "reset-password": ["runbook-supabase", "known-issues"],
+    "portal": ["runbook-portal-client", "runbook-qa"],
+    "review": ["runbook-portal-client", "runbook-qa"],
+    "deliverables": ["runbook-portal-client"],
+    "dropbox": ["runbook-portal-client"],
+    "client": ["runbook-portal-client"],
+    "scroll": ["runbook-portal-client", "known-issues"],
+    "dark-mode": ["runbook-portal-client", "known-issues"],
+    "tailwind": ["known-issues"],
+    "rebase": ["runbook-branching", "known-issues"],
+    "vercel": ["runbook-deploy-vercel"],
+    "deploy": ["runbook-deploy-vercel"],
+    "alias": ["runbook-deploy-vercel"],
+    "version": ["runbook-deploy-vercel", "source-of-truth-main"],
+    "main": ["source-of-truth-main", "runbook-branching"],
+    "branch": ["runbook-branching", "source-of-truth-main"],
+    "rls": ["runbook-supabase", "runbook-portal-client"],
+    "auth": ["runbook-supabase", "runbook-qa"],
+    "testing": ["runbook-qa"],
+    "playwright": ["runbook-qa"],
+    "smoke": ["runbook-qa"],
+    "crash": ["known-issues"]
+  },
+  "feature_to_docs": {
+    "auth": ["runbook-supabase", "known-issues"],
+    "portal": ["runbook-portal-client", "runbook-supabase", "runbook-qa"],
+    "client-login": ["runbook-portal-client", "runbook-supabase"],
+    "deliveries": ["runbook-portal-client", "runbook-qa"],
+    "review": ["runbook-portal-client", "runbook-qa"],
+    "dropbox": ["runbook-portal-client"],
+    "deployment": ["runbook-deploy-vercel", "runbook-qa"],
+    "preview": ["runbook-deploy-vercel"],
+    "production": ["runbook-deploy-vercel", "source-of-truth-main"],
+    "database": ["runbook-supabase"],
+    "api": ["runbook-supabase", "runbook-qa"],
+    "reset-password": ["runbook-supabase", "known-issues"]
+  }
+}

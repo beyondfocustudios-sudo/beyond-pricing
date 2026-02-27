@@ -1,0 +1,73 @@
+{
+  "context": {
+    "branch": "feature/agent-doc-feeding-guardrails",
+    "sha": "3fbceba",
+    "timestamp": "2026-02-27T13:36:27.932Z",
+    "mode": "claude",
+    "task": "fix portal review scroll issue when deliverables active"
+  },
+  "must_read": [
+    {
+      "id": "source-of-truth-main",
+      "title": "Source of Truth: Main Branch Guardrails",
+      "path": "../SOURCE_OF_TRUTH_MAIN.md",
+      "priority": 1,
+      "reason": "Must read before working on: fix portal review scroll issue when deliverables active"
+    },
+    {
+      "id": "runbook-portal-client",
+      "title": "Portal Client Features & Architecture",
+      "path": "RUNBOOK_PORTAL_CLIENT.md",
+      "priority": 3,
+      "reason": "Must read before working on: fix portal review scroll issue when deliverables active"
+    },
+    {
+      "id": "runbook-qa",
+      "title": "QA Checklist & Test Procedures",
+      "path": "RUNBOOK_QA.md",
+      "priority": 3,
+      "reason": "Must read before working on: fix portal review scroll issue when deliverables active"
+    }
+  ],
+  "recommended": [
+    {
+      "id": "workflow-30s",
+      "title": "Quick Workflow (30 seconds)",
+      "path": "../WORKFLOW_30S.md",
+      "priority": 1,
+      "reason": "Helpful for: fix portal review scroll issue when deliverables active"
+    },
+    {
+      "id": "known-issues",
+      "title": "Known Issues & Historical Fixes",
+      "path": "KNOWN_ISSUES.md",
+      "priority": 2,
+      "reason": "Helpful for: fix portal review scroll issue when deliverables active"
+    }
+  ],
+  "checklist": [
+    "Branch is NOT main (git branch)",
+    "Working tree is clean (git status)",
+    "Read all docs in FEED.md",
+    "npm run build passes (EXIT=0)",
+    "npm run preflight passes",
+    "Manual testing done",
+    "Commit message format: feat: / fix: / chore:",
+    "No .env.local changes"
+  ],
+  "guardrails": [
+    "🔒 Produção = main. Nunca trabalhar em main.",
+    "🔒 Branch must be feature/* ou jarvis/*",
+    "🔒 Never touch .env.local",
+    "🔒 npm run build must pass (EXIT=0)",
+    "🔒 npm run preflight must pass",
+    "🔒 /api/version must show correct branch+sha"
+  ],
+  "commands": [
+    "npm run preflight",
+    "npm run build",
+    "npm run test:smoke",
+    "curl http://localhost:3000/api/version | jq (local)",
+    "curl https://beyond-pricing.vercel.app/api/version | jq (production)"
+  ]
+}
