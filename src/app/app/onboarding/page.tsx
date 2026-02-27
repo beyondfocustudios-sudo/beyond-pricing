@@ -6,7 +6,7 @@ import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard";
 export default async function AppOnboardingPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login?mode=team");
+  if (!user) redirect("/login");
 
   const access = await resolveAccessRole(supabase, user);
   if (!access.isTeam && !access.isCollaborator) {

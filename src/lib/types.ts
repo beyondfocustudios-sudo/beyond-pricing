@@ -115,14 +115,40 @@ export interface ProjectInputs {
 }
 
 // ── Projeto ──────────────────────────────────────────────────
-export type ProjectStatus = "rascunho" | "enviado" | "aprovado" | "cancelado" | "arquivado";
+export type ProjectStatus =
+  | "draft"
+  | "sent"
+  | "in_review"
+  | "approved"
+  | "cancelled"
+  | "archived"
+  // legacy values still accepted while old rows are migrated
+  | "rascunho"
+  | "enviado"
+  | "aprovado"
+  | "cancelado"
+  | "arquivado";
+
+export function normalizeProjectStatus(status: string | null | undefined): ProjectStatus {
+  const value = (status ?? "").trim().toLowerCase();
+  if (value === "rascunho") return "draft";
+  if (value === "enviado") return "sent";
+  if (value === "aprovado") return "approved";
+  if (value === "cancelado") return "cancelled";
+  if (value === "arquivado") return "archived";
+  if (value === "draft" || value === "sent" || value === "in_review" || value === "approved" || value === "cancelled" || value === "archived") {
+    return value;
+  }
+  return "draft";
+}
 
 export const PROJECT_STATUS: { value: ProjectStatus; label: string; badge: string }[] = [
-  { value: "rascunho", label: "Rascunho", badge: "badge-default" },
-  { value: "enviado", label: "Enviado", badge: "badge-accent" },
-  { value: "aprovado", label: "Aprovado", badge: "badge-success" },
-  { value: "cancelado", label: "Cancelado", badge: "badge-error" },
-  { value: "arquivado", label: "Arquivado", badge: "badge-warning" },
+  { value: "draft", label: "Draft", badge: "badge-default" },
+  { value: "sent", label: "Enviado", badge: "badge-accent" },
+  { value: "in_review", label: "Em revisão", badge: "badge-warning" },
+  { value: "approved", label: "Aprovado", badge: "badge-success" },
+  { value: "cancelled", label: "Cancelado", badge: "badge-error" },
+  { value: "archived", label: "Arquivado", badge: "badge-warning" },
 ];
 
 export interface Project {

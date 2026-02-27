@@ -26,17 +26,32 @@ interface OrgRoleData {
   isAdmin: boolean;
 }
 
+interface BuildStampData {
+  stamp: string;
+}
+
 // DEV-only: only render diagnostics in development or if ?force=1
 export default function DiagnosticsPage() {
   const [checks, setChecks] = useState<Check[]>([]);
   const [running, setRunning] = useState(false);
   const [orgRole, setOrgRole] = useState<OrgRoleData | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [buildStamp, setBuildStamp] = useState<BuildStampData | null>(null);
 
   const runChecks = async () => {
     setRunning(true);
 
     const results: Check[] = [];
+
+    try {
+      const stampRes = await fetch("/api/build-stamp", { cache: "no-store" });
+      const stampPayload = (await stampRes.json().catch(() => ({}))) as { build?: BuildStampData };
+      if (stampRes.ok && stampPayload.build?.stamp) {
+        setBuildStamp({ stamp: stampPayload.build.stamp });
+      }
+    } catch {
+      // Keep diagnostics resilient if build stamp endpoint is unavailable.
+    }
 
     // 1. ENV vars
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -311,6 +326,11 @@ export default function DiagnosticsPage() {
             Diagnósticos
           </h1>
           <p className="page-subtitle">Estado do sistema — apenas para desenvolvimento</p>
+          {buildStamp?.stamp ? (
+            <p className="mt-1 text-xs font-mono" style={{ color: "var(--text-3)" }}>
+              Build: {buildStamp.stamp}
+            </p>
+          ) : null}
         </div>
         <button
           onClick={runChecks}

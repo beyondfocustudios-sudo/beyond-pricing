@@ -5,6 +5,7 @@ import { ToastProvider } from "@/components/Toast";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { resolveAccessRole } from "@/lib/access-role";
+import { getBuildStampInfo } from "@/lib/build-stamp";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   // Env guard — surface misconfiguration immediately
@@ -12,6 +13,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
+  const buildStamp = getBuildStampInfo().stamp;
 
   if (!user) {
     redirect("/login");
@@ -40,7 +42,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           ⚠️ Env vars em falta — define NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY
         </div>
       )}
-      <AppShell userEmail={user.email ?? ""} userRole={access.role}>
+      <AppShell userEmail={user.email ?? ""} userRole={access.role} buildStamp={buildStamp}>
         <ErrorBoundary label="aplicação">
           {children}
         </ErrorBoundary>

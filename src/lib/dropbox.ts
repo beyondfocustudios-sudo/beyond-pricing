@@ -26,8 +26,8 @@ export async function refreshAccessToken(refreshToken: string): Promise<{
   access_token: string;
   expires_in: number;
 }> {
-  const appKey = process.env.DROPBOX_APP_KEY;
-  const appSecret = process.env.DROPBOX_APP_SECRET;
+  const appKey = process.env.DROPBOX_CLIENT_ID || process.env.DROPBOX_APP_KEY;
+  const appSecret = process.env.DROPBOX_CLIENT_SECRET || process.env.DROPBOX_APP_SECRET;
   if (!appKey || !appSecret) throw new Error("Missing Dropbox app credentials");
 
   const resp = await fetch(TOKEN_URL, {
@@ -111,6 +111,167 @@ export async function getTemporaryLink(accessToken: string, path: string): Promi
   if (!resp.ok) return "";
   const data = await resp.json() as { link: string };
   return data.link;
+}
+
+// ── Create folder ───────────────────────────────────────────────────────────
+export async function createFolder(accessToken: string, path: string): Promise<{
+  id: string;
+  path_display: string;
+  path_lower: string;
+}> {
+  const resp = await fetch(`${DROPBOX_API}/files/create_folder_v2`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      path,
+      autorename: false,
+    }),
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`create_folder_v2 failed: ${text}`);
+  }
+
+  const json = (await resp.json()) as {
+    metadata?: { id: string; path_display: string; path_lower: string };
+  };
+  if (!json.metadata?.id) {
+    throw new Error("create_folder_v2 returned invalid payload");
+  }
+  return json.metadata;
+}
+
+// ── Get metadata for a path ────────────────────────────────────────────────
+export async function getMetadata(
+  accessToken: string,
+  path: string
+): Promise<{ id: string; path_display: string; path_lower: string } | null> {
+  const resp = await fetch(`${DROPBOX_API}/files/get_metadata`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      path,
+      include_deleted: false,
+      include_has_explicit_shared_members: false,
+      include_media_info: false,
+    }),
+  });
+
+  if (!resp.ok) {
+    return null;
+  }
+
+  const json = (await resp.json()) as {
+    id?: string;
+    path_display?: string;
+    path_lower?: string;
+  };
+
+  if (!json.id || !json.path_display) {
+    return null;
+  }
+
+  return {
+    id: json.id,
+    path_display: json.path_display,
+    path_lower: json.path_lower ?? json.path_display.toLowerCase(),
+  };
+}
+
+// ── Move folder/file ───────────────────────────────────────────────────────
+export async function movePath(
+  accessToken: string,
+  fromPath: string,
+  toPath: string
+): Promise<{ id: string; path_display: string; path_lower: string }> {
+  const resp = await fetch(`${DROPBOX_API}/files/move_v2`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from_path: fromPath,
+      to_path: toPath,
+      allow_shared_folder: true,
+      autorename: false,
+      allow_ownership_transfer: true,
+    }),
+  });
+
+  if (!resp.ok) {
+    throw new Error(`move_v2 failed: ${await resp.text()}`);
+  }
+
+  const json = (await resp.json()) as {
+    metadata?: { id: string; path_display: string; path_lower: string };
+  };
+  if (!json.metadata?.id) {
+    throw new Error("move_v2 returned invalid payload");
+  }
+  return json.metadata;
+}
+
+// ── Delete folder/file ─────────────────────────────────────────────────────
+export async function deletePath(accessToken: string, path: string): Promise<void> {
+  const resp = await fetch(`${DROPBOX_API}/files/delete_v2`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ path }),
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    if (/path_lookup\/not_found|not_found/i.test(text)) {
+      return;
+    }
+    throw new Error(`delete_v2 failed: ${text}`);
+  }
+}
+
+// ── Create shared link ──────────────────────────────────────────────────────
+export async function createSharedLink(accessToken: string, path: string): Promise<string | null> {
+  const resp = await fetch(`${DROPBOX_API}/sharing/create_shared_link_with_settings`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      path,
+      settings: {
+        requested_visibility: "public",
+      },
+    }),
+  });
+
+  if (resp.ok) {
+    const json = (await resp.json()) as { url?: string };
+    return json.url ?? null;
+  }
+
+  // If link already exists, fetch existing.
+  const listResp = await fetch(`${DROPBOX_API}/sharing/list_shared_links`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ path, direct_only: true }),
+  });
+  if (!listResp.ok) return null;
+  const listJson = (await listResp.json()) as { links?: Array<{ url?: string }> };
+  return listJson.links?.[0]?.url ?? null;
 }
 
 // ── Smart categorization ──────────────────────────────────────────────────

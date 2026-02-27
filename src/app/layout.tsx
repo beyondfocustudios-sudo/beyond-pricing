@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import "./globals.css";
 import BuildStampBadge from "@/components/BuildStampBadge";
 import { getBuildStamp } from "@/lib/build-stamp";
+import { Providers } from "@/components/Providers";
 
 const themeInitScript = `
 (() => {
@@ -49,10 +50,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body className="h-full min-h-dvh w-full antialiased">
-        {children}
-        <Suspense fallback={null}>
-          <BuildStampBadge stamp={stamp} />
-        </Suspense>
+        <Providers>
+          {children}
+          <Suspense fallback={null}>
+            <BuildStampBadge stamp={stamp} />
+          </Suspense>
+        </Providers>
       </body>
     </html>
   );

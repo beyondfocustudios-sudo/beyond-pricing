@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { LayoutGroup } from "framer-motion";
 import { createClient } from "@/lib/supabase";
@@ -8,20 +10,14 @@ import { EmptyState, PillButton } from "@/components/ui-kit";
 import { useTheme } from "@/components/ThemeProvider";
 import { MotionList, MotionListItem, MotionPage } from "@/components/motion-system";
 import {
-  ChartCard,
   CompactKpiCard,
   CompactTableCard,
-  CostDonut,
   DarkCalendarCard,
-  DarkInsightCard,
   DashboardShell,
   DashboardSkeleton,
-  ForecastLine,
   HeroSummaryCard,
   ListCard,
-  SearchPill,
   SegmentedModeToggle,
-  ScheduleCard,
   type CompactProjectRow,
   type ListRow,
   type ScheduleItem,
@@ -56,18 +52,20 @@ type CallsheetRow = {
   created_at: string;
 };
 
-const CATEGORY_LABELS: Record<string, string> = {
-  crew: "Crew",
-  equipamento: "Equipamento",
-  pos_producao: "Pós",
-  despesas: "Despesas",
-  outro: "Outros",
+type CalendarEventRow = {
+  id: string;
+  title: string;
+  description: string | null;
+  location: string | null;
+  starts_at: string;
+  ends_at: string;
 };
 
 function humanStatus(raw: string) {
   const value = (raw ?? "").toLowerCase();
   if (value === "rascunho" || value === "draft") return "Rascunho";
   if (value === "enviado" || value === "sent") return "Enviado";
+  if (value === "in_review") return "Em revisão";
   if (value === "aprovado" || value === "approved") return "Aprovado";
   if (value === "cancelado" || value === "cancelled") return "Cancelado";
   if (value === "arquivado" || value === "archived") return "Arquivado";
@@ -76,15 +74,59 @@ function humanStatus(raw: string) {
   return raw || "Ativo";
 }
 
+function isMissingCalendarTable(error: { code?: string; message?: string } | null) {
+  if (!error) return false;
+  if (error.code === "42P01" || error.code === "PGRST205") return true;
+  const message = error.message ?? "";
+  return /calendar_events|does not exist|schema cache/i.test(message);
+}
+
+function MobileAccordionSection({
+  title,
+  children,
+  defaultOpen = true,
+}: {
+  title: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}) {
+  return (
+    <details
+      open={defaultOpen}
+      className="overflow-hidden rounded-2xl border"
+      style={{ borderColor: "var(--border-soft)", background: "color-mix(in srgb, var(--surface) 92%, transparent)" }}
+    >
+      <summary
+        className="cursor-pointer list-none px-4 py-3 text-sm font-semibold"
+        style={{ color: "var(--text)" }}
+      >
+        {title}
+      </summary>
+      <div className="space-y-3 px-3 pb-3">{children}</div>
+    </details>
+  );
+}
+
 export default function DashboardHome() {
+  const searchParams = useSearchParams();
   const { dashboardMode, setDashboardMode } = useTheme();
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
 
   const [projects, setProjects] = useState<ProjectRow[]>([]);
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [callsheets, setCallsheets] = useState<CallsheetRow[]>([]);
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEventRow[]>([]);
+  const [eventModalOpen, setEventModalOpen] = useState(false);
+  const [eventSaving, setEventSaving] = useState(false);
+  const [eventError, setEventError] = useState<string | null>(null);
+  const [eventForm, setEventForm] = useState({
+    title: "",
+    description: "",
+    location: "",
+    startsAt: "",
+    endsAt: "",
+  });
 
   const [clientsCount, setClientsCount] = useState(0);
   const [conversationsCount, setConversationsCount] = useState(0);
@@ -117,6 +159,7 @@ export default function DashboardHome() {
         callsListRes,
         routesRes,
         weatherRes,
+        calendarEventsRes,
       ] = await Promise.all([
         sb
           .from("projects")
@@ -140,6 +183,12 @@ export default function DashboardHome() {
           .limit(8),
         sb.from("logistics_routes").select("id", { count: "exact", head: true }),
         sb.from("weather_cache").select("id", { count: "exact", head: true }),
+        sb
+          .from("calendar_events")
+          .select("id, title, description, location, starts_at, ends_at")
+          .is("deleted_at", null)
+          .order("starts_at", { ascending: true })
+          .limit(40),
       ]);
 
       if (projectsRes.error) throw new Error(projectsRes.error.message);
@@ -154,6 +203,13 @@ export default function DashboardHome() {
       setCallsheetsCount(callsCountRes.count ?? 0);
       setRoutesCount(routesRes.count ?? 0);
       setWeatherCacheCount(weatherRes.count ?? 0);
+      if (!calendarEventsRes.error) {
+        setCalendarEvents((calendarEventsRes.data ?? []) as CalendarEventRow[]);
+      } else if (isMissingCalendarTable(calendarEventsRes.error)) {
+        setCalendarEvents([]);
+      } else {
+        throw new Error(calendarEventsRes.error.message);
+      }
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "Erro ao carregar dashboard");
     } finally {
@@ -165,6 +221,88 @@ export default function DashboardHome() {
     void load();
   }, [load]);
 
+  const search = (searchParams.get("q") ?? "").trim().toLowerCase();
+
+  const openEventModal = useCallback(() => {
+    const start = new Date();
+    start.setMinutes(0, 0, 0);
+    start.setHours(start.getHours() + 1);
+    const end = new Date(start.getTime() + 60 * 60 * 1000);
+
+    const toLocalDateTime = (value: Date) => {
+      const offsetMs = value.getTimezoneOffset() * 60_000;
+      return new Date(value.getTime() - offsetMs).toISOString().slice(0, 16);
+    };
+
+    setEventForm({
+      title: "",
+      description: "",
+      location: "",
+      startsAt: toLocalDateTime(start),
+      endsAt: toLocalDateTime(end),
+    });
+    setEventError(null);
+    setEventModalOpen(true);
+  }, []);
+
+  const createCalendarEvent = useCallback(async () => {
+    if (!eventForm.title.trim()) {
+      setEventError("Título é obrigatório.");
+      return;
+    }
+    if (!eventForm.startsAt || !eventForm.endsAt) {
+      setEventError("Define início e fim do evento.");
+      return;
+    }
+
+    const start = new Date(eventForm.startsAt);
+    const end = new Date(eventForm.endsAt);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
+      setEventError("Datas inválidas. O fim deve ser depois do início.");
+      return;
+    }
+
+    setEventSaving(true);
+    setEventError(null);
+
+    try {
+      const response = await fetch("/api/calendar/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: eventForm.title.trim(),
+          description: eventForm.description.trim() || null,
+          location: eventForm.location.trim() || null,
+          startsAt: start.toISOString(),
+          endsAt: end.toISOString(),
+          timezone: "Europe/Lisbon",
+          type: "meeting",
+          status: "confirmed",
+        }),
+      });
+
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        event?: CalendarEventRow;
+      };
+
+      if (!response.ok) {
+        setEventError(payload.error ?? "Não foi possível criar o evento.");
+      } else if (payload.event) {
+        setCalendarEvents((current) =>
+          [...current, payload.event as CalendarEventRow].sort(
+            (a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime(),
+          ),
+        );
+        setEventModalOpen(false);
+      }
+    } catch {
+      setEventError("Não foi possível criar o evento.");
+    } finally {
+      setEventSaving(false);
+    }
+  }, [eventForm]);
+
   const now = Date.now();
   const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
 
@@ -172,7 +310,7 @@ export default function DashboardHome() {
     const activeProjects = projects.length;
     const weeklyBudgets = projects.filter((project) => new Date(project.created_at).getTime() >= weekAgo).length;
     const openTasks = tasks.filter((task) => task.status !== "done").length;
-    const pendingApprovals = projects.filter((project) => ["enviado", "sent"].includes((project.status || "").toLowerCase())).length;
+    const pendingApprovals = projects.filter((project) => ["enviado", "sent", "in_review"].includes((project.status || "").toLowerCase())).length;
 
     const realMargins = projects
       .map((project) => Number(project.calc?.margem_real_pct ?? 0))
@@ -203,25 +341,62 @@ export default function DashboardHome() {
       return `/api/calendar/event.ics?${qs.toString()}`;
     };
 
-    const upcoming = tasks
+    const buildGoogleHref = (title: string, startsAt: Date, subtitle: string) => {
+      const endsAt = new Date(startsAt.getTime() + 45 * 60 * 1000);
+      const toGoogleDate = (value: Date) => value.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+      const qs = new URLSearchParams({
+        action: "TEMPLATE",
+        text: title,
+        dates: `${toGoogleDate(startsAt)}/${toGoogleDate(endsAt)}`,
+        details: subtitle,
+      });
+      return `https://calendar.google.com/calendar/render?${qs.toString()}`;
+    };
+
+    const upcomingEvents = calendarEvents
+      .filter((event) => !event.starts_at || new Date(event.ends_at).getTime() >= Date.now() - 24 * 60 * 60 * 1000)
+      .slice(0, 6)
+      .map((event, index) => {
+        const start = new Date(event.starts_at);
+        return {
+          id: event.id,
+          time: start.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
+          title: event.title,
+          subtitle: event.location?.trim()
+            ? `${event.location} · ${formatDateShort(event.starts_at)}`
+            : formatDateShort(event.starts_at),
+          startsAt: event.starts_at,
+          calendarHref: `/api/calendar/event.ics?id=${event.id}`,
+          googleHref: buildGoogleHref(
+            event.title,
+            start,
+            event.description ?? event.location ?? "Evento do Beyond Pricing",
+          ),
+          active: index === 0,
+        } satisfies ScheduleItem;
+      });
+
+    if (upcomingEvents.length > 0) return upcomingEvents;
+
+    const fallbackTasks = tasks
       .filter((task) => task.status !== "done" && task.due_date)
       .sort((a, b) => new Date(a.due_date ?? "").getTime() - new Date(b.due_date ?? "").getTime())
       .slice(0, 6)
       .map((task, index) => {
         const date = new Date(task.due_date ?? "");
-        const time = date.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" });
         return {
-          id: task.id,
-          time,
+          id: `task-${task.id}`,
+          time: date.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
           title: task.title,
           subtitle: `Deadline · ${formatDateShort(date.toISOString())}`,
           startsAt: date.toISOString(),
-          calendarHref: `/api/calendar/event.ics?source=task&id=${task.id}`,
+          calendarHref: buildAdhocHref(task.title, date, `Deadline · ${formatDateShort(date.toISOString())}`),
+          googleHref: buildGoogleHref(task.title, date, `Deadline · ${formatDateShort(date.toISOString())}`),
           active: index === 0,
-        };
+        } satisfies ScheduleItem;
       });
 
-    if (upcoming.length > 0) return upcoming;
+    if (fallbackTasks.length > 0) return fallbackTasks;
 
     const baseDate = new Date();
     const placeholders = [
@@ -239,9 +414,10 @@ export default function DashboardHome() {
         ...item,
         startsAt: start.toISOString(),
         calendarHref: buildAdhocHref(item.title, start, item.subtitle),
+        googleHref: buildGoogleHref(item.title, start, item.subtitle),
       };
     });
-  }, [tasks]);
+  }, [calendarEvents, tasks]);
 
   const tableRows = useMemo<CompactProjectRow[]>(() => {
     return projects.slice(0, 8).map((project) => ({
@@ -253,81 +429,16 @@ export default function DashboardHome() {
     }));
   }, [projects]);
 
-  const alerts = useMemo(() => {
-    const next: Array<{ level: "ok" | "warn"; text: string }> = [];
-
-    for (const project of projects.slice(0, 12)) {
-      const minMargin = Number(project.inputs?.margem_minima_pct ?? 0);
-      const realMargin = Number(project.calc?.margem_real_pct ?? 0);
-      if (minMargin > 0 && realMargin > 0 && realMargin < minMargin) {
-        next.push({ level: "warn", text: `${project.project_name}: margem ${realMargin.toFixed(1)}% abaixo do mínimo ${minMargin}%` });
-      }
-
-      if (["enviado", "sent"].includes((project.status || "").toLowerCase())) {
-        const age = (now - new Date(project.created_at).getTime()) / (1000 * 60 * 60 * 24);
-        if (age > 7) {
-          next.push({ level: "warn", text: `${project.project_name}: enviado há ${Math.round(age)} dias sem decisão` });
-        }
-      }
-    }
-
-    if (stats.openTasks > 18) {
-      next.push({ level: "warn", text: `${stats.openTasks} tarefas em aberto — risco de atraso operacional` });
-    }
-
-    if (next.length === 0) {
-      next.push({ level: "ok", text: "Margens e pipeline estão dentro do esperado." });
-    }
-
-    return next;
-  }, [projects, now, stats.openTasks]);
-
-  const forecastData = useMemo(() => {
-    const buckets: Array<{ month: string; value: number }> = [];
-    for (let offset = 5; offset >= 0; offset -= 1) {
-      const date = new Date();
-      date.setMonth(date.getMonth() - offset, 1);
-      const month = date.toLocaleDateString("en-US", { month: "short" });
-      const value = projects
-        .filter((project) => {
-          const created = new Date(project.created_at);
-          return created.getFullYear() === date.getFullYear() && created.getMonth() === date.getMonth();
-        })
-        .reduce((sum, project) => sum + Number(project.calc?.preco_recomendado ?? 0), 0);
-
-      buckets.push({ month, value });
-    }
-    return buckets;
-  }, [projects]);
-
-  const donutData = useMemo(() => {
-    const totals = new Map<string, number>();
-
-    for (const project of projects.slice(0, 30)) {
-      for (const item of project.inputs?.itens ?? []) {
-        const category = item.categoria ?? "outro";
-        const quantity = Number(item.quantidade ?? 0);
-        const unit = Number(item.preco_unitario ?? 0);
-        const total = quantity * unit;
-        totals.set(category, (totals.get(category) ?? 0) + total);
-      }
-    }
-
-    const normalized = [...totals.entries()]
-      .filter(([, value]) => value > 0)
-      .map(([category, value]) => ({ name: CATEGORY_LABELS[category] ?? category, value }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 4);
-
-    if (normalized.length > 0) return normalized;
-
-    return [
-      { name: "Crew", value: 4200 },
-      { name: "Equipamento", value: 2800 },
-      { name: "Pós", value: 1700 },
-      { name: "Despesas", value: 900 },
-    ];
-  }, [projects]);
+  const projectListRows = useMemo<ListRow[]>(() => {
+    return tableRows.slice(0, 5).map((row) => ({
+      id: row.id,
+      title: row.name,
+      subtitle: row.owner,
+      status: row.status,
+      ctaHref: `/app/projects/${row.id}`,
+      ctaLabel: "Abrir",
+    }));
+  }, [tableRows]);
 
   const pipelineRows = useMemo<ListRow[]>(() => {
     const buckets = new Map<string, number>();
@@ -348,7 +459,7 @@ export default function DashboardHome() {
   }, [projects]);
 
   const inboxRows = useMemo<ListRow[]>(() => {
-    const q = search.trim().toLowerCase();
+    const q = search;
     const fromProjects = projects.map((project) => ({
       id: project.id,
       title: project.project_name,
@@ -449,23 +560,17 @@ export default function DashboardHome() {
   }, [conversationsCount, routesCount, stats.pendingApprovals, weatherCacheCount]);
 
   const header = (
-    <div className="flex flex-wrap items-end justify-between gap-4">
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
       <div>
         <p className="text-[0.72rem] uppercase tracking-[0.12em]" style={{ color: "var(--text-3)" }}>
-          {dashboardMode === "ceo" ? "CEO Dashboard" : "Empresa Dashboard"}
+          {dashboardMode === "ceo" ? "CEO Mode" : "Empresa Mode"}
         </p>
-        <h2 className="mt-1.5 text-[2rem] font-[540] tracking-[-0.03em]" style={{ color: "var(--text)" }}>
-          Hi, {greetingName}!
+        <h2 className="mt-1.5 text-[1.15rem] font-[540] tracking-[-0.02em]" style={{ color: "var(--text)" }}>
+          {dashboardMode === "ceo" ? "Dashboard" : "Operação"}
         </h2>
-        <p className="text-sm" style={{ color: "var(--text-2)" }}>
-          {dashboardMode === "ceo"
-            ? "Visão premium, calma e estratégica para decisões de negócio."
-            : "Vista operacional para execução diária e controlo de produção."}
-        </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2.5">
-        <SearchPill value={search} onChange={setSearch} placeholder="Pesquisar updates" />
+      <div className="flex flex-wrap items-center gap-2.5 lg:justify-end">
         <SegmentedModeToggle mode={dashboardMode} onChange={setDashboardMode} />
       </div>
     </div>
@@ -491,109 +596,245 @@ export default function DashboardHome() {
     );
   }
 
+  const ceoDesktopLayout = (
+    <MotionList className="grid gap-6 lg:grid-cols-2 xl:grid-cols-12">
+      <MotionListItem className="xl:col-span-12">
+        <HeroSummaryCard
+          greeting={`Olá, ${greetingName}`}
+          subtitle="Resumo do dia: pipeline, risco e execução."
+          metrics={[
+            { id: "projects", label: "Orçamentos ativos", value: String(stats.activeProjects), hint: `${stats.weeklyBudgets} novos esta semana`, tone: "blue" },
+            { id: "approvals", label: "Aprovações pendentes", value: String(stats.pendingApprovals), hint: "Aguardam resposta", tone: "yellow" },
+            { id: "critical", label: "Tarefas críticas", value: String(stats.openTasks), hint: "Necessitam follow-up", tone: "lilac" },
+            { id: "leads", label: "Leads quentes", value: String(stats.leads), hint: "Clientes ativos", tone: "mint" },
+          ]}
+          primaryCta={{ href: "/app/projects/new", label: "Novo Projeto" }}
+        />
+      </MotionListItem>
+
+      <MotionListItem className="grid content-start gap-6 lg:col-span-1 xl:col-span-4">
+        <section className="super-card">
+          <p className="text-[0.68rem] uppercase tracking-[0.1em]" style={{ color: "var(--text-3)" }}>
+            Today
+          </p>
+          <h3 className="mt-1 text-lg font-semibold" style={{ color: "var(--text)" }}>
+            {new Date().toLocaleDateString("pt-PT", { weekday: "long", day: "2-digit", month: "long" })}
+          </h3>
+          <p className="mt-1 text-xs" style={{ color: "var(--text-2)" }}>
+            Quick actions para manter a operação em movimento.
+          </p>
+          <div className="mt-4 grid gap-2">
+            <Link href="/app/tasks" className="pill-tab">
+              Abrir tarefas
+            </Link>
+            <Link href="/app/inbox" className="pill-tab">
+              Ver inbox
+            </Link>
+            <Link href="/app/projects" className="pill-tab">
+              Projetos ativos
+            </Link>
+          </div>
+        </section>
+
+        <ListCard title="My tasks" subtitle="Prioridades de hoje" rows={tasksTodayRows} href="/app/tasks" />
+        <ListCard title="Inbox preview" subtitle="Updates mais recentes" rows={inboxRows} href="/app/inbox" />
+      </MotionListItem>
+
+      <MotionListItem className="grid content-start gap-6 lg:col-span-1 xl:col-span-5">
+        <CompactTableCard rows={tableRows} href="/app/projects" />
+      </MotionListItem>
+
+      <MotionListItem className="grid content-start gap-6 lg:col-span-2 xl:col-span-3">
+        <DarkCalendarCard
+          events={scheduleItems}
+          feedHref="/api/calendar/feed.ics"
+          href="/app/calendar"
+          onCreateEvent={openEventModal}
+        />
+      </MotionListItem>
+    </MotionList>
+  );
+
+  const companyDesktopLayout = (
+    <MotionList className="grid gap-6 lg:grid-cols-2 xl:grid-cols-12">
+      <MotionListItem className="grid content-start gap-6 lg:col-span-1 xl:col-span-4">
+        <ListCard title="Projetos em curso" subtitle="Visão rápida operacional" rows={projectListRows} href="/app/projects" />
+        <ListCard title="Próximas deadlines" subtitle="Tarefas com prazo próximo" rows={tasksTodayRows} href="/app/tasks" />
+      </MotionListItem>
+
+      <MotionListItem className="grid content-start gap-6 lg:col-span-1 xl:col-span-5">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <CompactKpiCard label="Projetos ativos" value={String(stats.activeProjects)} hint="Operação em curso" />
+          <CompactKpiCard label="Entregas semana" value={String(callsheetsCount)} hint="Call sheets e entregas" />
+          <CompactKpiCard label="Backlog" value={String(stats.openTasks)} hint="Tarefas abertas" />
+          <CompactKpiCard label="Margem média" value={`${stats.avgMargin.toFixed(1)}%`} hint="Projetos recentes" />
+        </div>
+        <CompactTableCard rows={tableRows} href="/app/projects" />
+        <ListCard title="Pipeline / CRM snapshot" subtitle="Estado comercial e follow-up" rows={pipelineRows} />
+      </MotionListItem>
+
+      <MotionListItem className="grid content-start gap-6 lg:col-span-2 xl:col-span-3">
+        <ListCard title="Entregas em revisão" subtitle="Últimos call sheets" rows={callsheetRows} href="/app/callsheets" />
+        <DarkCalendarCard
+          events={scheduleItems}
+          feedHref="/api/calendar/feed.ics"
+          href="/app/calendar"
+          onCreateEvent={openEventModal}
+        />
+        <ListCard title="Operação Empresa" subtitle="Tempo, rotas, approvals e inbox" rows={companyOpsRows} href="/app/insights" />
+      </MotionListItem>
+    </MotionList>
+  );
+
+  const ceoMobileLayout = (
+    <div className="space-y-3">
+      <MobileAccordionSection title="Resumo CEO">
+        <HeroSummaryCard
+          greeting={`Olá, ${greetingName}`}
+          subtitle="Resumo do dia: pipeline, risco e execução."
+          metrics={[
+            { id: "projects-m", label: "Orçamentos", value: String(stats.activeProjects), hint: `${stats.weeklyBudgets} esta semana`, tone: "blue" },
+            { id: "approvals-m", label: "Aprovações", value: String(stats.pendingApprovals), hint: "Pendentes", tone: "yellow" },
+            { id: "tasks-m", label: "Tarefas", value: String(stats.openTasks), hint: "Em aberto", tone: "lilac" },
+            { id: "leads-m", label: "Leads", value: String(stats.leads), hint: "Ativos", tone: "mint" },
+          ]}
+          primaryCta={{ href: "/app/projects/new", label: "Novo Projeto" }}
+        />
+      </MobileAccordionSection>
+
+      <MobileAccordionSection title="Today / Quick actions" defaultOpen={false}>
+        <ListCard title="My tasks" rows={tasksTodayRows} href="/app/tasks" />
+        <ListCard title="Inbox preview" rows={inboxRows} href="/app/inbox" />
+      </MobileAccordionSection>
+
+      <MobileAccordionSection title="Calendário" defaultOpen={false}>
+        <DarkCalendarCard
+          events={scheduleItems}
+          feedHref="/api/calendar/feed.ics"
+          href="/app/calendar"
+          onCreateEvent={openEventModal}
+        />
+      </MobileAccordionSection>
+    </div>
+  );
+
+  const companyMobileLayout = (
+    <div className="space-y-3">
+      <MobileAccordionSection title="Operação Empresa">
+        <div className="grid grid-cols-2 gap-3">
+          <CompactKpiCard label="Projetos" value={String(stats.activeProjects)} hint="Ativos" />
+          <CompactKpiCard label="Entregas" value={String(callsheetsCount)} hint="Semana" />
+          <CompactKpiCard label="Backlog" value={String(stats.openTasks)} hint="Abertas" />
+          <CompactKpiCard label="Margem" value={`${stats.avgMargin.toFixed(1)}%`} hint="Média" />
+        </div>
+      </MobileAccordionSection>
+
+      <MobileAccordionSection title="Projetos e Deadlines" defaultOpen={false}>
+        <ListCard title="Projetos em curso" rows={projectListRows} href="/app/projects" />
+        <ListCard title="Próximas deadlines" rows={tasksTodayRows} href="/app/tasks" />
+      </MobileAccordionSection>
+
+      <MobileAccordionSection title="Calendário e Operação" defaultOpen={false}>
+        <ListCard title="Entregas em revisão" rows={callsheetRows} href="/app/callsheets" />
+        <DarkCalendarCard
+          events={scheduleItems}
+          feedHref="/api/calendar/feed.ics"
+          href="/app/calendar"
+          onCreateEvent={openEventModal}
+        />
+        <ListCard title="Operação Empresa" rows={companyOpsRows} href="/app/insights" />
+      </MobileAccordionSection>
+    </div>
+  );
+
   return (
-    <MotionPage className="space-y-6">
+    <MotionPage className="space-y-6 pb-28 md:pb-8">
       <LayoutGroup id="dashboard-mode-layout">
         <DashboardShell header={header}>
-          {dashboardMode === "ceo" ? (
-            <MotionList className="grid gap-6 md:grid-cols-2 xl:grid-cols-12">
-              <MotionListItem className="md:col-span-1 xl:col-span-8">
-              <HeroSummaryCard
-                greeting={`Hi, ${greetingName}!`}
-                subtitle="Resumo de hoje com foco em pipeline, risco e execução sem ruído operacional."
-                metrics={[
-                  { id: "projects", label: "Orçamentos ativos", value: String(stats.activeProjects), hint: `${stats.weeklyBudgets} novos esta semana`, tone: "blue" },
-                  { id: "approvals", label: "Aprovações pendentes", value: String(stats.pendingApprovals), hint: "Aguardam resposta", tone: "yellow" },
-                  { id: "critical", label: "Tarefas críticas", value: String(stats.openTasks), hint: "Necessitam follow-up", tone: "lilac" },
-                  { id: "leads", label: "Leads quentes", value: String(stats.leads), hint: "Clientes ativos", tone: "mint" },
-                ]}
-                primaryCta={{ href: "/app/projects/new", label: "Novo Projeto" }}
-                secondaryCta={{ href: "/app/projects/new", label: "Novo Orçamento" }}
-              />
-              </MotionListItem>
-
-              <MotionListItem className="md:col-span-1 xl:col-span-4">
-              <DarkCalendarCard events={scheduleItems} feedHref="/api/calendar/feed.ics" />
-              </MotionListItem>
-
-              <MotionListItem className="md:col-span-1 xl:col-span-4">
-              <ChartCard title="Forecast" subtitle="Receita projetada">
-                <ForecastLine data={forecastData} />
-              </ChartCard>
-              </MotionListItem>
-
-              <MotionListItem className="md:col-span-1 xl:col-span-3">
-              <ListCard title="Pipeline" subtitle="Hot / Follow-up / Waiting" rows={pipelineRows} />
-              </MotionListItem>
-
-              <MotionListItem className="md:col-span-2 xl:col-span-5">
-              <ListCard title="Inbox / Updates" subtitle="5 itens mais recentes" rows={inboxRows} />
-              </MotionListItem>
-
-              <MotionListItem className="md:col-span-1 xl:col-span-7">
-              <ScheduleCard items={scheduleItems.slice(0, 5)} />
-              </MotionListItem>
-
-              <MotionListItem className="md:col-span-1 xl:col-span-5">
-              <DarkInsightCard alerts={alerts} />
-              </MotionListItem>
-
-              <MotionListItem className="md:col-span-1 xl:col-span-6">
-              <ChartCard title="Composição de Custos" subtitle="Distribuição por categoria">
-                <CostDonut data={donutData} />
-              </ChartCard>
-              </MotionListItem>
-
-              <MotionListItem className="md:col-span-1 xl:col-span-6">
-              <ListCard title="Tarefas do dia" subtitle="Top 5 por prioridade de prazo" rows={tasksTodayRows} />
-              </MotionListItem>
-            </MotionList>
-          ) : (
-            <div className="space-y-6">
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              <CompactKpiCard label="Projetos ativos" value={String(stats.activeProjects)} hint="Operação em curso" />
-              <CompactKpiCard label="Entregas semana" value={String(callsheetsCount)} hint="Call sheets e entregas" />
-              <CompactKpiCard label="Backlog" value={String(stats.openTasks)} hint="Tarefas abertas" />
-              <CompactKpiCard label="Margem média" value={`${stats.avgMargin.toFixed(1)}%`} hint="Projetos recentes" />
+          <div className="space-y-6">
+            <div className="md:hidden">
+              {dashboardMode === "ceo" ? ceoMobileLayout : companyMobileLayout}
             </div>
-
-              <MotionList className="grid gap-6 md:grid-cols-2 xl:grid-cols-12">
-                <MotionListItem className="md:col-span-1 xl:col-span-4">
-                <ListCard title="Callsheets recentes" subtitle="Últimas operações" rows={callsheetRows} />
-                </MotionListItem>
-
-                <MotionListItem className="md:col-span-1 xl:col-span-4">
-                <ListCard title="Logística / Weather" subtitle="Estado técnico" rows={companyOpsRows} />
-                </MotionListItem>
-
-                <MotionListItem className="md:col-span-2 xl:col-span-4">
-                <DarkInsightCard alerts={alerts} />
-                </MotionListItem>
-
-                <MotionListItem className="md:col-span-2 xl:col-span-7">
-                <CompactTableCard rows={tableRows} />
-                </MotionListItem>
-
-                <MotionListItem className="md:col-span-1 xl:col-span-5">
-                <ChartCard title="Forecast operacional" subtitle="Volume mensal">
-                  <ForecastLine data={forecastData} />
-                </ChartCard>
-                </MotionListItem>
-
-                <MotionListItem className="md:col-span-1 xl:col-span-5">
-                <ChartCard title="Mix de custos" subtitle="Custos dos projetos ativos">
-                  <CostDonut data={donutData} />
-                </ChartCard>
-                </MotionListItem>
-
-                <MotionListItem className="md:col-span-1 xl:col-span-7">
-                <ListCard title="Aprovações e conversas" subtitle="Follow-up em progresso" rows={inboxRows} />
-                </MotionListItem>
-              </MotionList>
+            <div className="hidden md:block">
+              {dashboardMode === "ceo" ? ceoDesktopLayout : companyDesktopLayout}
             </div>
-          )}
+          </div>
         </DashboardShell>
       </LayoutGroup>
+
+      {eventModalOpen ? (
+        <div className="modal-overlay">
+          <div className="modal-content max-w-lg">
+            <div className="modal-header">
+              <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                Novo evento
+              </h3>
+            </div>
+            <div className="modal-body space-y-3">
+              <div>
+                <label className="label">Título</label>
+                <input
+                  className="input"
+                  value={eventForm.title}
+                  onChange={(event) => setEventForm((current) => ({ ...current, title: event.target.value }))}
+                  placeholder="Ex: Reunião com cliente"
+                />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="label">Início</label>
+                  <input
+                    type="datetime-local"
+                    className="input"
+                    value={eventForm.startsAt}
+                    onChange={(event) => setEventForm((current) => ({ ...current, startsAt: event.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="label">Fim</label>
+                  <input
+                    type="datetime-local"
+                    className="input"
+                    value={eventForm.endsAt}
+                    onChange={(event) => setEventForm((current) => ({ ...current, endsAt: event.target.value }))}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="label">Local</label>
+                <input
+                  className="input"
+                  value={eventForm.location}
+                  onChange={(event) => setEventForm((current) => ({ ...current, location: event.target.value }))}
+                  placeholder="Ex: Lisboa"
+                />
+              </div>
+              <div>
+                <label className="label">Descrição</label>
+                <textarea
+                  className="input min-h-[88px]"
+                  value={eventForm.description}
+                  onChange={(event) => setEventForm((current) => ({ ...current, description: event.target.value }))}
+                  placeholder="Detalhes opcionais do evento"
+                />
+              </div>
+              {eventError ? (
+                <p className="text-xs" style={{ color: "var(--error)" }}>
+                  {eventError}
+                </p>
+              ) : null}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost btn-sm" onClick={() => setEventModalOpen(false)} disabled={eventSaving}>
+                Cancelar
+              </button>
+              <button className="btn btn-primary btn-sm" onClick={() => void createCalendarEvent()} disabled={eventSaving}>
+                {eventSaving ? "A guardar..." : "Guardar evento"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </MotionPage>
   );
 }
