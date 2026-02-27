@@ -219,8 +219,8 @@ export default function PortalProjectPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-950">
-        <Loader2 className="w-8 h-8 text-white/40 animate-spin" />
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg)" }}>
+        <Loader2 className="w-8 h-8 animate-spin" style={{ color: "var(--text-3)" }} />
       </div>
     );
   }
@@ -233,19 +233,19 @@ export default function PortalProjectPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
+    <div className="flex flex-col h-screen" style={{ background: "var(--bg)" }}>
       {/* Header */}
-      <header className="sticky top-0 z-40 border-b border-white/5 bg-gray-950/90 backdrop-blur-xl px-4 py-3">
-        <div className="max-w-3xl mx-auto flex items-center justify-between">
-          <button onClick={() => router.push("/portal")} className="flex items-center gap-2 text-white/60 hover:text-white transition-colors text-sm">
+      <header className="sticky top-0 z-40 border-b flex-shrink-0" style={{ borderColor: "var(--border-soft)", background: "var(--surface-2)" }}>
+        <div className="max-w-3xl mx-auto flex items-center justify-between px-4 py-3">
+          <button onClick={() => router.push("/portal")} className="flex items-center gap-2 transition-colors text-sm" style={{ color: "var(--text-3)" }}>
             <ChevronLeft className="w-4 h-4" />
             Portal
           </button>
-          <h1 className="text-base font-semibold truncate max-w-[200px]">{project?.name ?? "Projeto"}</h1>
+          <h1 className="text-base font-semibold truncate max-w-[200px]" style={{ color: "var(--text)" }}>{project?.name ?? "Projeto"}</h1>
           <div className="relative">
-            <Bell className="w-5 h-5 text-white/60" />
+            <Bell className="w-5 h-5" style={{ color: "var(--text-3)" }} />
             {unreadCount > 0 && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 rounded-full text-[10px] font-bold flex items-center justify-center">
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 rounded-full text-[10px] font-bold flex items-center justify-center text-white">
                 {unreadCount > 9 ? "9+" : unreadCount}
               </span>
             )}
@@ -254,42 +254,44 @@ export default function PortalProjectPage() {
       </header>
 
       {/* Tab bar */}
-      <div className="sticky top-[57px] z-30 bg-gray-950/90 backdrop-blur-xl border-b border-white/5">
+      <div className="sticky top-14 z-30 border-b flex-shrink-0" style={{ borderColor: "var(--border-soft)", background: "var(--surface-1)" }}>
         <div className="max-w-3xl mx-auto flex">
           {TABS.map(t => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`relative flex-1 flex flex-col items-center gap-1 py-3 text-xs font-medium transition-colors ${tab === t.id ? "text-white" : "text-white/40 hover:text-white/70"}`}
+              className={`relative flex-1 flex flex-col items-center gap-1 py-3 text-xs font-medium transition-colors`}
+              style={{ color: tab === t.id ? "var(--text)" : "var(--text-3)" }}
             >
               <div className="relative">
                 <t.icon className="w-4 h-4" />
                 {t.badge != null && (
-                  <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 bg-rose-500 rounded-full text-[9px] font-bold flex items-center justify-center">
+                  <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 bg-rose-500 rounded-full text-[9px] font-bold flex items-center justify-center text-white">
                     {t.badge}
                   </span>
                 )}
               </div>
               {t.label}
               {tab === t.id && (
-                <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-white rounded-full" />
+                <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full" style={{ background: "var(--accent-primary)" }} />
               )}
             </button>
           ))}
         </div>
       </div>
 
-      <main className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+      <main className="min-h-0 flex-1 overflow-y-auto">
+        <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
         {/* ── Overview ── */}
         {tab === "overview" && (
           <div className="space-y-6">
             {/* Progress card */}
-            <div className="rounded-2xl bg-white/5 border border-white/10 p-5">
+            <div className="rounded-2xl border p-5" style={{ background: "var(--surface-2)", borderColor: "var(--border)" }}>
               <div className="flex items-center justify-between mb-3">
-                <span className="text-sm text-white/60">Progresso geral</span>
-                <span className="text-2xl font-bold">{overallProgress}%</span>
+                <span className="text-sm" style={{ color: "var(--text-3)" }}>Progresso geral</span>
+                <span className="text-2xl font-bold" style={{ color: "var(--text)" }}>{overallProgress}%</span>
               </div>
-              <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+              <div className="h-2 rounded-full overflow-hidden" style={{ background: "var(--surface-3)" }}>
                 <div
                   className="h-full rounded-full bg-gradient-to-r from-blue-500 to-emerald-500 transition-all duration-700"
                   style={{ width: `${overallProgress}%` }}
@@ -299,32 +301,32 @@ export default function PortalProjectPage() {
 
             {/* Milestones */}
             <div>
-              <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wider mb-3">Milestones</h2>
+              <h2 className="text-sm font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--text-3)" }}>Milestones</h2>
               {milestones.length === 0 ? (
-                <p className="text-white/30 text-sm">Nenhum milestone definido.</p>
+                <p className="text-sm" style={{ color: "var(--text-2)" }}>Nenhum milestone definido.</p>
               ) : (
                 <div className="space-y-3">
                   {milestones.map(m => (
-                    <div key={m.id} className="rounded-2xl bg-white/5 border border-white/10 p-4">
+                    <div key={m.id} className="rounded-2xl border p-4" style={{ background: "var(--surface-2)", borderColor: "var(--border)" }}>
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex-1 min-w-0">
-                          <p className="font-medium text-sm">{m.title}</p>
-                          <p className="text-xs text-white/40 mt-0.5">{PHASE_LABELS[m.phase] ?? m.phase}</p>
-                          {m.description && <p className="text-xs text-white/50 mt-1 line-clamp-2">{m.description}</p>}
+                          <p className="font-medium text-sm" style={{ color: "var(--text)" }}>{m.title}</p>
+                          <p className="text-xs mt-0.5" style={{ color: "var(--text-3)" }}>{PHASE_LABELS[m.phase] ?? m.phase}</p>
+                          {m.description && <p className="text-xs mt-1 line-clamp-2" style={{ color: "var(--text-2)" }}>{m.description}</p>}
                         </div>
                         <div className="flex flex-col items-end gap-1.5 shrink-0">
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[m.status] ?? "text-white/60"}`}>
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[m.status] ?? ""}`} style={{ color: "var(--text-3)" }}>
                             {m.status === "completed" ? "Concluído" : m.status === "in_progress" ? "Em curso" : m.status === "delayed" ? "Atrasado" : "Pendente"}
                           </span>
                           {m.due_date && (
-                            <span className="flex items-center gap-1 text-xs text-white/40">
+                            <span className="flex items-center gap-1 text-xs" style={{ color: "var(--text-3)" }}>
                               <Calendar className="w-3 h-3" />
                               {new Date(m.due_date).toLocaleDateString("pt-PT", { day: "2-digit", month: "short" })}
                             </span>
                           )}
                         </div>
                       </div>
-                      <div className="mt-3 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                      <div className="mt-3 h-1.5 rounded-full overflow-hidden" style={{ background: "var(--surface-3)" }}>
                         <div
                           className={`h-full rounded-full transition-all ${
                             m.status === "completed" ? "bg-emerald-500" :
@@ -334,7 +336,7 @@ export default function PortalProjectPage() {
                           style={{ width: `${m.progress_percent ?? 0}%` }}
                         />
                       </div>
-                      <p className="text-xs text-white/30 mt-1">{m.progress_percent ?? 0}%</p>
+                      <p className="text-xs mt-1" style={{ color: "var(--text-2)" }}>{m.progress_percent ?? 0}%</p>
                     </div>
                   ))}
                 </div>
@@ -346,9 +348,9 @@ export default function PortalProjectPage() {
         {/* ── Deliverables ── */}
         {tab === "deliverables" && (
           <div className="space-y-3">
-            <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wider">Entregas</h2>
+            <h2 className="text-sm font-semibold uppercase tracking-wider" style={{ color: "var(--text-3)" }}>Entregas</h2>
             {deliverables.length === 0 ? (
-              <div className="text-center py-12 text-white/30">
+              <div className="text-center py-12" style={{ color: "var(--text-2)" }}>
                 <Package className="w-8 h-8 mx-auto mb-2 opacity-40" />
                 <p className="text-sm">Nenhuma entrega disponível ainda.</p>
               </div>
@@ -358,34 +360,36 @@ export default function PortalProjectPage() {
                 const isImage = d.file_type?.startsWith("image") || d.title.match(/\.(jpg|jpeg|png|gif|webp)/i);
                 const Icon = isVideo ? Video : isImage ? Image : FileText;
                 return (
-                  <div key={d.id} className="flex items-center gap-4 rounded-2xl bg-white/5 border border-white/10 p-4 hover:bg-white/8 transition-colors">
-                    <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center shrink-0">
-                      <Icon className="w-5 h-5 text-white/60" />
+                  <div key={d.id} className="flex items-center gap-4 rounded-2xl border p-4 transition-colors" style={{ background: "var(--surface-2)", borderColor: "var(--border)" }}>
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "var(--surface-3)" }}>
+                      <Icon className="w-5 h-5" style={{ color: "var(--text-3)" }} />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{d.title}</p>
-                      <p className="text-xs text-white/40">{new Date(d.created_at).toLocaleDateString("pt-PT")}</p>
+                      <p className="text-sm font-medium truncate" style={{ color: "var(--text)" }}>{d.title}</p>
+                      <p className="text-xs" style={{ color: "var(--text-3)" }}>{new Date(d.created_at).toLocaleDateString("pt-PT")}</p>
                     </div>
                     {d.dropbox_url && (
                       <a
                         href={d.dropbox_url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="shrink-0 p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
+                        className="shrink-0 p-2 rounded-xl transition-colors"
+                        style={{ background: "var(--surface-3)" }}
                       >
-                        <Download className="w-4 h-4 text-white/60" />
+                        <Download className="w-4 h-4" style={{ color: "var(--text-3)" }} />
                       </a>
                     )}
                     {d.status && (
-                      <span className={`shrink-0 text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[d.status] ?? "text-white/40 bg-white/5"}`}>
+                      <span className={`shrink-0 text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[d.status] ?? ""}`} style={{ color: "var(--text-3)" }}>
                         {d.status}
                       </span>
                     )}
                     <button
                       onClick={() => router.push(`/portal/review/${d.id}`)}
-                      className="shrink-0 text-xs px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/15 transition-colors"
+                      className="shrink-0 text-xs px-3 py-1.5 rounded-full transition-colors"
+                      style={{ background: "var(--surface-3)", color: "var(--text)" }}
                     >
-                      Abrir review
+                      Abrir aprovações
                     </button>
                   </div>
                 );
@@ -398,10 +402,11 @@ export default function PortalProjectPage() {
         {tab === "approvals" && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wider">Pedidos</h2>
+              <h2 className="text-sm font-semibold uppercase tracking-wider" style={{ color: "var(--text-3)" }}>Pedidos</h2>
               <button
                 onClick={() => setShowNewRequest(true)}
-                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/15 transition-colors"
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full transition-colors"
+                style={{ background: "var(--surface-3)", color: "var(--text)" }}
               >
                 <PlusCircle className="w-3.5 h-3.5" />
                 Novo pedido
@@ -410,10 +415,10 @@ export default function PortalProjectPage() {
 
             {/* New request form */}
             {showNewRequest && (
-              <div className="rounded-2xl bg-white/8 border border-white/15 p-4 space-y-3">
+              <div className="rounded-2xl border p-4 space-y-3" style={{ background: "var(--surface-2)", borderColor: "var(--border)" }}>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Novo Pedido</span>
-                  <button onClick={() => setShowNewRequest(false)} className="text-white/40 hover:text-white">
+                  <span className="text-sm font-medium" style={{ color: "var(--text)" }}>Novo Pedido</span>
+                  <button onClick={() => setShowNewRequest(false)} style={{ color: "var(--text-3)" }}>
                     <X className="w-4 h-4" />
                   </button>
                 </div>
@@ -421,20 +426,23 @@ export default function PortalProjectPage() {
                   value={newReq.title}
                   onChange={e => setNewReq(r => ({ ...r, title: e.target.value }))}
                   placeholder="Título do pedido *"
-                  className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/25"
+                  className="w-full px-3 py-2 rounded-xl text-sm focus:outline-none border"
+                  style={{ background: "var(--surface-3)", borderColor: "var(--border)", color: "var(--text)" }}
                 />
                 <textarea
                   value={newReq.description}
                   onChange={e => setNewReq(r => ({ ...r, description: e.target.value }))}
                   placeholder="Descrição (opcional)"
                   rows={3}
-                  className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/25 resize-none"
+                  className="w-full px-3 py-2 rounded-xl text-sm focus:outline-none border resize-none"
+                  style={{ background: "var(--surface-3)", borderColor: "var(--border)", color: "var(--text)" }}
                 />
                 <div className="flex gap-2">
                   <select
                     value={newReq.type}
                     onChange={e => setNewReq(r => ({ ...r, type: e.target.value }))}
-                    className="flex-1 px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-sm text-white focus:outline-none"
+                    className="flex-1 px-3 py-2 rounded-xl text-sm focus:outline-none border"
+                    style={{ background: "var(--surface-3)", borderColor: "var(--border)", color: "var(--text)" }}
                   >
                     <option value="general">Geral</option>
                     <option value="revision">Revisão</option>
@@ -444,7 +452,8 @@ export default function PortalProjectPage() {
                   <select
                     value={newReq.priority}
                     onChange={e => setNewReq(r => ({ ...r, priority: e.target.value }))}
-                    className="flex-1 px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-sm text-white focus:outline-none"
+                    className="flex-1 px-3 py-2 rounded-xl text-sm focus:outline-none border"
+                    style={{ background: "var(--surface-3)", borderColor: "var(--border)", color: "var(--text)" }}
                   >
                     <option value="low">Baixa</option>
                     <option value="medium">Média</option>
@@ -456,12 +465,14 @@ export default function PortalProjectPage() {
                   type="date"
                   value={newReq.deadline}
                   onChange={e => setNewReq(r => ({ ...r, deadline: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-sm text-white focus:outline-none"
+                  className="w-full px-3 py-2 rounded-xl text-sm focus:outline-none border"
+                  style={{ background: "var(--surface-3)", borderColor: "var(--border)", color: "var(--text)" }}
                 />
                 <button
                   onClick={submitRequest}
                   disabled={submittingReq || !newReq.title.trim()}
-                  className="w-full py-2.5 rounded-xl bg-white text-gray-900 text-sm font-semibold disabled:opacity-50 hover:bg-white/90 transition-all"
+                  className="w-full py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50 transition-all"
+                  style={{ background: "var(--accent-primary)", color: "#fff" }}
                 >
                   {submittingReq ? "A enviar…" : "Enviar pedido"}
                 </button>
@@ -469,25 +480,25 @@ export default function PortalProjectPage() {
             )}
 
             {requests.length === 0 ? (
-              <div className="text-center py-12 text-white/30">
+              <div className="text-center py-12" style={{ color: "var(--text-2)" }}>
                 <Paperclip className="w-8 h-8 mx-auto mb-2 opacity-40" />
                 <p className="text-sm">Nenhum pedido ainda.</p>
               </div>
             ) : (
               requests.map(r => (
-                <div key={r.id} className="rounded-2xl bg-white/5 border border-white/10 p-4">
+                <div key={r.id} className="rounded-2xl border p-4" style={{ background: "var(--surface-2)", borderColor: "var(--border)" }}>
                   <div className="flex items-start justify-between gap-2 mb-2">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium">{r.title}</p>
-                      {r.description && <p className="text-xs text-white/50 mt-0.5 line-clamp-2">{r.description}</p>}
+                      <p className="text-sm font-medium" style={{ color: "var(--text)" }}>{r.title}</p>
+                      {r.description && <p className="text-xs mt-0.5 line-clamp-2" style={{ color: "var(--text-2)" }}>{r.description}</p>}
                     </div>
                     <div className="flex flex-col items-end gap-1 shrink-0">
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[r.status] ?? "text-white/40 bg-white/5"}`}>
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[r.status] ?? ""}`} style={{ color: "var(--text-3)" }}>
                         {r.status === "open" ? "Aberto" : r.status === "in_review" ? "Em revisão" : r.status === "resolved" ? "Resolvido" : r.status}
                       </span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3 text-xs text-white/40">
+                  <div className="flex items-center gap-3 text-xs" style={{ color: "var(--text-3)" }}>
                     <span className={`flex items-center gap-1 ${PRIORITY_COLORS[r.priority] ?? ""}`}>
                       <Flag className="w-3 h-3" />
                       {r.priority === "low" ? "Baixa" : r.priority === "medium" ? "Média" : r.priority === "high" ? "Alta" : "Urgente"}
@@ -508,10 +519,10 @@ export default function PortalProjectPage() {
 
         {/* ── Messages ── */}
         {tab === "messages" && (
-          <div className="flex flex-col gap-4">
-            <div className="space-y-3 min-h-[300px] max-h-[60vh] overflow-y-auto">
+          <div className="flex flex-col gap-4 min-h-0">
+            <div className="space-y-3 min-h-0 overflow-y-auto flex-1">
               {messages.length === 0 ? (
-                <div className="text-center py-12 text-white/30">
+                <div className="text-center py-12" style={{ color: "var(--text-2)" }}>
                   <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-40" />
                   <p className="text-sm">Nenhuma mensagem ainda. Inicia a conversa!</p>
                 </div>
@@ -520,9 +531,9 @@ export default function PortalProjectPage() {
                   const isClient = m.sender_type === "client";
                   return (
                     <div key={m.id} className={`flex ${isClient ? "justify-end" : "justify-start"}`}>
-                      <div className={`max-w-[80%] rounded-2xl px-4 py-3 ${isClient ? "bg-white text-gray-900" : "bg-white/10 text-white"}`}>
+                      <div className={`max-w-[80%] rounded-2xl px-4 py-3`} style={{ background: isClient ? "var(--accent-primary)" : "var(--surface-3)", color: isClient ? "#fff" : "var(--text)" }}>
                         <p className="text-sm leading-relaxed">{m.content}</p>
-                        <p className={`text-[10px] mt-1 ${isClient ? "text-gray-500" : "text-white/40"}`}>
+                        <p className="text-[10px] mt-1" style={{ color: isClient ? "rgba(255, 255, 255, 0.7)" : "var(--text-3)" }}>
                           {new Date(m.created_at).toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" })}
                         </p>
                       </div>
@@ -531,25 +542,28 @@ export default function PortalProjectPage() {
                 })
               )}
             </div>
-            <div className="flex gap-2 items-end sticky bottom-0 bg-gray-950 py-2">
+            <div className="flex gap-2 items-end flex-shrink-0 border-t" style={{ borderColor: "var(--border-soft)", paddingTop: "1rem" }}>
               <textarea
                 value={msgInput}
                 onChange={e => setMsgInput(e.target.value)}
                 onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
                 placeholder="Escreve uma mensagem…"
                 rows={2}
-                className="flex-1 px-4 py-2.5 rounded-2xl bg-white/10 border border-white/15 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/30 resize-none"
+                className="flex-1 px-4 py-2.5 rounded-2xl text-sm focus:outline-none border resize-none"
+                style={{ background: "var(--surface-3)", borderColor: "var(--border)", color: "var(--text)" }}
               />
               <button
                 onClick={sendMessage}
                 disabled={!msgInput.trim() || sendingMsg}
-                className="shrink-0 w-10 h-10 flex items-center justify-center rounded-2xl bg-white text-gray-900 disabled:opacity-40 hover:bg-white/90 transition-all"
+                className="shrink-0 w-10 h-10 flex items-center justify-center rounded-2xl disabled:opacity-40 transition-all"
+                style={{ background: "var(--accent-primary)", color: "#fff" }}
               >
                 {sendingMsg ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               </button>
             </div>
           </div>
         )}
+        </div>
       </main>
     </div>
   );
