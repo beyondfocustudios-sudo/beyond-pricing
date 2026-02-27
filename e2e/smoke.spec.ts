@@ -639,7 +639,7 @@ test.describe("Portal client smoke", () => {
     await expect(page.getByText("Cliente Dashboard")).toBeVisible();
 
     // Verify navigation and key elements are present
-    await expect(page.getByRole("navigation")).first().toBeVisible();
+    await expect(page.getByRole("navigation").first()).toBeVisible();
 
     // Check that no unexpected console errors occurred
     assertNoConsoleErrors();
