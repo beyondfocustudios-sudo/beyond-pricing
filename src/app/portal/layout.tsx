@@ -15,12 +15,12 @@ import {
   Zap,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase";
-import { ThemeProvider, useTheme } from "@/components/ThemeProvider";
+import { useTheme } from "@/components/ThemeProvider";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { OnboardingGate } from "@/components/onboarding/OnboardingGate";
 import DebugBuildStamp from "@/components/DebugBuildStamp";
-import { InboxDrawerProvider } from "@/app/portal/context/InboxDrawerProvider";
 import { InboxDrawer } from "@/app/portal/components/InboxDrawer";
+import { PortalProviders } from "@/app/portal/Providers";
 
 type NavItem = {
   href: string;
@@ -274,27 +274,25 @@ export default function PortalLayout({
   };
 
   if (isAuthFreePath(pathname)) {
-    return <ThemeProvider>{children}</ThemeProvider>;
+    return <PortalProviders>{children}</PortalProviders>;
   }
 
   if (loading) {
     return (
-      <ThemeProvider>
+      <PortalProviders>
         <div className="flex min-h-dvh w-full items-center justify-center" style={{ background: "var(--bg)" }}>
           <div className="h-8 w-8 animate-spin rounded-full border-2" style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }} />
         </div>
-      </ThemeProvider>
+      </PortalProviders>
     );
   }
 
   return (
-    <ThemeProvider userId={userId ?? undefined}>
-      <InboxDrawerProvider>
-        <PortalChrome email={email} onLogout={handleLogout}>
-          {children}
-        </PortalChrome>
-        <InboxDrawer />
-      </InboxDrawerProvider>
-    </ThemeProvider>
+    <PortalProviders userId={userId ?? undefined}>
+      <PortalChrome email={email} onLogout={handleLogout}>
+        {children}
+      </PortalChrome>
+      <InboxDrawer />
+    </PortalProviders>
   );
 }

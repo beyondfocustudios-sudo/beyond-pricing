@@ -622,4 +622,26 @@ test.describe("Portal client smoke", () => {
 
     assertNoConsoleErrors();
   });
+
+  test("client dashboard smoke: portal loads without crashing", async ({ page }) => {
+    test.setTimeout(60_000);
+    const assertNoConsoleErrors = createConsoleGuard(page);
+
+    // Login as client user
+    await loginClient(page);
+
+    // Navigate to portal dashboard
+    await page.goto("/portal");
+
+    // Verify page loaded without errors
+    await expect(page).toHaveURL(/\/portal\/?$/);
+    await expect(page.getByText("Application error")).toHaveCount(0);
+    await expect(page.getByText("Cliente Dashboard")).toBeVisible();
+
+    // Verify navigation and key elements are present
+    await expect(page.getByRole("navigation")).first().toBeVisible();
+
+    // Check that no unexpected console errors occurred
+    assertNoConsoleErrors();
+  });
 });
