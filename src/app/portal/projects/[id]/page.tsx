@@ -6,9 +6,10 @@ import { createClient } from "@/lib/supabase";
 import {
   ChevronLeft, MessageSquare, Package,
   Clock, Send, PlusCircle, X,
-  FileText, Image, Video, Download, Loader2,
+  FileText, Image, Video, Download, Loader2, Eye,
   Bell, Star, Calendar, Flag, Paperclip,
 } from "lucide-react";
+import { DeliverablePreviewDrawer } from "@/app/portal/components/DeliverablePreviewDrawer";
 
 // ── Types ─────────────────────────────────────────────────────
 interface Milestone {
@@ -96,6 +97,7 @@ export default function PortalProjectPage() {
   const [newReq, setNewReq] = useState({ title: "", description: "", type: "general", priority: "medium", deadline: "" });
   const [submittingReq, setSubmittingReq] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [previewDeliverable, setPreviewDeliverable] = useState<Deliverable | null>(null);
 
   const loadProject = useCallback(async () => {
     const { data } = await supabase
@@ -360,7 +362,7 @@ export default function PortalProjectPage() {
                 const isImage = d.file_type?.startsWith("image") || d.title.match(/\.(jpg|jpeg|png|gif|webp)/i);
                 const Icon = isVideo ? Video : isImage ? Image : FileText;
                 return (
-                  <div key={d.id} className="flex items-center gap-4 rounded-2xl border p-4 transition-colors" style={{ background: "var(--surface-2)", borderColor: "var(--border)" }}>
+                  <div key={d.id} className="flex items-center gap-3 rounded-2xl border p-4 transition-colors" style={{ background: "var(--surface-2)", borderColor: "var(--border)" }}>
                     <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "var(--surface-3)" }}>
                       <Icon className="w-5 h-5" style={{ color: "var(--text-3)" }} />
                     </div>
@@ -368,29 +370,40 @@ export default function PortalProjectPage() {
                       <p className="text-sm font-medium truncate" style={{ color: "var(--text)" }}>{d.title}</p>
                       <p className="text-xs" style={{ color: "var(--text-3)" }}>{new Date(d.created_at).toLocaleDateString("pt-PT")}</p>
                     </div>
-                    {d.dropbox_url && (
-                      <a
-                        href={d.dropbox_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="shrink-0 p-2 rounded-xl transition-colors"
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => setPreviewDeliverable(d)}
+                        className="p-2 rounded-xl transition-colors"
+                        title="Ver preview"
                         style={{ background: "var(--surface-3)" }}
                       >
-                        <Download className="w-4 h-4" style={{ color: "var(--text-3)" }} />
-                      </a>
-                    )}
-                    {d.status && (
-                      <span className={`shrink-0 text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[d.status] ?? ""}`} style={{ color: "var(--text-3)" }}>
-                        {d.status}
-                      </span>
-                    )}
-                    <button
-                      onClick={() => router.push(`/portal/review/${d.id}`)}
-                      className="shrink-0 text-xs px-3 py-1.5 rounded-full transition-colors"
-                      style={{ background: "var(--surface-3)", color: "var(--text)" }}
-                    >
-                      Abrir aprovações
-                    </button>
+                        <Eye className="w-4 h-4" style={{ color: "var(--accent-primary)" }} />
+                      </button>
+                      {d.dropbox_url && (
+                        <a
+                          href={d.dropbox_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-2 rounded-xl transition-colors"
+                          title="Descarregar"
+                          style={{ background: "var(--surface-3)" }}
+                        >
+                          <Download className="w-4 h-4" style={{ color: "var(--text-3)" }} />
+                        </a>
+                      )}
+                      {d.status && (
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[d.status] ?? ""}`} style={{ color: "var(--text-3)" }}>
+                          {d.status}
+                        </span>
+                      )}
+                      <button
+                        onClick={() => router.push(`/portal/review/${d.id}`)}
+                        className="text-xs px-3 py-1.5 rounded-full transition-colors"
+                        style={{ background: "var(--accent-primary)", color: "#fff" }}
+                      >
+                        Abrir aprovações
+                      </button>
+                    </div>
                   </div>
                 );
               })
@@ -565,6 +578,12 @@ export default function PortalProjectPage() {
         )}
         </div>
       </main>
+
+      {/* Preview Drawer */}
+      <DeliverablePreviewDrawer
+        deliverable={previewDeliverable}
+        onClose={() => setPreviewDeliverable(null)}
+      />
     </div>
   );
 }
