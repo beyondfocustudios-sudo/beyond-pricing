@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState, useEffect } from 'react';
 import { fetchMilestones } from '@/lib/api';
 import { CheckCircle } from 'lucide-react';
