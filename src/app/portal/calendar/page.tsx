@@ -3,12 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  Check,
-  Clock,
-  MessageSquare,
+  CheckCircle2,
+  ChevronRight,
+  Circle,
   Paperclip,
   Plus,
-  Send,
   X,
   Zap,
 } from "lucide-react";
@@ -26,14 +25,17 @@ import {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type TimeFilter = "year" | "week" | "day";
-type MilestoneVariant = "done" | "active" | "upcoming" | "future";
+type TimeFilter = "Year" | "Week" | "Day";
+type MilestoneStatus = "completed" | "active" | "upcoming";
+type LocalMilestone = PortalMilestone & { localStatus: MilestoneStatus };
 type MessageGroup = { date: string; messages: PortalMessage[] };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const SPRING = { type: "spring" as const, stiffness: 290, damping: 28, mass: 0.85 };
 const BLUE = "#2F6BFF";
+const DARK = "#0F172A";
+const MONTH_LABELS = ["FEBRUARY", "MARCH", "APRIL", "MAY"];
 
 const AVATAR_COLORS: Array<{ bg: string; text: string }> = [
   { bg: "#FFE4CC", text: "#C05621" },
@@ -45,49 +47,7 @@ const AVATAR_COLORS: Array<{ bg: string; text: string }> = [
   { bg: "#CFFAFE", text: "#155E75" },
 ];
 
-// Mock participant names for topbar avatars (cycled by project index)
-const MOCK_PARTICIPANTS = ["Ana Costa", "Bruno Ferreira", "Catarina Lima", "Diogo Santos", "Eva Rodrigues"];
-
-// ─── Status helpers ────────────────────────────────────────────────────────────
-
-type StatusConfig = { label: string; bg: string; color: string };
-
-function getStatusConfig(status: string | null): StatusConfig {
-  const s = (status ?? "active").toLowerCase();
-  if (s === "done" || s === "completed" || s === "concluído" || s === "concluido") {
-    return { label: "CONCLUÍDO", bg: "rgba(107,114,128,0.12)", color: "#6B7280" };
-  }
-  if (
-    s === "in_progress" ||
-    s === "active" ||
-    s === "ativo" ||
-    s === "em progresso" ||
-    s === "em_progresso"
-  ) {
-    return { label: "ATIVO", bg: "rgba(16,185,129,0.12)", color: "#059669" };
-  }
-  if (
-    s === "planning" ||
-    s === "planeamento" ||
-    s === "draft" ||
-    s === "rascunho" ||
-    s === "pending"
-  ) {
-    return { label: "PLANEAMENTO", bg: "rgba(245,158,11,0.12)", color: "#D97706" };
-  }
-  if (s === "blocked" || s === "at_risk" || s === "at-risk") {
-    return { label: "EM RISCO", bg: "rgba(239,68,68,0.12)", color: "#DC2626" };
-  }
-  // Default: ATIVO
-  return { label: "ATIVO", bg: "rgba(47,107,255,0.10)", color: BLUE };
-}
-
-// Subtitle label for project cards (cycles through request types)
-const SUBTITLE_TYPES = ["Decision Request", "Update Request", "Review Request", "Feedback Request"];
-function getProjectSubtitle(project: PortalProject, index: number): string {
-  if (project.description) return project.description;
-  return SUBTITLE_TYPES[index % SUBTITLE_TYPES.length]!;
-}
+const MOCK_TEAM = ["Ana Costa", "Bruno Ferreira", "Catarina Lima", "Diogo Santos"];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -124,79 +84,30 @@ function fmtMsgDate(iso: string): string {
   return d.toLocaleDateString("pt-PT", { weekday: "short", day: "numeric", month: "short" });
 }
 
-function getMilestoneVariant(status: string | null): MilestoneVariant {
+function fmtMilestoneDate(iso: string | null): string {
+  if (!iso) return "TBD";
+  const d = new Date(iso);
+  return `${d.getDate().toString().padStart(2, "0")} ${d
+    .toLocaleString("en-US", { month: "short" })
+    .toUpperCase()}`;
+}
+
+function getMilestoneStatus(status: string | null): MilestoneStatus {
   const s = (status ?? "pending").toLowerCase();
-  if (s === "done" || s === "completed") return "done";
+  if (s === "done" || s === "completed") return "completed";
   if (s === "in_progress" || s === "active") return "active";
-  if (s === "blocked" || s === "at_risk" || s === "at-risk") return "upcoming";
-  return "future";
+  return "upcoming";
 }
 
-function computeTimelineRange(
-  milestones: PortalMilestone[],
-  filter: TimeFilter,
-): { start: Date; end: Date } {
-  const now = new Date();
-
-  if (filter === "day") {
-    const start = new Date(now);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(now);
-    end.setHours(23, 59, 59, 999);
-    return { start, end };
+function getStatusBadge(status: string | null): { label: string; cls: string } {
+  const s = (status ?? "active").toLowerCase();
+  if (s === "done" || s === "completed" || s === "concluído" || s === "concluido") {
+    return { label: "Concluído", cls: "bg-slate-100 text-slate-500" };
   }
-
-  if (filter === "week") {
-    const start = new Date(now);
-    start.setDate(now.getDate() - now.getDay());
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setDate(start.getDate() + 6);
-    end.setHours(23, 59, 59, 999);
-    return { start, end };
+  if (s === "planning" || s === "planeamento" || s === "draft" || s === "pending") {
+    return { label: "Planeamento", cls: "bg-blue-100 text-blue-600" };
   }
-
-  // Year: span across milestone dates
-  const dates = milestones
-    .filter((m) => m.due_date)
-    .map((m) => new Date(m.due_date!).getTime());
-
-  if (dates.length === 0) {
-    return {
-      start: new Date(now.getFullYear(), 0, 1),
-      end: new Date(now.getFullYear(), 11, 31),
-    };
-  }
-
-  const minMs = Math.min(...dates);
-  const maxMs = Math.max(...dates);
-  const pad = Math.max((maxMs - minMs) * 0.12, 15 * 24 * 60 * 60 * 1000);
-  return {
-    start: new Date(minMs - pad),
-    end: new Date(maxMs + pad),
-  };
-}
-
-function dateToPercent(date: Date, start: Date, end: Date): number {
-  const total = end.getTime() - start.getTime();
-  if (total === 0) return 50;
-  return Math.max(2, Math.min(98, ((date.getTime() - start.getTime()) / total) * 100));
-}
-
-function getMonthLabels(
-  start: Date,
-  end: Date,
-): Array<{ label: string; left: number }> {
-  const labels: Array<{ label: string; left: number }> = [];
-  const cur = new Date(start.getFullYear(), start.getMonth(), 1);
-  while (cur <= end) {
-    labels.push({
-      label: cur.toLocaleDateString("en-US", { month: "long" }),
-      left: dateToPercent(cur, start, end),
-    });
-    cur.setMonth(cur.getMonth() + 1);
-  }
-  return labels;
+  return { label: "Ativo", cls: "bg-emerald-100 text-emerald-600" };
 }
 
 function groupMessages(messages: PortalMessage[]): MessageGroup[] {
@@ -204,236 +115,30 @@ function groupMessages(messages: PortalMessage[]): MessageGroup[] {
   for (const msg of messages) {
     const date = fmtMsgDate(msg.created_at);
     const last = groups.at(-1);
-    if (last?.date === date) {
-      last.messages.push(msg);
-    } else {
-      groups.push({ date, messages: [msg] });
-    }
+    if (last?.date === date) last.messages.push(msg);
+    else groups.push({ date, messages: [msg] });
   }
   return groups;
-}
-
-// ─── ParticipantAvatars ─────────────────────────────────────────────────────
-
-function ParticipantAvatars({ projectName }: { projectName: string }) {
-  // Derive 3 "participants" from mock list seeded by project name
-  let seed = 0;
-  for (const c of projectName) seed = (seed * 31 + c.charCodeAt(0)) & 0xffff;
-  const count = MOCK_PARTICIPANTS.length;
-  const shown = 3;
-  const participants = [0, 1, 2].map((i) => MOCK_PARTICIPANTS[(seed + i) % count]!);
-
-  return (
-    <div className="flex items-center gap-2">
-      {/* Overlapping avatars */}
-      <div className="flex -space-x-2">
-        {participants.map((name, i) => {
-          const col = avatarColor(name);
-          return (
-            <div
-              key={i}
-              title={name}
-              className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold ring-2 ring-white"
-              style={{ background: col.bg, color: col.text, zIndex: shown - i }}
-            >
-              {initials(name)}
-            </div>
-          );
-        })}
-        {/* +N overflow pill */}
-        <div
-          className="flex h-8 min-w-[32px] flex-shrink-0 items-center justify-center rounded-full px-1.5 text-[10px] font-bold ring-2 ring-white"
-          style={{ background: "var(--surface-2)", color: "var(--text-3)", zIndex: 0 }}
-        >
-          +5
-        </div>
-      </div>
-
-      {/* Blue "+" invite button */}
-      <button
-        className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-white shadow transition hover:opacity-90"
-        style={{ background: BLUE, boxShadow: `0 2px 8px rgba(47,107,255,0.35)` }}
-        aria-label="Convidar participante"
-        onClick={(e) => e.preventDefault()}
-      >
-        <Plus className="h-4 w-4" />
-      </button>
-    </div>
-  );
-}
-
-// ─── MilestoneNode ────────────────────────────────────────────────────────────
-
-const NODE_MARGIN_TOP: Record<MilestoneVariant, string> = {
-  done: "-11px",
-  active: "-19px",
-  upcoming: "-11px",
-  future: "-7px",
-};
-
-function MilestoneNode({
-  milestone,
-  left,
-  index,
-  isSelected,
-  onSelect,
-}: {
-  milestone: PortalMilestone;
-  left: number;
-  index: number;
-  isSelected: boolean;
-  onSelect: (id: string) => void;
-}) {
-  const variant = getMilestoneVariant(milestone.status);
-  const marginTop = NODE_MARGIN_TOP[variant];
-  const dateStr = milestone.due_date
-    ? fmtDate(milestone.due_date, { day: "2-digit", month: "short" }).toUpperCase()
-    : null;
-
-  return (
-    <motion.div
-      className="absolute flex cursor-pointer flex-col items-center"
-      style={{
-        left: `${left}%`,
-        top: 0,
-        transform: "translateX(-50%)",
-        zIndex: isSelected ? 30 : 10,
-      }}
-      initial={{ opacity: 0, y: -6 }}
-      animate={{ opacity: variant === "future" ? 0.4 : 1, y: 0 }}
-      transition={{ ...SPRING, delay: index * 0.06 }}
-      onClick={() => onSelect(milestone.id)}
-    >
-      {/* Selection glow ring (renders behind node) */}
-      {isSelected && (
-        <motion.div
-          className="absolute rounded-full"
-          style={{
-            marginTop,
-            width: variant === "active" ? "60px" : variant === "done" || variant === "upcoming" ? "44px" : "36px",
-            height: variant === "active" ? "60px" : variant === "done" || variant === "upcoming" ? "44px" : "36px",
-            background: `rgba(47,107,255,0.15)`,
-            border: `2px solid rgba(47,107,255,0.4)`,
-            top: 0,
-            left: "50%",
-            transform: "translateX(-50%)",
-          }}
-          initial={{ scale: 0.6, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          transition={SPRING}
-        />
-      )}
-
-      {/* Node circle — centered on the 1px bar via marginTop */}
-      <div style={{ marginTop, position: "relative" }}>
-        {variant === "done" && (
-          <div
-            className="flex h-6 w-6 items-center justify-center rounded-full border-[3px] border-white shadow-md"
-            style={{
-              background: BLUE,
-              boxShadow: isSelected
-                ? `0 0 0 3px rgba(47,107,255,0.3), 0 4px 12px rgba(47,107,255,0.4)`
-                : undefined,
-            }}
-          >
-            <Check className="h-3 w-3 text-white" strokeWidth={3} />
-          </div>
-        )}
-
-        {variant === "active" && (
-          <div
-            className="relative flex h-10 w-10 items-center justify-center rounded-full border-2 bg-white shadow-lg"
-            style={{
-              borderColor: BLUE,
-              zIndex: 20,
-              boxShadow: isSelected
-                ? `0 0 0 4px rgba(47,107,255,0.2), 0 6px 20px rgba(47,107,255,0.4)`
-                : `0 4px 14px rgba(47,107,255,0.3)`,
-            }}
-          >
-            <Zap className="h-5 w-5" style={{ color: BLUE }} />
-            <span
-              className="absolute inset-0 animate-ping rounded-full opacity-20"
-              style={{ background: BLUE }}
-            />
-          </div>
-        )}
-
-        {variant === "upcoming" && (
-          <div
-            className="flex h-6 w-6 items-center justify-center rounded-full border-2 bg-white shadow-sm"
-            style={{
-              borderColor: BLUE,
-              boxShadow: isSelected
-                ? `0 0 0 3px rgba(47,107,255,0.25), 0 4px 12px rgba(47,107,255,0.3)`
-                : undefined,
-            }}
-          >
-            <Clock className="h-3 w-3" style={{ color: BLUE }} />
-          </div>
-        )}
-
-        {variant === "future" && (
-          <div
-            className="h-4 w-4 rounded-full border-2 border-white shadow-sm"
-            style={{
-              background: isSelected ? BLUE : "#D1D5DB",
-            }}
-          />
-        )}
-      </div>
-
-      {/* Label below the node */}
-      <div
-        className="mt-3 w-28 text-center"
-        style={{
-          opacity: isSelected ? 1 : undefined,
-        }}
-      >
-        <p
-          className="text-[11px] leading-tight"
-          style={{
-            color: isSelected ? BLUE : "var(--text)",
-            fontWeight: isSelected ? 700 : 600,
-          }}
-        >
-          {milestone.title}
-        </p>
-        {dateStr && (
-          <p
-            className="mt-0.5 text-[9px]"
-            style={{ color: isSelected ? `rgba(47,107,255,0.7)` : "var(--text-3)" }}
-          >
-            {dateStr}
-          </p>
-        )}
-      </div>
-    </motion.div>
-  );
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function PortalCalendarPage() {
-  const [filter, setFilter] = useState<TimeFilter>("year");
+  const [activeTab, setActiveTab] = useState<TimeFilter>("Year");
   const [projects, setProjects] = useState<PortalProject[]>([]);
   const [selectedId, setSelectedId] = useState<string>("");
-  const [milestones, setMilestones] = useState<PortalMilestone[]>([]);
+  const [milestones, setMilestones] = useState<LocalMilestone[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingDetail, setLoadingDetail] = useState(false);
 
-  // Milestone selection
-  const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null);
-
   // Inbox
-  const [inboxOpen, setInboxOpen] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<PortalMessage[]>([]);
   const [msgText, setMsgText] = useState("");
   const [sending, setSending] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
-  // ── Load projects on mount ─────────────────────────────────────────────────
+  // ── Load projects ─────────────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -448,7 +153,7 @@ export default function PortalCalendarPage() {
     };
   }, []);
 
-  // ── Load milestones + conversation when project changes ───────────────────
+  // ── Load milestones + conversation on project change ──────────────────────
   useEffect(() => {
     if (!selectedId) return;
     let cancelled = false;
@@ -456,21 +161,22 @@ export default function PortalCalendarPage() {
     setMilestones([]);
     setMessages([]);
     setConversationId(null);
-    setSelectedMilestoneId(null);
 
     void (async () => {
-      const [milestoneRows, convId] = await Promise.all([
+      const [rows, convId] = await Promise.all([
         getProjectMilestones(selectedId),
         getConversationForProject(selectedId),
       ]);
       if (cancelled) return;
 
       setMilestones(
-        [...milestoneRows].sort((a, b) => {
-          const da = a.due_date ? new Date(a.due_date).getTime() : Infinity;
-          const db = b.due_date ? new Date(b.due_date).getTime() : Infinity;
-          return da - db;
-        }),
+        [...rows]
+          .sort((a, b) => {
+            const da = a.due_date ? new Date(a.due_date).getTime() : Infinity;
+            const db = b.due_date ? new Date(b.due_date).getTime() : Infinity;
+            return da - db;
+          })
+          .map((m) => ({ ...m, localStatus: getMilestoneStatus(m.status) })),
       );
       setConversationId(convId);
       setLoadingDetail(false);
@@ -486,10 +192,26 @@ export default function PortalCalendarPage() {
     };
   }, [selectedId]);
 
-  // ── Auto-scroll inbox to latest message ───────────────────────────────────
+  // ── Auto-scroll inbox ─────────────────────────────────────────────────────
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // ── Toggle milestone status (local only, optimistic) ─────────────────────
+  const toggleMilestone = useCallback((id: string) => {
+    setMilestones((prev) =>
+      prev.map((m) => {
+        if (m.id !== id) return m;
+        const next: MilestoneStatus =
+          m.localStatus === "completed"
+            ? "upcoming"
+            : m.localStatus === "upcoming"
+              ? "active"
+              : "completed";
+        return { ...m, localStatus: next };
+      }),
+    );
+  }, []);
 
   // ── Send message ──────────────────────────────────────────────────────────
   const handleSend = useCallback(async () => {
@@ -504,509 +226,586 @@ export default function PortalCalendarPage() {
     setSending(false);
   }, [conversationId, msgText]);
 
-  // ── Select project (also reset inbox + milestone selection) ───────────────
-  const handleSelectProject = useCallback((id: string) => {
-    setSelectedId(id);
-    setSelectedMilestoneId(null);
-    // Keep inbox open but it will reload messages automatically via the useEffect
-  }, []);
-
-  // ── Derived state ─────────────────────────────────────────────────────────
+  // ── Derived ───────────────────────────────────────────────────────────────
   const selectedProject = useMemo(
     () => projects.find((p) => p.id === selectedId) ?? null,
     [projects, selectedId],
   );
 
-  const otherProjects = useMemo(
-    () => projects.filter((p) => p.id !== selectedId),
-    [projects, selectedId],
-  );
-
-  const doneCount = useMemo(
-    () => milestones.filter((m) => getMilestoneVariant(m.status) === "done").length,
+  const completedCount = useMemo(
+    () => milestones.filter((m) => m.localStatus === "completed").length,
     [milestones],
   );
 
-  const { monthLabels, nodePositions, progressPct } = useMemo(() => {
-    const r = computeTimelineRange(milestones, filter);
-    const labels = getMonthLabels(r.start, r.end);
-    const positions = milestones.map((m) => ({
-      milestone: m,
-      left: m.due_date ? dateToPercent(new Date(m.due_date), r.start, r.end) : 50,
-    }));
-    const pct =
-      milestones.length > 0
-        ? (doneCount / milestones.length) * 100
-        : dateToPercent(new Date(), r.start, r.end);
-    return { monthLabels: labels, nodePositions: positions, progressPct: pct };
-  }, [milestones, filter, doneCount]);
+  const filteredMilestones = useMemo(() => {
+    if (activeTab === "Day") return milestones.slice(0, 1);
+    if (activeTab === "Week") return milestones.slice(0, 2);
+    return milestones;
+  }, [milestones, activeTab]);
 
   const messageGroups = useMemo(() => groupMessages(messages), [messages]);
 
-  // ── Loading state ─────────────────────────────────────────────────────────
-  if (loading) {
-    return <div className="skeleton h-[70vh] rounded-3xl" />;
-  }
+  // Team avatars seeded from project name
+  const teamAvatars = useMemo(() => {
+    if (!selectedProject) return MOCK_TEAM.slice(0, 4);
+    let seed = 0;
+    for (const c of selectedProject.name) seed = (seed * 31 + c.charCodeAt(0)) & 0xffff;
+    return [0, 1, 2, 3].map((i) => MOCK_TEAM[(seed + i) % MOCK_TEAM.length]!);
+  }, [selectedProject]);
+
+  // ── Loading ───────────────────────────────────────────────────────────────
+  if (loading) return <div className="skeleton h-[70vh] rounded-3xl" />;
 
   // ── Render ────────────────────────────────────────────────────────────────
+  //
+  // Break out of the layout's px-4/px-6/px-8 and py-4/py-6 padding so we
+  // can build a true 2-column layout (main scroll | fixed inbox) that fills
+  // the full remaining viewport height below the portal header (≈74px).
+  //
   return (
-    <>
-      {/* ── Main content area ── */}
-      <div
-        className="space-y-10"
-        style={{
-          paddingRight: inboxOpen ? "440px" : "0",
-          transition: "padding-right 0.35s cubic-bezier(0.34,1.56,0.64,1)",
-        }}
-      >
-        {/* ── Project header ── */}
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          {/* Left: icon + project name + status */}
-          <div className="flex min-w-0 items-center gap-4">
-            <div
-              className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl text-white"
-              style={{ background: BLUE }}
-            >
-              <Zap className="h-5 w-5" />
-            </div>
-            <div className="min-w-0">
-              <h1 className="truncate text-xl font-bold" style={{ color: "var(--text)" }}>
-                {selectedProject?.name ?? "—"}
-              </h1>
-              <p
-                className="text-xs font-medium uppercase tracking-wide"
-                style={{ color: "var(--text-3)" }}
-              >
-                {selectedProject?.status ?? "active"}
-              </p>
-            </div>
-          </div>
-
-          {/* Right: participant avatars + "+" invite + inbox toggle */}
-          <div className="flex flex-shrink-0 items-center gap-3">
-            {selectedProject && (
-              <ParticipantAvatars projectName={selectedProject.name} />
-            )}
-
-            {/* Inbox toggle — icon only (no text label) */}
-            <button
-              onClick={() => setInboxOpen((v) => !v)}
-              className="relative flex h-8 w-8 items-center justify-center rounded-full transition-all hover:opacity-80"
-              style={{
-                background: inboxOpen ? `rgba(47,107,255,0.12)` : "var(--surface-2)",
-                color: inboxOpen ? BLUE : "var(--text-3)",
-                border: `1px solid ${inboxOpen ? `rgba(47,107,255,0.3)` : "var(--border)"}`,
-              }}
-              aria-label={inboxOpen ? "Fechar inbox" : "Abrir inbox"}
-            >
-              <MessageSquare className="h-4 w-4" />
-              {/* Unread dot */}
-              {messages.length > 0 && !inboxOpen && (
-                <span
-                  className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-white"
-                  style={{ background: BLUE }}
-                />
-              )}
-            </button>
-          </div>
-        </div>
-
-        {/* ── Milestones section ── */}
-        <section>
-          {/* Section header */}
-          <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <h2 className="text-2xl font-bold" style={{ color: "var(--text)" }}>
-                Milestones
-              </h2>
-              <p className="mt-1 text-sm" style={{ color: "var(--text-3)" }}>
-                <span style={{ color: BLUE, fontWeight: 600 }}>
-                  {doneCount} de {milestones.length}
-                </span>{" "}
-                milestones completos
-              </p>
-            </div>
-
-            {/* Year / Week / Day filter */}
-            <div
-              className="flex items-center rounded-xl p-1"
-              style={{ background: "var(--surface-2)" }}
-            >
-              {(["year", "week", "day"] as TimeFilter[]).map((f) => (
-                <button
-                  key={f}
-                  onClick={() => setFilter(f)}
-                  className="rounded-lg px-5 py-2 text-sm font-semibold capitalize transition-all"
-                  style={{
-                    background: filter === f ? BLUE : "transparent",
-                    color: filter === f ? "#ffffff" : "var(--text-3)",
-                    boxShadow: filter === f ? "0 2px 8px rgba(47,107,255,0.35)" : "none",
-                  }}
-                >
-                  {f === "year" ? "Year" : f === "week" ? "Week" : "Day"}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Timeline */}
-          {loadingDetail ? (
-            <div className="skeleton h-36 rounded-2xl" />
-          ) : (
-            <div className="relative overflow-visible px-4 pb-20 pt-4">
-              {/* Faded month labels — decorative background text */}
-              <div className="pointer-events-none absolute inset-0 overflow-hidden">
-                {monthLabels.map((m, i) => (
-                  <span
-                    key={`${m.label}-${i}`}
-                    className="absolute top-2 text-4xl font-black uppercase tracking-widest"
-                    style={{
-                      left: `${m.left}%`,
-                      color: "var(--text)",
-                      opacity: 0.04,
-                    }}
-                  >
-                    {m.label}
-                  </span>
-                ))}
-              </div>
-
-              {/* Timeline track (1px bar) */}
-              <div className="relative mt-14" style={{ height: "1px" }}>
-                {/* Track background */}
-                <div
-                  className="absolute inset-0 rounded-full"
-                  style={{ background: `rgba(47,107,255,0.18)` }}
-                />
-
-                {/* Animated progress fill */}
-                <motion.div
-                  className="absolute left-0 rounded-full"
-                  style={{
-                    top: "-1.5px",
-                    height: "4px",
-                    background: BLUE,
-                  }}
-                  initial={{ width: "0%" }}
-                  animate={{ width: `${progressPct}%` }}
-                  transition={{ ...SPRING, delay: 0.2 }}
-                />
-
-                {/* Milestone nodes */}
-                {nodePositions.map(({ milestone, left }, i) => (
-                  <MilestoneNode
-                    key={milestone.id}
-                    milestone={milestone}
-                    left={left}
-                    index={i}
-                    isSelected={selectedMilestoneId === milestone.id}
-                    onSelect={(id) =>
-                      setSelectedMilestoneId((prev) => (prev === id ? null : id))
-                    }
-                  />
-                ))}
-              </div>
-
-              {milestones.length === 0 && (
-                <div
-                  className="mt-16 rounded-xl border border-dashed p-4 text-center text-xs"
-                  style={{ borderColor: "var(--border)", color: "var(--text-3)" }}
-                >
-                  Sem milestones neste projeto.
-                </div>
-              )}
-            </div>
-          )}
-        </section>
-
-        {/* ── Other Projects ── */}
-        {otherProjects.length > 0 && (
-          <section className="pb-6">
-            <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-xl font-bold" style={{ color: "var(--text)" }}>
-                Outros Projetos
-              </h2>
-              <Link
-                href="/portal/projects"
-                className="text-sm font-semibold transition-opacity hover:opacity-70"
-                style={{ color: BLUE }}
-              >
-                View All
-              </Link>
-            </div>
-
-            <div className="space-y-3">
-              {otherProjects.map((p, index) => {
-                const initStr = initials(p.name);
-                const color = avatarColor(p.name);
-                const statusCfg = getStatusConfig(p.status);
-                const subtitle = getProjectSubtitle(p, index);
-                const isProjectSelected = false; // These are "other" projects (not selected)
-
-                return (
-                  <motion.button
-                    key={p.id}
-                    onClick={() => handleSelectProject(p.id)}
-                    className="flex w-full items-center justify-between rounded-2xl p-4 text-left"
-                    style={{
-                      border: `1px solid ${isProjectSelected ? `rgba(47,107,255,0.3)` : "var(--border)"}`,
-                      background: isProjectSelected ? `rgba(47,107,255,0.06)` : "var(--surface-2)",
-                    }}
-                    whileHover={{ scale: 1.005, borderColor: `rgba(47,107,255,0.2)` }}
-                    transition={SPRING}
-                  >
-                    <div className="flex min-w-0 items-center gap-4">
-                      {/* Initials badge */}
-                      <div
-                        className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl text-sm font-bold"
-                        style={{ background: color.bg, color: color.text }}
-                      >
-                        {initStr}
-                      </div>
-
-                      {/* Project name + subtitle */}
-                      <div className="min-w-0">
-                        <h3
-                          className="truncate font-bold"
-                          style={{ color: "var(--text)" }}
-                        >
-                          {p.name}
-                        </h3>
-                        <p className="mt-0.5 text-xs" style={{ color: "var(--text-3)" }}>
-                          {subtitle}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Right: status pill + date/time */}
-                    <div className="ml-4 flex flex-shrink-0 items-center gap-4 sm:gap-5">
-                      {/* Status pill — colored by status */}
-                      <span
-                        className="hidden rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider sm:block"
-                        style={{
-                          background: statusCfg.bg,
-                          color: statusCfg.color,
-                        }}
-                      >
-                        {statusCfg.label}
-                      </span>
-
-                      {/* Date + time */}
-                      <div className="text-right">
-                        <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>
-                          {fmtDate(p.updated_at, {
-                            weekday: "short",
-                            day: "numeric",
-                            month: "short",
-                          })}
-                        </p>
-                        <p className="text-[10px]" style={{ color: "var(--text-3)" }}>
-                          {fmtTime(p.updated_at)}
-                        </p>
-                      </div>
-                    </div>
-                  </motion.button>
-                );
-              })}
-            </div>
-          </section>
-        )}
-      </div>
-
-      {/* ── Inbox drawer (fixed right panel) ── */}
-      <AnimatePresence>
-        {inboxOpen && (
-          <>
-            {/* Mobile backdrop */}
-            <motion.div
-              className="fixed inset-0 z-40 bg-black/20 lg:hidden"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setInboxOpen(false)}
-            />
-
-            <motion.aside
-              className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[420px] flex-col border-l shadow-2xl"
-              style={{ background: "var(--surface)", borderColor: "var(--border)" }}
-              initial={{ x: "100%" }}
-              animate={{ x: 0 }}
-              exit={{ x: "100%" }}
-              transition={SPRING}
-            >
-              {/* Inbox header */}
+    <div
+      className="-mx-4 sm:-mx-6 lg:-mx-8 -my-4 lg:-my-6 flex overflow-hidden"
+      style={{ height: "calc(100dvh - 74px)" }}
+    >
+      {/* ── Left: scrollable main content ────────────────────────────────── */}
+      <div className="flex min-w-0 flex-1 flex-col overflow-y-auto px-6 py-6 sm:px-8 lg:px-10 lg:py-8">
+        <div className="space-y-10">
+          {/* ── Project header ── */}
+          <header className="flex items-center justify-between gap-4">
+            {/* Left: burger icon + animated project name */}
+            <div className="flex min-w-0 items-center gap-4">
               <div
-                className="flex flex-shrink-0 items-center justify-between border-b px-6 py-5"
-                style={{ borderColor: "var(--border)" }}
+                className="flex-shrink-0 rounded-lg p-2"
+                style={{ background: `rgba(47,107,255,0.08)`, color: BLUE }}
               >
-                <div>
-                  <h2
-                    className="text-xs font-bold uppercase tracking-[2px]"
+                <div className="flex h-6 w-6 flex-col justify-center gap-1">
+                  <div className="h-0.5 w-full rounded-full bg-current" />
+                  <div className="h-0.5 w-2/3 rounded-full bg-current" />
+                  <div className="h-0.5 w-full rounded-full bg-current" />
+                </div>
+              </div>
+
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={selectedProject?.id}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 10 }}
+                  transition={{ duration: 0.2 }}
+                  className="min-w-0"
+                >
+                  <h1
+                    className="truncate text-xl font-bold leading-tight"
+                    style={{ color: "var(--text)" }}
+                  >
+                    {selectedProject?.name ?? "—"}
+                  </h1>
+                  <p
+                    className="text-[10px] font-bold uppercase tracking-widest"
                     style={{ color: "var(--text-3)" }}
                   >
-                    Inbox
-                  </h2>
-                  {selectedProject && (
-                    <p className="mt-0.5 text-[11px]" style={{ color: "var(--text-3)", opacity: 0.6 }}>
-                      {selectedProject.name}
+                    {selectedProject?.description ?? selectedProject?.status ?? "active"}
+                  </p>
+                </motion.div>
+              </AnimatePresence>
+            </div>
+
+            {/* Right: avatar stack + add-milestone button */}
+            <div className="flex flex-shrink-0 items-center gap-4">
+              <div className="flex -space-x-2">
+                {teamAvatars.map((name, i) => {
+                  const col = avatarColor(name);
+                  return (
+                    <div
+                      key={i}
+                      title={name}
+                      className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-white text-[10px] font-bold"
+                      style={{
+                        background: col.bg,
+                        color: col.text,
+                        zIndex: teamAvatars.length - i,
+                      }}
+                    >
+                      {initials(name)}
+                    </div>
+                  );
+                })}
+                <div
+                  className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-white text-[10px] font-bold"
+                  style={{ background: "var(--surface-2)", color: "var(--text-3)", zIndex: 0 }}
+                >
+                  +5
+                </div>
+              </div>
+
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="flex h-10 w-10 items-center justify-center rounded-xl text-white shadow-lg"
+                style={{ background: BLUE, boxShadow: `0 4px 14px rgba(47,107,255,0.35)` }}
+                aria-label="Adicionar milestone"
+              >
+                <Plus size={22} />
+              </motion.button>
+            </div>
+          </header>
+
+          {/* ── Milestones section ── */}
+          <section>
+            <div className="mb-8 flex items-end justify-between">
+              <div>
+                <h2
+                  className="mb-1 text-2xl font-bold"
+                  style={{ color: "var(--text)" }}
+                >
+                  Milestones
+                </h2>
+                <p className="text-sm" style={{ color: "var(--text-3)" }}>
+                  <span style={{ color: BLUE, fontWeight: 700 }}>
+                    {completedCount} of {milestones.length}
+                  </span>{" "}
+                  milestones complete
+                </p>
+              </div>
+
+              {/* Year / Week / Day */}
+              <div
+                className="flex items-center rounded-xl p-1"
+                style={{ background: "var(--surface-2)" }}
+              >
+                {(["Year", "Week", "Day"] as TimeFilter[]).map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveTab(tab)}
+                    className="rounded-lg px-6 py-2 text-xs font-bold transition-all"
+                    style={{
+                      background: activeTab === tab ? "var(--surface)" : "transparent",
+                      color: activeTab === tab ? BLUE : "var(--text-3)",
+                      boxShadow: activeTab === tab ? "0 1px 4px rgba(0,0,0,0.08)" : "none",
+                    }}
+                  >
+                    {tab}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {loadingDetail ? (
+              <div className="skeleton h-36 rounded-2xl" />
+            ) : (
+              <div className="relative pb-12 pt-12">
+                {/* Faded month labels */}
+                <div className="pointer-events-none absolute inset-0 flex justify-between overflow-hidden px-4">
+                  {MONTH_LABELS.map((m) => (
+                    <span
+                      key={m}
+                      className="text-5xl font-black tracking-[0.15em]"
+                      style={{ color: "var(--text)", opacity: 0.03 }}
+                    >
+                      {m}
+                    </span>
+                  ))}
+                </div>
+
+                {/* Timeline bar */}
+                <div
+                  className="relative mx-8 h-1 rounded-full"
+                  style={{ background: "var(--surface-2)" }}
+                >
+                  {/* Animated progress fill */}
+                  <motion.div
+                    className="absolute left-0 top-0 h-full rounded-full"
+                    style={{ background: BLUE }}
+                    initial={{ width: "0%" }}
+                    animate={{
+                      width:
+                        milestones.length > 0
+                          ? `${(completedCount / milestones.length) * 100}%`
+                          : "0%",
+                    }}
+                    transition={{ ...SPRING, delay: 0.15 }}
+                  />
+
+                  {/* Milestone nodes — evenly spaced (flex justify-between) */}
+                  {filteredMilestones.length > 0 && (
+                    <div className="absolute top-1/2 w-full -translate-y-1/2">
+                      <div className="flex w-full items-center justify-between">
+                        <AnimatePresence>
+                          {filteredMilestones.map((m, idx) => {
+                            const st = m.localStatus;
+                            return (
+                              <motion.div
+                                key={m.id}
+                                className="group relative flex flex-col items-center"
+                                initial={{ opacity: 0, scale: 0 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                exit={{ opacity: 0, scale: 0 }}
+                                transition={{ ...SPRING, delay: idx * 0.08 }}
+                              >
+                                {/* Node button */}
+                                <motion.button
+                                  whileHover={{ scale: 1.2 }}
+                                  whileTap={{ scale: 0.9 }}
+                                  onClick={() => toggleMilestone(m.id)}
+                                  className="relative z-10 flex h-8 w-8 items-center justify-center rounded-full transition-colors"
+                                  style={{
+                                    border: "4px solid var(--surface)",
+                                    boxShadow: "0 1px 4px rgba(0,0,0,0.12)",
+                                    background:
+                                      st === "completed"
+                                        ? BLUE
+                                        : st === "active"
+                                          ? "var(--surface)"
+                                          : "var(--surface-2)",
+                                    color:
+                                      st === "completed"
+                                        ? "#fff"
+                                        : st === "active"
+                                          ? BLUE
+                                          : "var(--text-3)",
+                                    outline:
+                                      st === "active" ? `2px solid ${BLUE}` : "none",
+                                    outlineOffset: "0px",
+                                  }}
+                                >
+                                  {st === "completed" && <CheckCircle2 size={16} />}
+                                  {st === "active" && <Zap size={16} fill="currentColor" />}
+                                  {st === "upcoming" && (
+                                    <Circle
+                                      size={8}
+                                      style={{ fill: "currentColor", opacity: 0.5 }}
+                                    />
+                                  )}
+                                </motion.button>
+
+                                {/* Label below node */}
+                                <div className="absolute top-10 w-32 text-center transition-transform group-hover:scale-105">
+                                  <p
+                                    className="text-[10px] font-bold uppercase tracking-wider"
+                                    style={{
+                                      color:
+                                        st === "upcoming" ? "var(--text-3)" : "var(--text)",
+                                    }}
+                                  >
+                                    {m.title}
+                                  </p>
+                                  <p
+                                    className="mt-0.5 text-[9px] font-bold"
+                                    style={{ color: "var(--text-3)" }}
+                                  >
+                                    {fmtMilestoneDate(m.due_date)}
+                                  </p>
+                                </div>
+                              </motion.div>
+                            );
+                          })}
+                        </AnimatePresence>
+                      </div>
+                    </div>
+                  )}
+
+                  {milestones.length === 0 && (
+                    <p
+                      className="absolute left-0 top-6 w-full rounded-xl border border-dashed py-4 text-center text-xs"
+                      style={{ borderColor: "var(--border)", color: "var(--text-3)" }}
+                    >
+                      Sem milestones neste projeto.
                     </p>
                   )}
                 </div>
-                <button
-                  onClick={() => setInboxOpen(false)}
-                  className="icon-btn"
-                  aria-label="Fechar inbox"
+              </div>
+            )}
+          </section>
+
+          {/* ── Other Projects ── */}
+          {projects.length > 0 && (
+            <section className="pb-6 pt-4">
+              <div className="mb-6 flex items-center justify-between">
+                <h2 className="text-xl font-bold" style={{ color: "var(--text)" }}>
+                  Other Projects
+                </h2>
+                <Link
+                  href="/portal/projects"
+                  className="text-xs font-bold hover:underline"
+                  style={{ color: BLUE }}
                 >
-                  <X className="h-4 w-4" />
-                </button>
+                  View All
+                </Link>
               </div>
 
-              {/* Message thread */}
-              <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
-                {messageGroups.length === 0 && (
-                  <p
-                    className="rounded-xl border border-dashed p-4 text-center text-xs"
-                    style={{ borderColor: "var(--border)", color: "var(--text-3)" }}
-                  >
-                    {conversationId
-                      ? "Sem mensagens ainda."
-                      : "Sem conversa para este projeto."}
-                  </p>
-                )}
+              <div className="space-y-4">
+                {projects.map((p, idx) => {
+                  const isSelected = p.id === selectedId;
+                  const badge = getStatusBadge(p.status);
+                  const col = avatarColor(p.name);
 
-                {messageGroups.map((group) => (
-                  <div key={group.date} className="space-y-4">
-                    {/* Date divider */}
-                    <div className="flex items-center gap-3 opacity-40">
-                      <div className="h-px flex-1" style={{ background: "var(--border)" }} />
-                      <span
-                        className="text-[10px] font-bold uppercase"
-                        style={{ color: "var(--text-3)" }}
-                      >
-                        {group.date}
-                      </span>
-                      <div className="h-px flex-1" style={{ background: "var(--border)" }} />
-                    </div>
-
-                    {/* Chat bubbles */}
-                    {group.messages.map((msg) => {
-                      const isTeam = msg.sender_type === "team";
-                      return (
+                  return (
+                    <motion.div
+                      key={p.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0, scale: isSelected ? 1.01 : 1 }}
+                      transition={{ delay: 0.1 + idx * 0.08 }}
+                      whileHover={isSelected ? {} : { x: 4 }}
+                      onClick={() => setSelectedId(p.id)}
+                      className="flex cursor-pointer items-center justify-between rounded-2xl p-5 transition-all"
+                      style={{
+                        background: isSelected ? DARK : "var(--surface)",
+                        border: isSelected ? "none" : "1px solid var(--border)",
+                        boxShadow: isSelected
+                          ? "0 8px 32px rgba(15,23,42,0.25)"
+                          : "none",
+                      }}
+                    >
+                      {/* Left: initials + name + type */}
+                      <div className="flex min-w-0 items-center gap-4">
                         <div
-                          key={msg.id}
-                          className={`flex gap-3 ${isTeam ? "" : "flex-row-reverse"}`}
+                          className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl text-sm font-bold"
+                          style={{
+                            background: isSelected ? "rgba(255,255,255,0.1)" : col.bg,
+                            color: isSelected ? "#fff" : col.text,
+                          }}
                         >
-                          {/* Avatar */}
-                          <div
-                            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold"
+                          {initials(p.name)}
+                        </div>
+                        <div className="min-w-0">
+                          <h3
+                            className="truncate font-bold text-sm"
+                            style={{ color: isSelected ? "#fff" : "var(--text)" }}
+                          >
+                            {p.name}
+                          </h3>
+                          <p
+                            className="text-[10px] font-medium"
                             style={{
-                              background: isTeam ? BLUE : "var(--surface-2)",
-                              color: isTeam ? "#fff" : "var(--text-2)",
+                              color: isSelected
+                                ? "rgba(255,255,255,0.45)"
+                                : "var(--text-3)",
                             }}
                           >
-                            {isTeam ? "BP" : "C"}
-                          </div>
+                            {p.description ?? badge.label}
+                          </p>
+                        </div>
+                      </div>
 
-                          {/* Bubble */}
-                          <div
-                            className={`max-w-[75%] space-y-1 ${isTeam ? "" : "flex flex-col items-end"}`}
+                      {/* Right: status badge + date + chevron */}
+                      <div className="ml-4 flex flex-shrink-0 items-center gap-5">
+                        {!isSelected && (
+                          <span
+                            className={`hidden rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wider sm:block ${badge.cls}`}
                           >
-                            <div
-                              className={`flex items-center gap-2 ${isTeam ? "" : "flex-row-reverse"}`}
+                            {badge.label}
+                          </span>
+                        )}
+                        <div className="text-right">
+                          <p
+                            className="text-[10px] font-bold"
+                            style={{ color: isSelected ? "#fff" : "var(--text)" }}
+                          >
+                            {fmtDate(p.updated_at, {
+                              weekday: "short",
+                              day: "numeric",
+                              month: "short",
+                            })}
+                          </p>
+                          <p
+                            className="text-[9px] font-medium"
+                            style={{
+                              color: isSelected
+                                ? "rgba(255,255,255,0.45)"
+                                : "var(--text-3)",
+                            }}
+                          >
+                            {fmtTime(p.updated_at)}
+                          </p>
+                        </div>
+                        <ChevronRight
+                          size={18}
+                          style={{
+                            color: isSelected ? "rgba(255,255,255,0.4)" : "var(--text-3)",
+                          }}
+                        />
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+        </div>
+      </div>
+
+      {/* ── Right: Permanent inbox panel ─────────────────────────────────── */}
+      <aside
+        className="flex w-[380px] flex-shrink-0 flex-col overflow-hidden border-l"
+        style={{ background: "var(--surface)", borderColor: "var(--border)" }}
+      >
+        {/* Inbox header */}
+        <div
+          className="flex flex-shrink-0 items-center justify-between border-b px-8 py-6"
+          style={{ borderColor: "var(--border)" }}
+        >
+          <h2
+            className="text-[10px] font-black uppercase tracking-[0.2em]"
+            style={{ color: "var(--text-3)" }}
+          >
+            Inbox
+          </h2>
+          <button className="icon-btn" aria-label="Fechar inbox">
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Messages — animated on project switch */}
+        <div className="flex-1 overflow-y-auto px-8 py-6">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={selectedId}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.2 }}
+              className="space-y-8"
+            >
+              {messageGroups.length === 0 && (
+                <p
+                  className="rounded-xl border border-dashed px-4 py-6 text-center text-xs"
+                  style={{ borderColor: "var(--border)", color: "var(--text-3)" }}
+                >
+                  {conversationId
+                    ? "Sem mensagens ainda."
+                    : "Sem conversa para este projeto."}
+                </p>
+              )}
+
+              {messageGroups.map((group) => (
+                <div key={group.date} className="space-y-6">
+                  {/* Date divider */}
+                  <div className="flex justify-center">
+                    <span
+                      className="text-[9px] font-bold uppercase tracking-widest"
+                      style={{ color: "var(--text-3)", opacity: 0.5 }}
+                    >
+                      {group.date}
+                    </span>
+                  </div>
+
+                  {/* Message bubbles */}
+                  {group.messages.map((msg) => {
+                    const isTeam = msg.sender_type === "team";
+                    const sender = isTeam ? "Beyond Pricing" : "You";
+                    const col = avatarColor(sender);
+                    return (
+                      <div key={msg.id} className="flex gap-4">
+                        {/* Avatar */}
+                        <div
+                          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold"
+                          style={{
+                            background: isTeam ? BLUE : col.bg,
+                            color: isTeam ? "#fff" : col.text,
+                          }}
+                        >
+                          {isTeam ? "BP" : "Yo"}
+                        </div>
+
+                        {/* Content */}
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span
+                              className="text-xs font-bold"
+                              style={{ color: "var(--text)" }}
                             >
-                              <p
-                                className="text-xs font-bold"
-                                style={{ color: "var(--text)" }}
-                              >
-                                {isTeam ? "Beyond Pricing" : "You"}
-                              </p>
-                              <span
-                                className="text-[9px]"
-                                style={{ color: "var(--text-3)" }}
-                              >
-                                {fmtTime(msg.created_at)}
-                              </span>
-                            </div>
-                            <div
-                              className="p-3.5 text-sm leading-relaxed"
-                              style={{
-                                background: isTeam
-                                  ? "var(--surface-2)"
-                                  : `rgba(47,107,255,0.10)`,
-                                color: "var(--text-2)",
-                                border: "1px solid var(--border)",
-                                borderRadius: isTeam
-                                  ? "16px 16px 16px 4px"
-                                  : "16px 16px 4px 16px",
-                              }}
+                              {sender}
+                            </span>
+                            <span
+                              className="text-[9px] font-medium"
+                              style={{ color: "var(--text-3)" }}
                             >
-                              {msg.body}
-                            </div>
+                              {fmtTime(msg.created_at)}
+                            </span>
+                          </div>
+                          <div
+                            className="p-4 text-xs leading-relaxed"
+                            style={{
+                              background: "var(--surface-2)",
+                              color: "var(--text-2)",
+                              borderRadius: "0 16px 16px 16px",
+                              border: "1px solid var(--border)",
+                            }}
+                          >
+                            {msg.body}
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                ))}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
 
-                <div ref={endRef} />
-              </div>
+              <div ref={endRef} />
+            </motion.div>
+          </AnimatePresence>
+        </div>
 
-              {/* Message input with paperclip icon */}
-              <div
-                className="flex-shrink-0 border-t p-5"
-                style={{ borderColor: "var(--border)" }}
-              >
-                <div
-                  className="flex items-center gap-0 overflow-hidden rounded-xl border"
+        {/* Input area — animated on project switch (Lumina style) */}
+        <div className="flex-shrink-0 p-6">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={selectedId}
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.2 }}
+              className="space-y-4 rounded-3xl p-5"
+              style={{
+                background: "var(--surface)",
+                border: "1px solid var(--border)",
+                boxShadow: "0 8px 32px rgba(0,0,0,0.06)",
+              }}
+            >
+              {/* Text input */}
+              <input
+                className="w-full bg-transparent text-sm outline-none"
+                style={{ color: "var(--text)" }}
+                placeholder="Escreve uma mensagem…"
+                value={msgText}
+                onChange={(e) => setMsgText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void handleSend();
+                  }
+                }}
+                disabled={!conversationId}
+              />
+
+              {/* Actions row: paperclip left, send right */}
+              <div className="flex items-center justify-between pt-1">
+                <button
+                  className="transition-opacity hover:opacity-60"
+                  style={{ color: "var(--text-3)" }}
+                  aria-label="Anexar ficheiro"
+                >
+                  <Paperclip size={20} />
+                </button>
+
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => void handleSend()}
+                  disabled={!conversationId || !msgText.trim() || sending}
+                  className="rounded-xl px-7 py-2.5 text-xs font-bold text-white shadow-lg disabled:opacity-40"
                   style={{
-                    borderColor: "var(--border)",
-                    background: "var(--surface-2)",
+                    background: BLUE,
+                    boxShadow: `0 4px 12px rgba(47,107,255,0.35)`,
                   }}
                 >
-                  {/* Paperclip button */}
-                  <button
-                    className="flex h-10 w-10 flex-shrink-0 items-center justify-center transition-opacity hover:opacity-60"
-                    style={{ color: "var(--text-3)" }}
-                    aria-label="Anexar ficheiro"
-                    onClick={(e) => e.preventDefault()}
-                    disabled={!conversationId}
-                  >
-                    <Paperclip className="h-4 w-4" />
-                  </button>
-
-                  {/* Text input */}
-                  <input
-                    className="flex-1 bg-transparent py-2.5 pr-2 text-sm outline-none"
-                    style={{ color: "var(--text)" }}
-                    placeholder="Escreve uma mensagem…"
-                    value={msgText}
-                    onChange={(e) => setMsgText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        void handleSend();
-                      }
-                    }}
-                    disabled={!conversationId}
-                  />
-
-                  {/* Send button */}
-                  <button
-                    onClick={() => void handleSend()}
-                    disabled={!conversationId || !msgText.trim() || sending}
-                    className="mr-1.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-white shadow transition disabled:opacity-40"
-                    style={{ background: BLUE }}
-                    aria-label="Enviar mensagem"
-                  >
-                    <Send className="h-3.5 w-3.5" />
-                  </button>
-                </div>
+                  Send
+                </motion.button>
               </div>
-            </motion.aside>
-          </>
-        )}
-      </AnimatePresence>
-    </>
+            </motion.div>
+          </AnimatePresence>
+        </div>
+      </aside>
+    </div>
   );
 }
