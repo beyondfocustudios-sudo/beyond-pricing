@@ -2,7 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Check, Clock, MessageSquare, Send, X, Zap } from "lucide-react";
+import {
+  Check,
+  Clock,
+  MessageSquare,
+  Paperclip,
+  Plus,
+  Send,
+  X,
+  Zap,
+} from "lucide-react";
+import Link from "next/link";
 import {
   getClientProjects,
   getConversationForProject,
@@ -31,7 +41,53 @@ const AVATAR_COLORS: Array<{ bg: string; text: string }> = [
   { bg: "#EDE9FE", text: "#5B21B6" },
   { bg: "#D1FAE5", text: "#065F46" },
   { bg: "#FCE7F3", text: "#9D174D" },
+  { bg: "#FEF3C7", text: "#92400E" },
+  { bg: "#CFFAFE", text: "#155E75" },
 ];
+
+// Mock participant names for topbar avatars (cycled by project index)
+const MOCK_PARTICIPANTS = ["Ana Costa", "Bruno Ferreira", "Catarina Lima", "Diogo Santos", "Eva Rodrigues"];
+
+// ─── Status helpers ────────────────────────────────────────────────────────────
+
+type StatusConfig = { label: string; bg: string; color: string };
+
+function getStatusConfig(status: string | null): StatusConfig {
+  const s = (status ?? "active").toLowerCase();
+  if (s === "done" || s === "completed" || s === "concluído" || s === "concluido") {
+    return { label: "CONCLUÍDO", bg: "rgba(107,114,128,0.12)", color: "#6B7280" };
+  }
+  if (
+    s === "in_progress" ||
+    s === "active" ||
+    s === "ativo" ||
+    s === "em progresso" ||
+    s === "em_progresso"
+  ) {
+    return { label: "ATIVO", bg: "rgba(16,185,129,0.12)", color: "#059669" };
+  }
+  if (
+    s === "planning" ||
+    s === "planeamento" ||
+    s === "draft" ||
+    s === "rascunho" ||
+    s === "pending"
+  ) {
+    return { label: "PLANEAMENTO", bg: "rgba(245,158,11,0.12)", color: "#D97706" };
+  }
+  if (s === "blocked" || s === "at_risk" || s === "at-risk") {
+    return { label: "EM RISCO", bg: "rgba(239,68,68,0.12)", color: "#DC2626" };
+  }
+  // Default: ATIVO
+  return { label: "ATIVO", bg: "rgba(47,107,255,0.10)", color: BLUE };
+}
+
+// Subtitle label for project cards (cycles through request types)
+const SUBTITLE_TYPES = ["Decision Request", "Update Request", "Review Request", "Feedback Request"];
+function getProjectSubtitle(project: PortalProject, index: number): string {
+  if (project.description) return project.description;
+  return SUBTITLE_TYPES[index % SUBTITLE_TYPES.length]!;
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -157,6 +213,55 @@ function groupMessages(messages: PortalMessage[]): MessageGroup[] {
   return groups;
 }
 
+// ─── ParticipantAvatars ─────────────────────────────────────────────────────
+
+function ParticipantAvatars({ projectName }: { projectName: string }) {
+  // Derive 3 "participants" from mock list seeded by project name
+  let seed = 0;
+  for (const c of projectName) seed = (seed * 31 + c.charCodeAt(0)) & 0xffff;
+  const count = MOCK_PARTICIPANTS.length;
+  const shown = 3;
+  const participants = [0, 1, 2].map((i) => MOCK_PARTICIPANTS[(seed + i) % count]!);
+
+  return (
+    <div className="flex items-center gap-2">
+      {/* Overlapping avatars */}
+      <div className="flex -space-x-2">
+        {participants.map((name, i) => {
+          const col = avatarColor(name);
+          return (
+            <div
+              key={i}
+              title={name}
+              className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold ring-2 ring-white"
+              style={{ background: col.bg, color: col.text, zIndex: shown - i }}
+            >
+              {initials(name)}
+            </div>
+          );
+        })}
+        {/* +N overflow pill */}
+        <div
+          className="flex h-8 min-w-[32px] flex-shrink-0 items-center justify-center rounded-full px-1.5 text-[10px] font-bold ring-2 ring-white"
+          style={{ background: "var(--surface-2)", color: "var(--text-3)", zIndex: 0 }}
+        >
+          +5
+        </div>
+      </div>
+
+      {/* Blue "+" invite button */}
+      <button
+        className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-white shadow transition hover:opacity-90"
+        style={{ background: BLUE, boxShadow: `0 2px 8px rgba(47,107,255,0.35)` }}
+        aria-label="Convidar participante"
+        onClick={(e) => e.preventDefault()}
+      >
+        <Plus className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
 // ─── MilestoneNode ────────────────────────────────────────────────────────────
 
 const NODE_MARGIN_TOP: Record<MilestoneVariant, string> = {
@@ -170,10 +275,14 @@ function MilestoneNode({
   milestone,
   left,
   index,
+  isSelected,
+  onSelect,
 }: {
   milestone: PortalMilestone;
   left: number;
   index: number;
+  isSelected: boolean;
+  onSelect: (id: string) => void;
 }) {
   const variant = getMilestoneVariant(milestone.status);
   const marginTop = NODE_MARGIN_TOP[variant];
@@ -183,22 +292,49 @@ function MilestoneNode({
 
   return (
     <motion.div
-      className="absolute flex flex-col items-center"
+      className="absolute flex cursor-pointer flex-col items-center"
       style={{
         left: `${left}%`,
         top: 0,
         transform: "translateX(-50%)",
+        zIndex: isSelected ? 30 : 10,
       }}
       initial={{ opacity: 0, y: -6 }}
       animate={{ opacity: variant === "future" ? 0.4 : 1, y: 0 }}
       transition={{ ...SPRING, delay: index * 0.06 }}
+      onClick={() => onSelect(milestone.id)}
     >
+      {/* Selection glow ring (renders behind node) */}
+      {isSelected && (
+        <motion.div
+          className="absolute rounded-full"
+          style={{
+            marginTop,
+            width: variant === "active" ? "60px" : variant === "done" || variant === "upcoming" ? "44px" : "36px",
+            height: variant === "active" ? "60px" : variant === "done" || variant === "upcoming" ? "44px" : "36px",
+            background: `rgba(47,107,255,0.15)`,
+            border: `2px solid rgba(47,107,255,0.4)`,
+            top: 0,
+            left: "50%",
+            transform: "translateX(-50%)",
+          }}
+          initial={{ scale: 0.6, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={SPRING}
+        />
+      )}
+
       {/* Node circle — centered on the 1px bar via marginTop */}
-      <div style={{ marginTop }}>
+      <div style={{ marginTop, position: "relative" }}>
         {variant === "done" && (
           <div
             className="flex h-6 w-6 items-center justify-center rounded-full border-[3px] border-white shadow-md"
-            style={{ background: BLUE }}
+            style={{
+              background: BLUE,
+              boxShadow: isSelected
+                ? `0 0 0 3px rgba(47,107,255,0.3), 0 4px 12px rgba(47,107,255,0.4)`
+                : undefined,
+            }}
           >
             <Check className="h-3 w-3 text-white" strokeWidth={3} />
           </div>
@@ -207,7 +343,13 @@ function MilestoneNode({
         {variant === "active" && (
           <div
             className="relative flex h-10 w-10 items-center justify-center rounded-full border-2 bg-white shadow-lg"
-            style={{ borderColor: BLUE, zIndex: 20 }}
+            style={{
+              borderColor: BLUE,
+              zIndex: 20,
+              boxShadow: isSelected
+                ? `0 0 0 4px rgba(47,107,255,0.2), 0 6px 20px rgba(47,107,255,0.4)`
+                : `0 4px 14px rgba(47,107,255,0.3)`,
+            }}
           >
             <Zap className="h-5 w-5" style={{ color: BLUE }} />
             <span
@@ -220,7 +362,12 @@ function MilestoneNode({
         {variant === "upcoming" && (
           <div
             className="flex h-6 w-6 items-center justify-center rounded-full border-2 bg-white shadow-sm"
-            style={{ borderColor: BLUE }}
+            style={{
+              borderColor: BLUE,
+              boxShadow: isSelected
+                ? `0 0 0 3px rgba(47,107,255,0.25), 0 4px 12px rgba(47,107,255,0.3)`
+                : undefined,
+            }}
           >
             <Clock className="h-3 w-3" style={{ color: BLUE }} />
           </div>
@@ -229,18 +376,34 @@ function MilestoneNode({
         {variant === "future" && (
           <div
             className="h-4 w-4 rounded-full border-2 border-white shadow-sm"
-            style={{ background: "#D1D5DB" }}
+            style={{
+              background: isSelected ? BLUE : "#D1D5DB",
+            }}
           />
         )}
       </div>
 
       {/* Label below the node */}
-      <div className="mt-3 w-28 text-center">
-        <p className="text-[11px] font-bold leading-tight" style={{ color: "var(--text)" }}>
+      <div
+        className="mt-3 w-28 text-center"
+        style={{
+          opacity: isSelected ? 1 : undefined,
+        }}
+      >
+        <p
+          className="text-[11px] leading-tight"
+          style={{
+            color: isSelected ? BLUE : "var(--text)",
+            fontWeight: isSelected ? 700 : 600,
+          }}
+        >
           {milestone.title}
         </p>
         {dateStr && (
-          <p className="mt-0.5 text-[9px]" style={{ color: "var(--text-3)" }}>
+          <p
+            className="mt-0.5 text-[9px]"
+            style={{ color: isSelected ? `rgba(47,107,255,0.7)` : "var(--text-3)" }}
+          >
             {dateStr}
           </p>
         )}
@@ -258,6 +421,9 @@ export default function PortalCalendarPage() {
   const [milestones, setMilestones] = useState<PortalMilestone[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingDetail, setLoadingDetail] = useState(false);
+
+  // Milestone selection
+  const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null);
 
   // Inbox
   const [inboxOpen, setInboxOpen] = useState(false);
@@ -290,6 +456,7 @@ export default function PortalCalendarPage() {
     setMilestones([]);
     setMessages([]);
     setConversationId(null);
+    setSelectedMilestoneId(null);
 
     void (async () => {
       const [milestoneRows, convId] = await Promise.all([
@@ -336,6 +503,13 @@ export default function PortalCalendarPage() {
     }
     setSending(false);
   }, [conversationId, msgText]);
+
+  // ── Select project (also reset inbox + milestone selection) ───────────────
+  const handleSelectProject = useCallback((id: string) => {
+    setSelectedId(id);
+    setSelectedMilestoneId(null);
+    // Keep inbox open but it will reload messages automatically via the useEffect
+  }, []);
 
   // ── Derived state ─────────────────────────────────────────────────────────
   const selectedProject = useMemo(
@@ -385,8 +559,9 @@ export default function PortalCalendarPage() {
           transition: "padding-right 0.35s cubic-bezier(0.34,1.56,0.64,1)",
         }}
       >
-        {/* Project header */}
-        <div className="flex items-center justify-between gap-4">
+        {/* ── Project header ── */}
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          {/* Left: icon + project name + status */}
           <div className="flex min-w-0 items-center gap-4">
             <div
               className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl text-white"
@@ -407,17 +582,33 @@ export default function PortalCalendarPage() {
             </div>
           </div>
 
-          <button
-            onClick={() => setInboxOpen((v) => !v)}
-            className="flex flex-shrink-0 items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-white shadow-lg transition-all"
-            style={{
-              background: BLUE,
-              boxShadow: `0 4px 14px rgba(47,107,255,0.35)`,
-            }}
-          >
-            <MessageSquare className="h-4 w-4" />
-            <span>Inbox</span>
-          </button>
+          {/* Right: participant avatars + "+" invite + inbox toggle */}
+          <div className="flex flex-shrink-0 items-center gap-3">
+            {selectedProject && (
+              <ParticipantAvatars projectName={selectedProject.name} />
+            )}
+
+            {/* Inbox toggle — icon only (no text label) */}
+            <button
+              onClick={() => setInboxOpen((v) => !v)}
+              className="relative flex h-8 w-8 items-center justify-center rounded-full transition-all hover:opacity-80"
+              style={{
+                background: inboxOpen ? `rgba(47,107,255,0.12)` : "var(--surface-2)",
+                color: inboxOpen ? BLUE : "var(--text-3)",
+                border: `1px solid ${inboxOpen ? `rgba(47,107,255,0.3)` : "var(--border)"}`,
+              }}
+              aria-label={inboxOpen ? "Fechar inbox" : "Abrir inbox"}
+            >
+              <MessageSquare className="h-4 w-4" />
+              {/* Unread dot */}
+              {messages.length > 0 && !inboxOpen && (
+                <span
+                  className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-white"
+                  style={{ background: BLUE }}
+                />
+              )}
+            </button>
+          </div>
         </div>
 
         {/* ── Milestones section ── */}
@@ -508,6 +699,10 @@ export default function PortalCalendarPage() {
                     milestone={milestone}
                     left={left}
                     index={i}
+                    isSelected={selectedMilestoneId === milestone.id}
+                    onSelect={(id) =>
+                      setSelectedMilestoneId((prev) => (prev === id ? null : id))
+                    }
                   />
                 ))}
               </div>
@@ -531,52 +726,72 @@ export default function PortalCalendarPage() {
               <h2 className="text-xl font-bold" style={{ color: "var(--text)" }}>
                 Outros Projetos
               </h2>
+              <Link
+                href="/portal/projects"
+                className="text-sm font-semibold transition-opacity hover:opacity-70"
+                style={{ color: BLUE }}
+              >
+                View All
+              </Link>
             </div>
 
             <div className="space-y-3">
-              {otherProjects.map((p) => {
+              {otherProjects.map((p, index) => {
                 const initStr = initials(p.name);
                 const color = avatarColor(p.name);
+                const statusCfg = getStatusConfig(p.status);
+                const subtitle = getProjectSubtitle(p, index);
+                const isProjectSelected = false; // These are "other" projects (not selected)
 
                 return (
                   <motion.button
                     key={p.id}
-                    onClick={() => setSelectedId(p.id)}
+                    onClick={() => handleSelectProject(p.id)}
                     className="flex w-full items-center justify-between rounded-2xl p-4 text-left"
                     style={{
-                      border: "1px solid var(--border)",
-                      background: "var(--surface-2)",
+                      border: `1px solid ${isProjectSelected ? `rgba(47,107,255,0.3)` : "var(--border)"}`,
+                      background: isProjectSelected ? `rgba(47,107,255,0.06)` : "var(--surface-2)",
                     }}
-                    whileHover={{ scale: 1.005 }}
+                    whileHover={{ scale: 1.005, borderColor: `rgba(47,107,255,0.2)` }}
                     transition={SPRING}
                   >
                     <div className="flex min-w-0 items-center gap-4">
+                      {/* Initials badge */}
                       <div
-                        className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl text-lg font-bold"
+                        className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl text-sm font-bold"
                         style={{ background: color.bg, color: color.text }}
                       >
                         {initStr}
                       </div>
+
+                      {/* Project name + subtitle */}
                       <div className="min-w-0">
-                        <h3 className="truncate font-bold" style={{ color: "var(--text)" }}>
+                        <h3
+                          className="truncate font-bold"
+                          style={{ color: "var(--text)" }}
+                        >
                           {p.name}
                         </h3>
-                        <p className="text-xs" style={{ color: "var(--text-3)" }}>
-                          {p.status ?? "active"}
+                        <p className="mt-0.5 text-xs" style={{ color: "var(--text-3)" }}>
+                          {subtitle}
                         </p>
                       </div>
                     </div>
 
-                    <div className="ml-4 flex flex-shrink-0 items-center gap-4 sm:gap-6">
+                    {/* Right: status pill + date/time */}
+                    <div className="ml-4 flex flex-shrink-0 items-center gap-4 sm:gap-5">
+                      {/* Status pill — colored by status */}
                       <span
-                        className="hidden rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wider sm:block"
+                        className="hidden rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider sm:block"
                         style={{
-                          background: `rgba(47,107,255,0.10)`,
-                          color: BLUE,
+                          background: statusCfg.bg,
+                          color: statusCfg.color,
                         }}
                       >
-                        {p.status?.toUpperCase() ?? "ATIVO"}
+                        {statusCfg.label}
                       </span>
+
+                      {/* Date + time */}
                       <div className="text-right">
                         <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>
                           {fmtDate(p.updated_at, {
@@ -624,12 +839,19 @@ export default function PortalCalendarPage() {
                 className="flex flex-shrink-0 items-center justify-between border-b px-6 py-5"
                 style={{ borderColor: "var(--border)" }}
               >
-                <h2
-                  className="text-xs font-bold uppercase tracking-[2px]"
-                  style={{ color: "var(--text-3)" }}
-                >
-                  Inbox
-                </h2>
+                <div>
+                  <h2
+                    className="text-xs font-bold uppercase tracking-[2px]"
+                    style={{ color: "var(--text-3)" }}
+                  >
+                    Inbox
+                  </h2>
+                  {selectedProject && (
+                    <p className="mt-0.5 text-[11px]" style={{ color: "var(--text-3)", opacity: 0.6 }}>
+                      {selectedProject.name}
+                    </p>
+                  )}
+                </div>
                 <button
                   onClick={() => setInboxOpen(false)}
                   className="icon-btn"
@@ -730,19 +952,33 @@ export default function PortalCalendarPage() {
                 <div ref={endRef} />
               </div>
 
-              {/* Message input */}
+              {/* Message input with paperclip icon */}
               <div
                 className="flex-shrink-0 border-t p-5"
                 style={{ borderColor: "var(--border)" }}
               >
-                <div className="flex gap-3">
+                <div
+                  className="flex items-center gap-0 overflow-hidden rounded-xl border"
+                  style={{
+                    borderColor: "var(--border)",
+                    background: "var(--surface-2)",
+                  }}
+                >
+                  {/* Paperclip button */}
+                  <button
+                    className="flex h-10 w-10 flex-shrink-0 items-center justify-center transition-opacity hover:opacity-60"
+                    style={{ color: "var(--text-3)" }}
+                    aria-label="Anexar ficheiro"
+                    onClick={(e) => e.preventDefault()}
+                    disabled={!conversationId}
+                  >
+                    <Paperclip className="h-4 w-4" />
+                  </button>
+
+                  {/* Text input */}
                   <input
-                    className="flex-1 rounded-xl border px-4 py-2.5 text-sm outline-none"
-                    style={{
-                      borderColor: "var(--border)",
-                      background: "var(--surface-2)",
-                      color: "var(--text)",
-                    }}
+                    className="flex-1 bg-transparent py-2.5 pr-2 text-sm outline-none"
+                    style={{ color: "var(--text)" }}
                     placeholder="Escreve uma mensagem…"
                     value={msgText}
                     onChange={(e) => setMsgText(e.target.value)}
@@ -754,14 +990,16 @@ export default function PortalCalendarPage() {
                     }}
                     disabled={!conversationId}
                   />
+
+                  {/* Send button */}
                   <button
                     onClick={() => void handleSend()}
                     disabled={!conversationId || !msgText.trim() || sending}
-                    className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl text-white shadow transition disabled:opacity-40"
+                    className="mr-1.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-white shadow transition disabled:opacity-40"
                     style={{ background: BLUE }}
                     aria-label="Enviar mensagem"
                   >
-                    <Send className="h-4 w-4" />
+                    <Send className="h-3.5 w-3.5" />
                   </button>
                 </div>
               </div>
