@@ -1,630 +1,774 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { AnimatePresence, LayoutGroup, motion } from "framer-motion";
-import {
-  CalendarDays,
-  Download,
-  Flag,
-  MessageSquare,
-  Package,
-  Search,
-  TriangleAlert,
-  X,
-} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { Check, Clock, MessageSquare, Send, X, Zap } from "lucide-react";
 import {
   getClientProjects,
+  getConversationForProject,
+  getMessages,
   getProjectMilestones,
-  getProjectUpdates,
+  sendConversationMessage,
+  type PortalMessage,
   type PortalMilestone,
   type PortalProject,
-  type PortalUpdate,
 } from "@/lib/portal-data";
-import { buttonMotionProps, useMotionEnabled, variants } from "@/lib/motion";
 
-type CalendarView = "milestones" | "timeline" | "tasks";
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-type RequestRow = {
-  id: string;
-  title: string;
-  description: string | null;
-  status: string;
-  type: string;
-  priority: string;
-  created_at: string;
+type TimeFilter = "year" | "week" | "day";
+type MilestoneVariant = "done" | "active" | "upcoming" | "future";
+type MessageGroup = { date: string; messages: PortalMessage[] };
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const SPRING = { type: "spring" as const, stiffness: 290, damping: 28, mass: 0.85 };
+const BLUE = "#2F6BFF";
+
+const AVATAR_COLORS: Array<{ bg: string; text: string }> = [
+  { bg: "#FFE4CC", text: "#C05621" },
+  { bg: "#DBEAFE", text: "#1E40AF" },
+  { bg: "#EDE9FE", text: "#5B21B6" },
+  { bg: "#D1FAE5", text: "#065F46" },
+  { bg: "#FCE7F3", text: "#9D174D" },
+];
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function initials(name: string): string {
+  return name
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
+function avatarColor(name: string): { bg: string; text: string } {
+  let hash = 0;
+  for (const char of name) hash = (hash * 31 + char.charCodeAt(0)) & 0xffff;
+  return AVATAR_COLORS[hash % AVATAR_COLORS.length]!;
+}
+
+function fmtDate(iso: string | null, opts?: Intl.DateTimeFormatOptions): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString("pt-PT", opts ?? { day: "2-digit", month: "short" });
+}
+
+function fmtTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" });
+}
+
+function fmtMsgDate(iso: string): string {
+  const d = new Date(iso);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  if (d.toDateString() === today.toDateString()) return "Today";
+  if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
+  return d.toLocaleDateString("pt-PT", { weekday: "short", day: "numeric", month: "short" });
+}
+
+function getMilestoneVariant(status: string | null): MilestoneVariant {
+  const s = (status ?? "pending").toLowerCase();
+  if (s === "done" || s === "completed") return "done";
+  if (s === "in_progress" || s === "active") return "active";
+  if (s === "blocked" || s === "at_risk" || s === "at-risk") return "upcoming";
+  return "future";
+}
+
+function computeTimelineRange(
+  milestones: PortalMilestone[],
+  filter: TimeFilter,
+): { start: Date; end: Date } {
+  const now = new Date();
+
+  if (filter === "day") {
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(now);
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+  }
+
+  if (filter === "week") {
+    const start = new Date(now);
+    start.setDate(now.getDate() - now.getDay());
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+  }
+
+  // Year: span across milestone dates
+  const dates = milestones
+    .filter((m) => m.due_date)
+    .map((m) => new Date(m.due_date!).getTime());
+
+  if (dates.length === 0) {
+    return {
+      start: new Date(now.getFullYear(), 0, 1),
+      end: new Date(now.getFullYear(), 11, 31),
+    };
+  }
+
+  const minMs = Math.min(...dates);
+  const maxMs = Math.max(...dates);
+  const pad = Math.max((maxMs - minMs) * 0.12, 15 * 24 * 60 * 60 * 1000);
+  return {
+    start: new Date(minMs - pad),
+    end: new Date(maxMs + pad),
+  };
+}
+
+function dateToPercent(date: Date, start: Date, end: Date): number {
+  const total = end.getTime() - start.getTime();
+  if (total === 0) return 50;
+  return Math.max(2, Math.min(98, ((date.getTime() - start.getTime()) / total) * 100));
+}
+
+function getMonthLabels(
+  start: Date,
+  end: Date,
+): Array<{ label: string; left: number }> {
+  const labels: Array<{ label: string; left: number }> = [];
+  const cur = new Date(start.getFullYear(), start.getMonth(), 1);
+  while (cur <= end) {
+    labels.push({
+      label: cur.toLocaleDateString("en-US", { month: "long" }),
+      left: dateToPercent(cur, start, end),
+    });
+    cur.setMonth(cur.getMonth() + 1);
+  }
+  return labels;
+}
+
+function groupMessages(messages: PortalMessage[]): MessageGroup[] {
+  const groups: MessageGroup[] = [];
+  for (const msg of messages) {
+    const date = fmtMsgDate(msg.created_at);
+    const last = groups.at(-1);
+    if (last?.date === date) {
+      last.messages.push(msg);
+    } else {
+      groups.push({ date, messages: [msg] });
+    }
+  }
+  return groups;
+}
+
+// ─── MilestoneNode ────────────────────────────────────────────────────────────
+
+const NODE_MARGIN_TOP: Record<MilestoneVariant, string> = {
+  done: "-11px",
+  active: "-19px",
+  upcoming: "-11px",
+  future: "-7px",
 };
 
-type UpdateItem = {
-  id: string;
-  kind: "message" | "review" | "delivery" | "request";
-  title: string;
-  subtitle: string;
-  createdAt: string;
-  href: string;
-};
+function MilestoneNode({
+  milestone,
+  left,
+  index,
+}: {
+  milestone: PortalMilestone;
+  left: number;
+  index: number;
+}) {
+  const variant = getMilestoneVariant(milestone.status);
+  const marginTop = NODE_MARGIN_TOP[variant];
+  const dateStr = milestone.due_date
+    ? fmtDate(milestone.due_date, { day: "2-digit", month: "short" }).toUpperCase()
+    : null;
 
-const timelineSpring = { type: "spring", stiffness: 290, damping: 28, mass: 0.85 } as const;
+  return (
+    <motion.div
+      className="absolute flex flex-col items-center"
+      style={{
+        left: `${left}%`,
+        top: 0,
+        transform: "translateX(-50%)",
+      }}
+      initial={{ opacity: 0, y: -6 }}
+      animate={{ opacity: variant === "future" ? 0.4 : 1, y: 0 }}
+      transition={{ ...SPRING, delay: index * 0.06 }}
+    >
+      {/* Node circle — centered on the 1px bar via marginTop */}
+      <div style={{ marginTop }}>
+        {variant === "done" && (
+          <div
+            className="flex h-6 w-6 items-center justify-center rounded-full border-[3px] border-white shadow-md"
+            style={{ background: BLUE }}
+          >
+            <Check className="h-3 w-3 text-white" strokeWidth={3} />
+          </div>
+        )}
 
-function toIsoRange(dateString: string | null) {
-  if (!dateString) {
-    const start = new Date();
-    const end = new Date(start.getTime() + 30 * 60 * 1000);
-    return { start: start.toISOString(), end: end.toISOString() };
-  }
-  const start = new Date(dateString);
-  const end = new Date(start.getTime() + 30 * 60 * 1000);
-  return { start: start.toISOString(), end: end.toISOString() };
+        {variant === "active" && (
+          <div
+            className="relative flex h-10 w-10 items-center justify-center rounded-full border-2 bg-white shadow-lg"
+            style={{ borderColor: BLUE, zIndex: 20 }}
+          >
+            <Zap className="h-5 w-5" style={{ color: BLUE }} />
+            <span
+              className="absolute inset-0 animate-ping rounded-full opacity-20"
+              style={{ background: BLUE }}
+            />
+          </div>
+        )}
+
+        {variant === "upcoming" && (
+          <div
+            className="flex h-6 w-6 items-center justify-center rounded-full border-2 bg-white shadow-sm"
+            style={{ borderColor: BLUE }}
+          >
+            <Clock className="h-3 w-3" style={{ color: BLUE }} />
+          </div>
+        )}
+
+        {variant === "future" && (
+          <div
+            className="h-4 w-4 rounded-full border-2 border-white shadow-sm"
+            style={{ background: "#D1D5DB" }}
+          />
+        )}
+      </div>
+
+      {/* Label below the node */}
+      <div className="mt-3 w-28 text-center">
+        <p className="text-[11px] font-bold leading-tight" style={{ color: "var(--text)" }}>
+          {milestone.title}
+        </p>
+        {dateStr && (
+          <p className="mt-0.5 text-[9px]" style={{ color: "var(--text-3)" }}>
+            {dateStr}
+          </p>
+        )}
+      </div>
+    </motion.div>
+  );
 }
 
-function buildGoogleLink(title: string, startIso: string, endIso: string, details?: string) {
-  const start = new Date(startIso).toISOString().replace(/[-:]/g, "").replace(".000", "");
-  const end = new Date(endIso).toISOString().replace(/[-:]/g, "").replace(".000", "");
-  const params = new URLSearchParams({
-    action: "TEMPLATE",
-    text: title,
-    dates: `${start}/${end}`,
-  });
-  if (details) params.set("details", details);
-  return `https://calendar.google.com/calendar/render?${params.toString()}`;
-}
-
-function toIcsLink(title: string, startIso: string, endIso: string, description?: string) {
-  const params = new URLSearchParams({ title, start: startIso, end: endIso });
-  if (description) params.set("description", description);
-  return `/api/calendar/event.ics?${params.toString()}`;
-}
-
-function milestoneType(milestone: PortalMilestone) {
-  const title = milestone.title.toLowerCase();
-  if (title.includes("kickoff")) return "kickoff";
-  if (title.includes("shoot") || title.includes("rodagem")) return "shoot day";
-  if (title.includes("v1")) return "delivery v1";
-  if (title.includes("v2")) return "delivery v2";
-  if (title.includes("final")) return "final";
-  if (milestone.phase === "pre_producao") return "kickoff";
-  if (milestone.phase === "rodagem") return "shoot day";
-  if (milestone.phase === "pos_producao") return "delivery";
-  return "milestone";
-}
-
-function milestoneState(status: string | null) {
-  const normalized = (status ?? "pending").toLowerCase();
-  if (normalized === "done") {
-    return { label: "done", tone: "rgba(22,163,74,0.16)", color: "#15803d" };
-  }
-  if (normalized === "blocked" || normalized === "at-risk") {
-    return { label: "at-risk", tone: "rgba(220,38,38,0.14)", color: "#b91c1c" };
-  }
-  return { label: "pending", tone: "rgba(245,158,11,0.18)", color: "#92400e" };
-}
-
-function formatDate(dateString: string | null) {
-  if (!dateString) return "Sem data";
-  return new Date(dateString).toLocaleDateString("pt-PT", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
-}
+// ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function PortalCalendarPage() {
-  const searchParams = useSearchParams();
-  const initialQuery = (searchParams.get("q") ?? "").trim();
-  const [localQuery, setLocalQuery] = useState(initialQuery);
-  const query = localQuery.trim().toLowerCase();
-  const motionEnabled = useMotionEnabled();
-
-  const [loadingProjects, setLoadingProjects] = useState(true);
-  const [loadingDetail, setLoadingDetail] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
+  const [filter, setFilter] = useState<TimeFilter>("year");
   const [projects, setProjects] = useState<PortalProject[]>([]);
-  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
-  const [view, setView] = useState<CalendarView>("milestones");
-  const [selectedMilestone, setSelectedMilestone] = useState<PortalMilestone | null>(null);
-  const [updatesDrawerOpen, setUpdatesDrawerOpen] = useState(true);
-
+  const [selectedId, setSelectedId] = useState<string>("");
   const [milestones, setMilestones] = useState<PortalMilestone[]>([]);
-  const [requests, setRequests] = useState<RequestRow[]>([]);
-  const [updatesFromApi, setUpdatesFromApi] = useState<PortalUpdate[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingDetail, setLoadingDetail] = useState(false);
 
-  useEffect(() => {
-    setLocalQuery(initialQuery);
-  }, [initialQuery]);
+  // Inbox
+  const [inboxOpen, setInboxOpen] = useState(false);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<PortalMessage[]>([]);
+  const [msgText, setMsgText] = useState("");
+  const [sending, setSending] = useState(false);
+  const endRef = useRef<HTMLDivElement>(null);
 
+  // ── Load projects on mount ─────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
-    const loadProjects = async () => {
-      setLoadingProjects(true);
-      setError(null);
-      try {
-        const list = await getClientProjects();
-        if (cancelled) return;
-        setProjects(list);
-        setSelectedProjectId((previous) => previous || list[0]?.id || "");
-      } catch {
-        if (!cancelled) setError("Falha ao carregar projetos.");
-      } finally {
-        if (!cancelled) setLoadingProjects(false);
-      }
-    };
-    void loadProjects();
+    void (async () => {
+      const list = await getClientProjects();
+      if (cancelled) return;
+      setProjects(list);
+      if (list[0]) setSelectedId(list[0].id);
+      setLoading(false);
+    })();
     return () => {
       cancelled = true;
     };
   }, []);
 
+  // ── Load milestones + conversation when project changes ───────────────────
   useEffect(() => {
-    if (!selectedProjectId) return;
+    if (!selectedId) return;
     let cancelled = false;
+    setLoadingDetail(true);
+    setMilestones([]);
+    setMessages([]);
+    setConversationId(null);
 
-    const loadProjectData = async () => {
-      setLoadingDetail(true);
-      setError(null);
-      try {
-        const [milestoneRows, requestRes, updateRows] = await Promise.all([
-          getProjectMilestones(selectedProjectId),
-          fetch(`/api/portal/requests?projectId=${encodeURIComponent(selectedProjectId)}`, { cache: "no-store" }),
-          getProjectUpdates(selectedProjectId),
-        ]);
-        const requestRows = requestRes.ok
-          ? ((await requestRes.json().catch(() => [])) as RequestRow[])
-          : [];
+    void (async () => {
+      const [milestoneRows, convId] = await Promise.all([
+        getProjectMilestones(selectedId),
+        getConversationForProject(selectedId),
+      ]);
+      if (cancelled) return;
 
-        if (cancelled) return;
+      setMilestones(
+        [...milestoneRows].sort((a, b) => {
+          const da = a.due_date ? new Date(a.due_date).getTime() : Infinity;
+          const db = b.due_date ? new Date(b.due_date).getTime() : Infinity;
+          return da - db;
+        }),
+      );
+      setConversationId(convId);
+      setLoadingDetail(false);
 
-        setMilestones(
-          milestoneRows.sort((a, b) => {
-            const dateA = a.due_date ? new Date(a.due_date).getTime() : Number.MAX_SAFE_INTEGER;
-            const dateB = b.due_date ? new Date(b.due_date).getTime() : Number.MAX_SAFE_INTEGER;
-            return dateA - dateB;
-          }),
-        );
-        setRequests(requestRows);
-        setUpdatesFromApi(updateRows);
-      } catch {
-        if (!cancelled) setError("Falha ao carregar timeline do projeto.");
-      } finally {
-        if (!cancelled) setLoadingDetail(false);
+      if (convId) {
+        const msgs = await getMessages(convId);
+        if (!cancelled) setMessages(msgs);
       }
-    };
+    })();
 
-    void loadProjectData();
     return () => {
       cancelled = true;
     };
-  }, [selectedProjectId]);
+  }, [selectedId]);
 
-  const filteredProjects = useMemo(() => {
-    if (!query) return projects;
-    return projects.filter((project) => project.name.toLowerCase().includes(query));
-  }, [projects, query]);
+  // ── Auto-scroll inbox to latest message ───────────────────────────────────
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
+  // ── Send message ──────────────────────────────────────────────────────────
+  const handleSend = useCallback(async () => {
+    if (!conversationId || !msgText.trim()) return;
+    setSending(true);
+    const ok = await sendConversationMessage(conversationId, msgText.trim());
+    if (ok) {
+      setMsgText("");
+      const msgs = await getMessages(conversationId);
+      setMessages(msgs);
+    }
+    setSending(false);
+  }, [conversationId, msgText]);
+
+  // ── Derived state ─────────────────────────────────────────────────────────
   const selectedProject = useMemo(
-    () => projects.find((project) => project.id === selectedProjectId) ?? null,
-    [projects, selectedProjectId],
+    () => projects.find((p) => p.id === selectedId) ?? null,
+    [projects, selectedId],
   );
 
-  const updates = useMemo<UpdateItem[]>(() => {
-    if (updatesFromApi.length > 0) {
-      return updatesFromApi.map((item) => ({
-        id: item.id,
-        kind: item.type,
-        title: item.title,
-        subtitle: item.type === "message" ? "Mensagem" : item.type === "delivery" ? "Entrega" : item.type === "request" ? "Pedido" : "Review",
-        createdAt: item.created_at,
-        href: item.href,
-      }));
-    }
-    if (!selectedProjectId) return [];
-    return [];
-  }, [updatesFromApi, selectedProjectId]);
+  const otherProjects = useMemo(
+    () => projects.filter((p) => p.id !== selectedId),
+    [projects, selectedId],
+  );
 
-  const taskRows = useMemo(() => {
-    const pendingMilestones = milestones
-      .filter((milestone) => (milestone.status ?? "pending") !== "done")
-      .map((milestone) => ({
-        id: `milestone-${milestone.id}`,
-        title: milestone.title,
-        subtitle: `Milestone • ${milestoneType(milestone)}`,
-        dueDate: milestone.due_date,
-      }));
+  const doneCount = useMemo(
+    () => milestones.filter((m) => getMilestoneVariant(m.status) === "done").length,
+    [milestones],
+  );
 
-    const requestTasks = requests.map((request) => ({
-      id: `request-${request.id}`,
-      title: request.title,
-      subtitle: `Pedido • ${request.priority}`,
-      dueDate: null,
+  const { monthLabels, nodePositions, progressPct } = useMemo(() => {
+    const r = computeTimelineRange(milestones, filter);
+    const labels = getMonthLabels(r.start, r.end);
+    const positions = milestones.map((m) => ({
+      milestone: m,
+      left: m.due_date ? dateToPercent(new Date(m.due_date), r.start, r.end) : 50,
     }));
+    const pct =
+      milestones.length > 0
+        ? (doneCount / milestones.length) * 100
+        : dateToPercent(new Date(), r.start, r.end);
+    return { monthLabels: labels, nodePositions: positions, progressPct: pct };
+  }, [milestones, filter, doneCount]);
 
-    return [...pendingMilestones, ...requestTasks];
-  }, [milestones, requests]);
+  const messageGroups = useMemo(() => groupMessages(messages), [messages]);
 
-  if (loadingProjects) return <div className="skeleton h-[74vh] rounded-3xl" />;
-
-  if (error) {
-    return (
-      <div className="card p-6">
-        <p className="text-sm" style={{ color: "var(--error)" }}>{error}</p>
-        <button className="btn btn-secondary mt-3" onClick={() => window.location.reload()}>Retry</button>
-      </div>
-    );
+  // ── Loading state ─────────────────────────────────────────────────────────
+  if (loading) {
+    return <div className="skeleton h-[70vh] rounded-3xl" />;
   }
 
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <LayoutGroup>
-      <div className="grid min-w-0 gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
-        <motion.section
-          layout
-          variants={variants.cardEnter}
-          initial={motionEnabled ? "initial" : false}
-          animate="animate"
-          className="card min-h-[68vh] p-4 lg:h-[calc(100dvh-180px)] lg:overflow-y-auto"
-        >
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <h1 className="text-sm font-semibold" style={{ color: "var(--text)" }}>Projects</h1>
-            <span className="pill text-[11px]">{filteredProjects.length}</span>
-          </div>
-
-          <label className="table-search-pill mb-3">
-            <Search className="h-3.5 w-3.5" />
-            <input value={localQuery} onChange={(event) => setLocalQuery(event.target.value)} placeholder="Pesquisar projetos e updates" />
-          </label>
-
-          <div className="space-y-2">
-            {filteredProjects.map((project) => {
-              const active = project.id === selectedProjectId;
-              return (
-                <motion.button
-                  key={project.id}
-                  layoutId={`portal-project-${project.id}`}
-                  layout
-                  onClick={() => setSelectedProjectId(project.id)}
-                  className="w-full rounded-2xl border p-3 text-left"
-                  style={{
-                    borderColor: active ? "rgba(26,143,163,0.35)" : "var(--border)",
-                    background: active ? "rgba(26,143,163,0.10)" : "var(--surface)",
-                  }}
-                  transition={timelineSpring}
-                  {...buttonMotionProps({ enabled: motionEnabled, hoverY: -1 })}
-                >
-                  <p className="truncate text-sm font-semibold" style={{ color: "var(--text)" }}>{project.name}</p>
-                  <p className="text-xs" style={{ color: "var(--text-3)" }}>
-                    {project.status ?? "active"} • {new Date(project.updated_at).toLocaleDateString("pt-PT")}
-                  </p>
-                </motion.button>
-              );
-            })}
-          </div>
-
-          {filteredProjects.length === 0 ? (
-            <p className="mt-3 rounded-xl border border-dashed p-4 text-xs" style={{ borderColor: "var(--border)", color: "var(--text-3)" }}>
-              Sem projetos para este filtro.
-            </p>
-          ) : null}
-        </motion.section>
-
-        <motion.section
-          layout
-          variants={variants.cardEnter}
-          initial={motionEnabled ? "initial" : false}
-          animate="animate"
-          className="card min-w-0 min-h-[68vh] p-5 lg:h-[calc(100dvh-180px)] lg:overflow-hidden"
-        >
-          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+    <>
+      {/* ── Main content area ── */}
+      <div
+        className="space-y-10"
+        style={{
+          paddingRight: inboxOpen ? "440px" : "0",
+          transition: "padding-right 0.35s cubic-bezier(0.34,1.56,0.64,1)",
+        }}
+      >
+        {/* Project header */}
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-4">
+            <div
+              className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl text-white"
+              style={{ background: BLUE }}
+            >
+              <Zap className="h-5 w-5" />
+            </div>
             <div className="min-w-0">
-              <p className="text-xs uppercase tracking-[0.11em]" style={{ color: "var(--text-3)" }}>Calendarização</p>
-              <h2 className="truncate text-[1.15rem] font-semibold" style={{ color: "var(--text)" }}>
-                {selectedProject?.name ?? "Seleciona um projeto"}
+              <h1 className="truncate text-xl font-bold" style={{ color: "var(--text)" }}>
+                {selectedProject?.name ?? "—"}
+              </h1>
+              <p
+                className="text-xs font-medium uppercase tracking-wide"
+                style={{ color: "var(--text-3)" }}
+              >
+                {selectedProject?.status ?? "active"}
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => setInboxOpen((v) => !v)}
+            className="flex flex-shrink-0 items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-white shadow-lg transition-all"
+            style={{
+              background: BLUE,
+              boxShadow: `0 4px 14px rgba(47,107,255,0.35)`,
+            }}
+          >
+            <MessageSquare className="h-4 w-4" />
+            <span>Inbox</span>
+          </button>
+        </div>
+
+        {/* ── Milestones section ── */}
+        <section>
+          {/* Section header */}
+          <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h2 className="text-2xl font-bold" style={{ color: "var(--text)" }}>
+                Milestones
+              </h2>
+              <p className="mt-1 text-sm" style={{ color: "var(--text-3)" }}>
+                <span style={{ color: BLUE, fontWeight: 600 }}>
+                  {doneCount} de {milestones.length}
+                </span>{" "}
+                milestones completos
+              </p>
+            </div>
+
+            {/* Year / Week / Day filter */}
+            <div
+              className="flex items-center rounded-xl p-1"
+              style={{ background: "var(--surface-2)" }}
+            >
+              {(["year", "week", "day"] as TimeFilter[]).map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setFilter(f)}
+                  className="rounded-lg px-5 py-2 text-sm font-semibold capitalize transition-all"
+                  style={{
+                    background: filter === f ? BLUE : "transparent",
+                    color: filter === f ? "#ffffff" : "var(--text-3)",
+                    boxShadow: filter === f ? "0 2px 8px rgba(47,107,255,0.35)" : "none",
+                  }}
+                >
+                  {f === "year" ? "Year" : f === "week" ? "Week" : "Day"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Timeline */}
+          {loadingDetail ? (
+            <div className="skeleton h-36 rounded-2xl" />
+          ) : (
+            <div className="relative overflow-visible px-4 pb-20 pt-4">
+              {/* Faded month labels — decorative background text */}
+              <div className="pointer-events-none absolute inset-0 overflow-hidden">
+                {monthLabels.map((m, i) => (
+                  <span
+                    key={`${m.label}-${i}`}
+                    className="absolute top-2 text-4xl font-black uppercase tracking-widest"
+                    style={{
+                      left: `${m.left}%`,
+                      color: "var(--text)",
+                      opacity: 0.04,
+                    }}
+                  >
+                    {m.label}
+                  </span>
+                ))}
+              </div>
+
+              {/* Timeline track (1px bar) */}
+              <div className="relative mt-14" style={{ height: "1px" }}>
+                {/* Track background */}
+                <div
+                  className="absolute inset-0 rounded-full"
+                  style={{ background: `rgba(47,107,255,0.18)` }}
+                />
+
+                {/* Animated progress fill */}
+                <motion.div
+                  className="absolute left-0 rounded-full"
+                  style={{
+                    top: "-1.5px",
+                    height: "4px",
+                    background: BLUE,
+                  }}
+                  initial={{ width: "0%" }}
+                  animate={{ width: `${progressPct}%` }}
+                  transition={{ ...SPRING, delay: 0.2 }}
+                />
+
+                {/* Milestone nodes */}
+                {nodePositions.map(({ milestone, left }, i) => (
+                  <MilestoneNode
+                    key={milestone.id}
+                    milestone={milestone}
+                    left={left}
+                    index={i}
+                  />
+                ))}
+              </div>
+
+              {milestones.length === 0 && (
+                <div
+                  className="mt-16 rounded-xl border border-dashed p-4 text-center text-xs"
+                  style={{ borderColor: "var(--border)", color: "var(--text-3)" }}
+                >
+                  Sem milestones neste projeto.
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* ── Other Projects ── */}
+        {otherProjects.length > 0 && (
+          <section className="pb-6">
+            <div className="mb-5 flex items-center justify-between">
+              <h2 className="text-xl font-bold" style={{ color: "var(--text)" }}>
+                Outros Projetos
               </h2>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {(["milestones", "timeline", "tasks"] as CalendarView[]).map((item) => (
-                <motion.button
-                  key={item}
-                  onClick={() => setView(item)}
-                  className="pill px-3 py-1.5 text-xs capitalize"
-                  style={{
-                    background: view === item ? "rgba(26,143,163,0.16)" : "var(--surface-2)",
-                    color: view === item ? "var(--accent-blue)" : "var(--text-3)",
-                  }}
-                  transition={timelineSpring}
-                  {...buttonMotionProps({ enabled: motionEnabled })}
-                >
-                  {item}
-                </motion.button>
-              ))}
-            </div>
-          </div>
 
-          <div className="min-h-0 flex-1">
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={`${selectedProjectId}-${view}`}
-                initial={motionEnabled ? { opacity: 0, y: 10 } : false}
-                animate={{ opacity: 1, y: 0 }}
-                exit={motionEnabled ? { opacity: 0, y: -8 } : {}}
-                transition={timelineSpring}
-                className="h-full"
-              >
-                {loadingDetail ? <div className="skeleton h-[52vh] rounded-2xl" /> : null}
+            <div className="space-y-3">
+              {otherProjects.map((p) => {
+                const initStr = initials(p.name);
+                const color = avatarColor(p.name);
 
-                {!loadingDetail && view === "milestones" ? (
-                  <div className="flex h-full min-h-[52vh] flex-col">
-                    <div className="hidden pb-2 md:block">
-                      <div className="h-px w-full" style={{ background: "var(--border)" }} />
-                    </div>
-                    <div className="min-h-0 md:overflow-x-auto md:pb-3">
-                      <div className="space-y-3 md:flex md:min-w-max md:snap-x md:gap-4 md:space-y-0">
-                        {milestones.map((milestone) => {
-                          const state = milestoneState(milestone.status);
-                          return (
-                            <motion.button
-                              key={milestone.id}
-                              layout
-                              onClick={() => setSelectedMilestone(milestone)}
-                              className="w-full snap-start rounded-2xl border p-4 text-left md:w-[280px]"
-                              style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}
-                              transition={timelineSpring}
-                              {...buttonMotionProps({ enabled: motionEnabled, hoverY: -2 })}
-                            >
-                              <div className="mb-2 flex items-center justify-between gap-2">
-                                <span className="pill text-[10px]" style={{ background: state.tone, color: state.color }}>
-                                  {state.label}
-                                </span>
-                                <span className="text-[10px] uppercase tracking-[0.1em]" style={{ color: "var(--text-3)" }}>
-                                  {milestoneType(milestone)}
-                                </span>
-                              </div>
-                              <p className="line-clamp-2 text-sm font-semibold" style={{ color: "var(--text)" }}>{milestone.title}</p>
-                              <p className="mt-2 text-xs" style={{ color: "var(--text-3)" }}>{formatDate(milestone.due_date)}</p>
-                            </motion.button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {milestones.length === 0 ? (
-                      <p className="mt-2 rounded-xl border border-dashed p-4 text-xs" style={{ borderColor: "var(--border)", color: "var(--text-3)" }}>
-                        Sem milestones para este projeto.
-                      </p>
-                    ) : null}
-
-                    <div className="mt-4 border-t pt-4" style={{ borderColor: "var(--border)" }}>
-                      <div className="mb-2 flex items-center justify-between">
-                        <h4 className="text-xs font-semibold uppercase tracking-[0.11em]" style={{ color: "var(--text-3)" }}>
-                          Gestão do Projeto
-                        </h4>
-                        <span className="pill text-[10px]">{updates.length}</span>
-                      </div>
-                      <div className="max-h-[28vh] space-y-2 overflow-y-auto pr-1">
-                        {updates.slice(0, 12).map((update) => (
-                          <Link
-                            key={update.id}
-                            href={update.href}
-                            className="flex items-center justify-between rounded-xl border px-3 py-2"
-                            style={{ borderColor: "var(--border)", background: "var(--surface)" }}
-                          >
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-medium" style={{ color: "var(--text)" }}>{update.title}</p>
-                              <p className="text-[11px]" style={{ color: "var(--text-3)" }}>
-                                {update.subtitle} • {new Date(update.createdAt).toLocaleString("pt-PT")}
-                              </p>
-                            </div>
-                            <span className="pill text-[10px]">Abrir</span>
-                          </Link>
-                        ))}
-                        {updates.length === 0 ? (
-                          <p className="rounded-xl border border-dashed p-3 text-xs" style={{ borderColor: "var(--border)", color: "var(--text-3)" }}>
-                            Sem updates recentes.
-                          </p>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-
-                {!loadingDetail && view === "timeline" ? (
-                  <div className="max-h-[58vh] space-y-3 overflow-y-auto pr-1">
-                    {milestones.map((milestone) => {
-                      const state = milestoneState(milestone.status);
-                      return (
-                        <motion.button
-                          key={milestone.id}
-                          layout
-                          onClick={() => setSelectedMilestone(milestone)}
-                          className="w-full rounded-2xl border p-3 text-left"
-                          style={{ borderColor: "var(--border)", background: "var(--surface)" }}
-                          transition={timelineSpring}
-                          {...buttonMotionProps({ enabled: motionEnabled, hoverY: -1.5 })}
-                        >
-                          <div className="flex items-start gap-3">
-                            <span className="mt-1 h-2.5 w-2.5 rounded-full" style={{ background: state.color }} />
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-semibold" style={{ color: "var(--text)" }}>{milestone.title}</p>
-                              <p className="text-xs" style={{ color: "var(--text-3)" }}>
-                                {formatDate(milestone.due_date)} • {milestoneType(milestone)} • {state.label}
-                              </p>
-                            </div>
-                          </div>
-                        </motion.button>
-                      );
-                    })}
-                  </div>
-                ) : null}
-
-                {!loadingDetail && view === "tasks" ? (
-                  <div className="max-h-[58vh] space-y-2 overflow-y-auto pr-1">
-                    {taskRows.map((task) => (
-                      <motion.article
-                        key={task.id}
-                        layout
-                        className="rounded-2xl border p-3"
-                        style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}
-                        transition={timelineSpring}
+                return (
+                  <motion.button
+                    key={p.id}
+                    onClick={() => setSelectedId(p.id)}
+                    className="flex w-full items-center justify-between rounded-2xl p-4 text-left"
+                    style={{
+                      border: "1px solid var(--border)",
+                      background: "var(--surface-2)",
+                    }}
+                    whileHover={{ scale: 1.005 }}
+                    transition={SPRING}
+                  >
+                    <div className="flex min-w-0 items-center gap-4">
+                      <div
+                        className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl text-lg font-bold"
+                        style={{ background: color.bg, color: color.text }}
                       >
-                        <p className="truncate text-sm font-semibold" style={{ color: "var(--text)" }}>{task.title}</p>
+                        {initStr}
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="truncate font-bold" style={{ color: "var(--text)" }}>
+                          {p.name}
+                        </h3>
                         <p className="text-xs" style={{ color: "var(--text-3)" }}>
-                          {task.subtitle} {task.dueDate ? `• ${formatDate(task.dueDate)}` : ""}
+                          {p.status ?? "active"}
                         </p>
-                      </motion.article>
-                    ))}
-                    {taskRows.length === 0 ? (
-                      <p className="rounded-xl border border-dashed p-4 text-xs" style={{ borderColor: "var(--border)", color: "var(--text-3)" }}>
-                        Sem tarefas pendentes.
-                      </p>
-                    ) : null}
-                  </div>
-                ) : null}
-              </motion.div>
-            </AnimatePresence>
-          </div>
-        </motion.section>
+                      </div>
+                    </div>
 
+                    <div className="ml-4 flex flex-shrink-0 items-center gap-4 sm:gap-6">
+                      <span
+                        className="hidden rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wider sm:block"
+                        style={{
+                          background: `rgba(47,107,255,0.10)`,
+                          color: BLUE,
+                        }}
+                      >
+                        {p.status?.toUpperCase() ?? "ATIVO"}
+                      </span>
+                      <div className="text-right">
+                        <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                          {fmtDate(p.updated_at, {
+                            weekday: "short",
+                            day: "numeric",
+                            month: "short",
+                          })}
+                        </p>
+                        <p className="text-[10px]" style={{ color: "var(--text-3)" }}>
+                          {fmtTime(p.updated_at)}
+                        </p>
+                      </div>
+                    </div>
+                  </motion.button>
+                );
+              })}
+            </div>
+          </section>
+        )}
       </div>
 
-      <div className="fixed bottom-6 right-6 z-30">
-        <button className="btn btn-secondary btn-sm" onClick={() => setUpdatesDrawerOpen((value) => !value)}>
-          {updatesDrawerOpen ? "Fechar inbox" : "Abrir inbox"}
-        </button>
-      </div>
-
+      {/* ── Inbox drawer (fixed right panel) ── */}
       <AnimatePresence>
-        {updatesDrawerOpen ? (
-          <motion.aside
-            layout
-            initial={{ opacity: 0, x: 24 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 24 }}
-            transition={timelineSpring}
-            className="fixed inset-y-0 right-0 z-40 w-full max-w-sm border-l bg-[var(--surface)] p-5 shadow-2xl"
-          >
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>Inbox / Updates</h3>
-              <button className="icon-btn" onClick={() => setUpdatesDrawerOpen(false)} aria-label="Fechar drawer">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <p className="mt-1 text-xs" style={{ color: "var(--text-3)" }}>
-              Mensagens, comentários e entregas recentes do projeto.
-            </p>
-
-            <div className="mt-4 max-h-[calc(100dvh-120px)] space-y-2 overflow-y-auto pr-1">
-              {updates.slice(0, 24).map((update) => (
-                <motion.div
-                  key={update.id}
-                  layout
-                  transition={timelineSpring}
-                  className="rounded-2xl border p-3"
-                  style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}
-                >
-                  <div className="mb-1 flex items-center gap-2 text-[11px]" style={{ color: "var(--text-3)" }}>
-                    {update.kind === "message" ? <MessageSquare className="h-3.5 w-3.5" /> : null}
-                    {update.kind === "review" || update.kind === "request" ? <TriangleAlert className="h-3.5 w-3.5" /> : null}
-                    {update.kind === "delivery" ? <Package className="h-3.5 w-3.5" /> : null}
-                    <span>{update.subtitle}</span>
-                  </div>
-                  <p className="line-clamp-2 text-sm font-medium" style={{ color: "var(--text)" }}>{update.title}</p>
-                  <div className="mt-2 flex items-center justify-between gap-2">
-                    <p className="text-[10px]" style={{ color: "var(--text-3)" }}>
-                      {new Date(update.createdAt).toLocaleString("pt-PT")}
-                    </p>
-                    <Link className="btn btn-ghost btn-sm" href={update.href}>
-                      Abrir
-                    </Link>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-
-            {updates.length === 0 ? (
-              <p className="mt-3 rounded-xl border border-dashed p-4 text-xs" style={{ borderColor: "var(--border)", color: "var(--text-3)" }}>
-                Sem updates recentes.
-              </p>
-            ) : null}
-          </motion.aside>
-        ) : null}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {selectedMilestone ? (
-          <motion.div
-            className="fixed inset-0 z-50 flex items-end justify-end bg-black/25 p-3 sm:p-6"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setSelectedMilestone(null)}
-          >
+        {inboxOpen && (
+          <>
+            {/* Mobile backdrop */}
             <motion.div
-              className="card w-full max-w-[420px] p-5"
-              initial={{ x: 40, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: 30, opacity: 0 }}
-              transition={timelineSpring}
-              onClick={(event) => event.stopPropagation()}
+              className="fixed inset-0 z-40 bg-black/20 lg:hidden"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setInboxOpen(false)}
+            />
+
+            <motion.aside
+              className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[420px] flex-col border-l shadow-2xl"
+              style={{ background: "var(--surface)", borderColor: "var(--border)" }}
+              initial={{ x: "100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "100%" }}
+              transition={SPRING}
             >
-              <div className="mb-3 flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-xs uppercase tracking-[0.11em]" style={{ color: "var(--text-3)" }}>
-                    {milestoneType(selectedMilestone)}
-                  </p>
-                  <h4 className="line-clamp-2 text-lg font-semibold" style={{ color: "var(--text)" }}>{selectedMilestone.title}</h4>
-                </div>
-                <button className="icon-btn" onClick={() => setSelectedMilestone(null)} aria-label="Fechar detalhe">
+              {/* Inbox header */}
+              <div
+                className="flex flex-shrink-0 items-center justify-between border-b px-6 py-5"
+                style={{ borderColor: "var(--border)" }}
+              >
+                <h2
+                  className="text-xs font-bold uppercase tracking-[2px]"
+                  style={{ color: "var(--text-3)" }}
+                >
+                  Inbox
+                </h2>
+                <button
+                  onClick={() => setInboxOpen(false)}
+                  className="icon-btn"
+                  aria-label="Fechar inbox"
+                >
                   <X className="h-4 w-4" />
                 </button>
               </div>
 
-              <div className="space-y-2 text-xs" style={{ color: "var(--text-2)" }}>
-                <p className="flex items-center gap-2"><CalendarDays className="h-3.5 w-3.5" /> {formatDate(selectedMilestone.due_date)}</p>
-                <p className="flex items-center gap-2"><Flag className="h-3.5 w-3.5" /> Estado: {milestoneState(selectedMilestone.status).label}</p>
-                {selectedMilestone.description ? (
-                  <p className="rounded-xl border p-2.5 text-xs" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
-                    {selectedMilestone.description}
+              {/* Message thread */}
+              <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
+                {messageGroups.length === 0 && (
+                  <p
+                    className="rounded-xl border border-dashed p-4 text-center text-xs"
+                    style={{ borderColor: "var(--border)", color: "var(--text-3)" }}
+                  >
+                    {conversationId
+                      ? "Sem mensagens ainda."
+                      : "Sem conversa para este projeto."}
                   </p>
-                ) : null}
+                )}
+
+                {messageGroups.map((group) => (
+                  <div key={group.date} className="space-y-4">
+                    {/* Date divider */}
+                    <div className="flex items-center gap-3 opacity-40">
+                      <div className="h-px flex-1" style={{ background: "var(--border)" }} />
+                      <span
+                        className="text-[10px] font-bold uppercase"
+                        style={{ color: "var(--text-3)" }}
+                      >
+                        {group.date}
+                      </span>
+                      <div className="h-px flex-1" style={{ background: "var(--border)" }} />
+                    </div>
+
+                    {/* Chat bubbles */}
+                    {group.messages.map((msg) => {
+                      const isTeam = msg.sender_type === "team";
+                      return (
+                        <div
+                          key={msg.id}
+                          className={`flex gap-3 ${isTeam ? "" : "flex-row-reverse"}`}
+                        >
+                          {/* Avatar */}
+                          <div
+                            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold"
+                            style={{
+                              background: isTeam ? BLUE : "var(--surface-2)",
+                              color: isTeam ? "#fff" : "var(--text-2)",
+                            }}
+                          >
+                            {isTeam ? "BP" : "C"}
+                          </div>
+
+                          {/* Bubble */}
+                          <div
+                            className={`max-w-[75%] space-y-1 ${isTeam ? "" : "flex flex-col items-end"}`}
+                          >
+                            <div
+                              className={`flex items-center gap-2 ${isTeam ? "" : "flex-row-reverse"}`}
+                            >
+                              <p
+                                className="text-xs font-bold"
+                                style={{ color: "var(--text)" }}
+                              >
+                                {isTeam ? "Beyond Pricing" : "You"}
+                              </p>
+                              <span
+                                className="text-[9px]"
+                                style={{ color: "var(--text-3)" }}
+                              >
+                                {fmtTime(msg.created_at)}
+                              </span>
+                            </div>
+                            <div
+                              className="p-3.5 text-sm leading-relaxed"
+                              style={{
+                                background: isTeam
+                                  ? "var(--surface-2)"
+                                  : `rgba(47,107,255,0.10)`,
+                                color: "var(--text-2)",
+                                border: "1px solid var(--border)",
+                                borderRadius: isTeam
+                                  ? "16px 16px 16px 4px"
+                                  : "16px 16px 4px 16px",
+                              }}
+                            >
+                              {msg.body}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+
+                <div ref={endRef} />
               </div>
 
-              <div className="mt-4 flex flex-wrap gap-2">
-                <a
-                  className="btn btn-secondary btn-sm"
-                  href={buildGoogleLink(
-                    selectedMilestone.title,
-                    toIsoRange(selectedMilestone.due_date).start,
-                    toIsoRange(selectedMilestone.due_date).end,
-                    selectedMilestone.description ?? undefined,
-                  )}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  <CalendarDays className="h-4 w-4" />
-                  Add to Google
-                </a>
-                <a
-                  className="btn btn-ghost btn-sm"
-                  href={toIcsLink(
-                    selectedMilestone.title,
-                    toIsoRange(selectedMilestone.due_date).start,
-                    toIsoRange(selectedMilestone.due_date).end,
-                    selectedMilestone.description ?? undefined,
-                  )}
-                >
-                  <Download className="h-4 w-4" />
-                  Download ICS
-                </a>
-                {selectedProject ? (
-                  <Link className="btn btn-ghost btn-sm" href={`/portal/projects/${selectedProject.id}?tab=inbox`}>
-                    <MessageSquare className="h-4 w-4" />
-                    Abrir projeto
-                  </Link>
-                ) : null}
+              {/* Message input */}
+              <div
+                className="flex-shrink-0 border-t p-5"
+                style={{ borderColor: "var(--border)" }}
+              >
+                <div className="flex gap-3">
+                  <input
+                    className="flex-1 rounded-xl border px-4 py-2.5 text-sm outline-none"
+                    style={{
+                      borderColor: "var(--border)",
+                      background: "var(--surface-2)",
+                      color: "var(--text)",
+                    }}
+                    placeholder="Escreve uma mensagem…"
+                    value={msgText}
+                    onChange={(e) => setMsgText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        void handleSend();
+                      }
+                    }}
+                    disabled={!conversationId}
+                  />
+                  <button
+                    onClick={() => void handleSend()}
+                    disabled={!conversationId || !msgText.trim() || sending}
+                    className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl text-white shadow transition disabled:opacity-40"
+                    style={{ background: BLUE }}
+                    aria-label="Enviar mensagem"
+                  >
+                    <Send className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
-            </motion.div>
-          </motion.div>
-        ) : null}
+            </motion.aside>
+          </>
+        )}
       </AnimatePresence>
-    </LayoutGroup>
+    </>
   );
 }
