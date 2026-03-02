@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
+import { Inter, DM_Sans, DM_Serif_Display, JetBrains_Mono } from "next/font/google";
 import { Suspense } from "react";
 import "./globals.css";
 import BuildStampBadge from "@/components/BuildStampBadge";
@@ -24,6 +24,26 @@ const inter = Inter({
   display: "swap",
 });
 
+// Beyond Focus design system fonts
+const dmSans = DM_Sans({
+  subsets: ["latin"],
+  variable: "--font-dm-sans",
+  display: "swap",
+});
+
+const dmSerifDisplay = DM_Serif_Display({
+  subsets: ["latin"],
+  weight: "400",
+  variable: "--font-dm-serif",
+  display: "swap",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-jetbrains",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
   title: {
     default: "Beyond Pricing",
@@ -45,7 +65,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const stamp = getBuildStamp();
 
   return (
-    <html lang="pt-PT" className={inter.variable} suppressHydrationWarning>
+    <html lang="pt-PT" className={`${inter.variable} ${dmSans.variable} ${dmSerifDisplay.variable} ${jetbrainsMono.variable}`} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>

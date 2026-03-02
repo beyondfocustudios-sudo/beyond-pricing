@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "framer": {
+      "url": "SUBSTITUIR_PELO_TEU_FRAMER_MCP_URL",
+      "comment": "Framer MCP — substitui o URL pela tua URL do Framer MCP"
+    },
+    "supabase": {
+      "command": "npx",
+      "args": ["-y", "@supabase/mcp-server-supabase@latest", "--access-token", "SUBSTITUIR_PELO_TEU_SUPABASE_ACCESS_TOKEN"],
+      "comment": "Supabase MCP — substitui o access token"
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/dolho/beyond-pricing"],
+      "comment": "Filesystem MCP — acesso ao projeto"
+    }
+  }
+}

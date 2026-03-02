@@ -55,13 +55,14 @@ if (staged.includes(".env.local") || staged.includes(".env.production")) {
 ok("No .env.local in staged files");
 
 // ─── Check 3: No merge conflict markers ──────────────────────────────────────
-// Build pattern dynamically to avoid self-detection in this file's source code
-const markers = ["<" + "<" + "<" + "<", "=" + "=" + "=" + "=", ">" + ">" + ">" + ">"];
+// Use real 7-char git conflict markers (not 4+4 = false-positive on CSS decorators)
+// Patterns: "<<<<<<< " (start marker), "=======" alone on line, ">>>>>>> " (end marker)
+const CONFLICT_RE = /^(<{7} |={7}$|>{7} )/m;
 const stagedFiles = staged.split("\n").filter(Boolean);
 let conflictFound = false;
 for (const file of stagedFiles) {
   const content = run(`git show :${file} 2>/dev/null`);
-  if (markers.some((m) => content.includes(m + m))) {
+  if (CONFLICT_RE.test(content)) {
     console.error(`${RED}Conflict marker found in: ${file}${NC}`);
     conflictFound = true;
   }

@@ -1,6 +1,24 @@
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Manrope:wght@400;500;600;700;800&display=swap');
 @import "tailwindcss";
 
+/* Beyond Focus — Typography */
+@layer base {
+  :root {
+    --font-body: var(--font-dm-sans), var(--font-inter), system-ui, sans-serif;
+    --font-heading: var(--font-dm-serif), Georgia, serif;
+    --font-mono: var(--font-jetbrains), "JetBrains Mono", ui-monospace, monospace;
+
+    /* Beyond Focus — Design System Colors */
+    --bf-accent: #1B4965;
+    --bf-accent-2: #5FA8D3;
+    --bf-bg: #F5F6FA;
+    --bf-urgent: #EF4444;
+    --bf-high: #F97316;
+    --bf-medium: #1B4965;
+    --bf-low: #64748B;
+  }
+}
+
 /* ============================================================
    BEYOND PRICING — Design System
    Dual Theme (dark default + light) + Premium Moodboard
